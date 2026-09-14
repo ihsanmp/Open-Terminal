@@ -217,6 +217,10 @@ try {
     "--user-data-dir=`"$ProfileDir`"",
     '--no-first-run',
     '--no-default-browser-check',
+    # Edge signs a fresh profile into the Windows account and syncs its
+    # extensions, which then pop up their own welcome windows.
+    '--disable-sync',
+    '--disable-extensions',
     '--window-size=1600,950'
   ) | Out-Null
 
