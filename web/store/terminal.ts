@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import type { IndicatorInstance } from "../lib/ta/types";
 
 export type WidgetType =
   | "quote"
@@ -25,7 +26,13 @@ export type WidgetInstance = {
   type: WidgetType;
   symbol?: string;
   linked: boolean; // follows the globally active symbol
+  indicators?: IndicatorInstance[]; // chart widgets only; undefined = defaults
 };
+
+export const DEFAULT_CHART_INDICATORS: IndicatorInstance[] = [
+  { uid: "volume-default", id: "volume", params: {} },
+  { uid: "sma-default", id: "sma", params: { length: 20 } },
+];
 
 export type LayoutItem = { i: string; x: number; y: number; w: number; h: number };
 
@@ -41,6 +48,7 @@ type TerminalState = {
   removeWidget: (id: string) => void;
   setWidgetSymbol: (id: string, symbol: string) => void;
   toggleLinked: (id: string) => void;
+  setWidgetIndicators: (id: string, indicators: IndicatorInstance[]) => void;
   setLayout: (layout: LayoutItem[]) => void;
   addToWatchlist: (s: string) => void;
   removeFromWatchlist: (s: string) => void;
@@ -113,6 +121,10 @@ export const useTerminal = create<TerminalState>()(
       toggleLinked: (id) =>
         set((st) => ({
           widgets: st.widgets.map((w) => (w.id === id ? { ...w, linked: !w.linked } : w)),
+        })),
+      setWidgetIndicators: (id, indicators) =>
+        set((st) => ({
+          widgets: st.widgets.map((w) => (w.id === id ? { ...w, indicators } : w)),
         })),
       setLayout: (layout) => set({ layout }),
       addToWatchlist: (s) =>

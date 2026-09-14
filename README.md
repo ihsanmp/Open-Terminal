@@ -37,7 +37,8 @@ No signup. No credit card. No rate‑limited demo tier. Clone it, `npm install`,
 
 - 🖥️ **Widget-based workspace** — drag, resize, add, and remove panels (`react-grid-layout`); your layout is saved locally and restored on reload
 - ⌘K **global command palette** — instantly search stocks, ETFs, and crypto and jump straight to them
-- 📈 **Professional charting** (via [`lightweight-charts`](https://github.com/tradingview/lightweight-charts)) — candlesticks, bars, line, area, volume, 8 timeframes (1D → MAX), and SMA / EMA / VWAP / Bollinger Bands / RSI / MACD indicators, each with a live hover legend showing OHLC, volume, and every active indicator's value under your cursor
+- 📈 **Professional charting** (via [`lightweight-charts`](https://github.com/tradingview/lightweight-charts)) — candlesticks, bars, line, area, 8 timeframes (1D → MAX)
+- 🧮 **97 TradingView built-in indicators** — ported from Pine Script's `ta.*` semantics and checked value-for-value against TradingView's own numbers (RSI, MACD, Stochastic, ADX/DMI, Ichimoku, Supertrend, Parabolic SAR, Bollinger/Keltner/Donchian, VWAP with bands, all six Pivot Points types, ZigZag, and many more), plus rebuilt community scripts (ATR Z-Score, ALMA SD Bands, Adaptive Trend Envelope). Searchable picker, per-indicator settings, separate panes, cloud fills, signals and a TradingView-style legend
 - 💹 **Quote panel** — last / bid / ask / OHLC, volume, market cap, P/E, EPS, dividend yield, 52‑week range, beta, shares outstanding
 - 📰 **News feed** — aggregated and de‑duplicated from multiple RSS sources, per‑symbol or global
 - 🔎 **Full‑market screener** — filter by sector, market cap, % change, and volume across the entire US equity market, sortable on every column
@@ -190,11 +191,12 @@ Portfolio data persists in the `terminal-data` volume (SQLite, WAL mode). Ports 
 └── web/                      # Next.js 15 + React 19 + Tailwind 4
     ├── components/           # TopBar, Sidebar, Workspace, CommandPalette
     ├── components/widgets/   # Chart, Quote, Watchlist, News, Screener, Heatmap, Crypto, Options, Macro, Portfolio, Calendar, AI
-    ├── lib/                  # API client, technical indicators
+    ├── lib/                  # API client
+    ├── lib/ta/               # indicator engine: Pine-style ta.* core, catalog, chart fill/bgcolor primitives
     └── store/                # Zustand store (workspace layout, persisted)
 ```
 
-Run tests with `npm test` (Vitest, no network calls). CI runs on every push — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+Run tests with `npm test` (Vitest, no network calls). The indicator suite compares every supported value against a fixture captured from TradingView's scanner on the same daily candles, so a formula that drifts from TradingView fails CI. CI runs on every push — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 <br/>
 
