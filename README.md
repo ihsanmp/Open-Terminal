@@ -126,6 +126,18 @@ npm run dev
 
 That's it — no `.env` file required to get a fully working terminal.
 
+### Windows desktop app
+
+Prefer a double-click app over a terminal? Run the installer once:
+
+```bash
+desktop\install.cmd
+```
+
+It builds the project and adds an **OpenTerminal** shortcut to your Desktop and Start Menu. Opening it starts the API and web servers in the background, shows the terminal in its own window (Microsoft Edge or Chrome app mode), and stops the servers when you close that window.
+
+On every launch it also checks GitHub: if `origin/main` has new commits it fast-forwards, reinstalls dependencies when `package.json` changed, and rebuilds before starting. Without network access (or with local edits in the way) it simply opens the current version. Logs are written to `data/logs/`; `desktop\uninstall.ps1` removes the shortcuts.
+
 ### Optional: AI assistant
 
 ```bash

@@ -11,3 +11,7 @@ out/
 # Database
 data/*.db*
 data/.api-key
+
+# Desktop app runtime files
+data/logs/
+data/.built-commit
