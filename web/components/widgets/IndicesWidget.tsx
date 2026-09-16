@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet, fmt, pctClass } from "../../lib/api";
 import Flash from "../Flash";
 import { useTerminal } from "../../store/terminal";
+import { usePoll } from "../../lib/refresh";
 
 type IndexRow = {
   symbol: string; name: string; country: string; region: string;
@@ -15,10 +16,11 @@ const REGIONS = ["Americas", "Europe", "Asia-Pacific", "Middle East & Africa"];
 export default function IndicesWidget() {
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
   const activeSymbol = useTerminal((s) => s.activeSymbol);
+  const poll = usePoll(30_000);
   const { data = [], error } = useQuery({
     queryKey: ["indices"],
     queryFn: () => apiGet<IndexRow[]>("/api/indices"),
-    refetchInterval: 15_000,
+    refetchInterval: poll,
   });
 
   if (error) return <div className="p-2 down">Error: {(error as Error).message}</div>;

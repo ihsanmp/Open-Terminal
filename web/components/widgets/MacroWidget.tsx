@@ -5,6 +5,7 @@ import { apiGet, fmt, pctClass } from "../../lib/api";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip } from "recharts";
 import { useTerminal } from "../../store/terminal";
 import Flash from "../Flash";
+import { sessionRefreshMs, usePoll } from "../../lib/refresh";
 
 type MacroData = {
   yields: Array<{ tenor: string; value: number | null }>;
@@ -14,10 +15,11 @@ type MacroData = {
 
 export default function MacroWidget() {
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
+  const poll = usePoll(sessionRefreshMs(10_000, 120_000));
   const { data, error } = useQuery({
     queryKey: ["macro"],
     queryFn: () => apiGet<MacroData>("/api/macro"),
-    refetchInterval: 1_000,
+    refetchInterval: poll,
   });
 
   if (error) return <div className="p-2 down">Error: {(error as Error).message}</div>;
@@ -42,7 +44,7 @@ export default function MacroWidget() {
               contentStyle={{ background: "#111", border: "1px solid #262626", fontSize: 10 }}
               labelStyle={{ color: "#808080" }}
             />
-            <Line type="monotone" dataKey="value" stroke="#ff9900" strokeWidth={1.5} dot={{ r: 2 }} />
+            <Line type="monotone" dataKey="value" stroke="#ff9900" strokeWidth={1.5} dot={{ r: 2 }} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>

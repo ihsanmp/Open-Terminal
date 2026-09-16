@@ -5,6 +5,7 @@ import { useState } from "react";
 import { apiGet, fmt, fmtBig, fmtPrice, pctClass, type Quote } from "../../lib/api";
 import { useTerminal } from "../../store/terminal";
 import Flash from "../Flash";
+import { listRefreshMs, usePoll } from "../../lib/refresh";
 
 export default function WatchlistWidget() {
   const watchlist = useTerminal((s) => s.watchlist);
@@ -12,12 +13,13 @@ export default function WatchlistWidget() {
   const removeFromWatchlist = useTerminal((s) => s.removeFromWatchlist);
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
   const [input, setInput] = useState("");
+  const poll = usePoll(() => listRefreshMs(watchlist));
 
   const { data = [] } = useQuery({
     queryKey: ["watchlist", watchlist.join(",")],
     queryFn: () => apiGet<Quote[]>(`/api/quotes?symbols=${watchlist.join(",")}`),
     enabled: watchlist.length > 0,
-    refetchInterval: 1_000,
+    refetchInterval: poll,
   });
 
   return (

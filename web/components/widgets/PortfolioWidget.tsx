@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { apiGet, apiPost, apiDelete, fmt, pctClass, type Quote } from "../../lib/api";
+import { sessionRefreshMs, usePoll } from "../../lib/refresh";
 
 type Portfolio = { id: number; name: string };
 type Position = { symbol: string; quantity: number; avgCost: number; realizedPnl: number };
@@ -14,6 +15,7 @@ export default function PortfolioWidget() {
   const [showTx, setShowTx] = useState(false);
   const [form, setForm] = useState({ symbol: "", side: "BUY", quantity: "", price: "" });
 
+  const poll = usePoll(sessionRefreshMs(30_000, 300_000));
   const { data: portfolios = [] } = useQuery({
     queryKey: ["portfolios"],
     queryFn: () => apiGet<Portfolio[]>("/api/portfolios"),
@@ -37,7 +39,7 @@ export default function PortfolioWidget() {
     queryKey: ["pf-quotes", symbols.join(",")],
     queryFn: () => apiGet<Quote[]>(`/api/quotes?symbols=${symbols.join(",")}`),
     enabled: symbols.length > 0,
-    refetchInterval: 30_000,
+    refetchInterval: poll,
   });
 
   const addTx = useMutation({

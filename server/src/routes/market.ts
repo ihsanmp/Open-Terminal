@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { cached, cacheGet, cacheStore, staleGet } from "../cache.js";
+import { cached, cacheGet, cacheSet, cacheStore, staleGet } from "../cache.js";
 import { withFallback } from "../providers/registry.js";
 import * as yahoo from "../providers/yahoo.js";
 import * as stooq from "../providers/stooq.js";
@@ -218,14 +218,18 @@ async function getQuotes(symbols: string[]): Promise<yahoo.Quote[]> {
   // Fill gaps Nasdaq's quote endpoints don't cover (open, P/E, EPS, dividend
   // yield, beta, shares outstanding) from TradingView's public scanner API,
   // in one batched request for every quote that resolved an exchange.
-  const needsFundamentals = [...fetched.values()].filter((q) => q.exchange && q.pe === null);
+  // Fundamentals change quarterly, so each symbol's result (including "none", e.g. ETFs
+  // without a P/E) is remembered for 10 minutes rather than re-scanned every second.
+  const needsFundamentals = [...fetched.values()].filter((q) => q.exchange && q.pe === null && q.source === "nasdaq");
   if (needsFundamentals.length > 0) {
     try {
-      const fundamentals = await tradingview.scanFundamentals(
-        needsFundamentals.map((q) => ({ symbol: q.symbol, exchange: q.exchange }))
-      );
+      const unknown = needsFundamentals.filter((q) => cacheGet(`fundamentals:${q.symbol}`) === undefined);
+      if (unknown.length > 0) {
+        const scanned = await tradingview.scanFundamentals(unknown.map((q) => ({ symbol: q.symbol, exchange: q.exchange })));
+        for (const q of unknown) cacheSet(`fundamentals:${q.symbol}`, scanned.get(q.symbol) ?? null, 10 * 60_000);
+      }
       for (const q of needsFundamentals) {
-        const f = fundamentals.get(q.symbol);
+        const f = cacheGet<tradingview.Fundamentals | null>(`fundamentals:${q.symbol}`);
         if (!f) continue;
         q.open = q.open ?? f.open;
         q.pe = q.pe ?? f.pe;
@@ -545,7 +549,8 @@ marketRouter.get("/macro", async (req, res) => {
 // ---- heatmap + screener over the full market (TradingView scanner — live) ----
 
 async function marketRows(): Promise<tradingview.MarketRow[]> {
-  return cached("marketscan:full", 3_000, () => tradingview.marketScan(1500));
+  // 1,500-row scan shared by heatmap, screener and recap; 10s is well inside how often they refresh.
+  return cached("marketscan:full", 10_000, () => tradingview.marketScan(1500));
 }
 
 marketRouter.get("/heatmap", async (req, res) => {

@@ -3,8 +3,8 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { apiGet, fmt, fmtBig, fmtPrice, pctClass } from "../../lib/api";
-import Flash from "../Flash";
 import { useTerminal } from "../../store/terminal";
+import { usePoll } from "../../lib/refresh";
 
 type CryptoRow = {
   id: string; symbol: string; ticker: string; name: string; price: number;
@@ -38,6 +38,8 @@ export default function CryptoWidget() {
   const [page, setPage] = useState(1);
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
+  const poll = usePoll(10_000);
+  const pollGlobal = usePoll(120_000);
 
   // Debounce typing so each keystroke doesn't hit the API.
   useEffect(() => {
@@ -49,13 +51,13 @@ export default function CryptoWidget() {
     queryKey: ["crypto", page, query],
     queryFn: () =>
       apiGet<CryptoRow[]>(query ? `/api/crypto?q=${encodeURIComponent(query)}&perPage=${PER_PAGE}` : `/api/crypto?page=${page}&perPage=${PER_PAGE}`),
-    refetchInterval: 5_000,
+    refetchInterval: poll,
     placeholderData: keepPreviousData,
   });
   const { data: global } = useQuery({
     queryKey: ["crypto-global"],
     queryFn: () => apiGet<GlobalStats>("/api/crypto/global"),
-    refetchInterval: 60_000,
+    refetchInterval: pollGlobal,
   });
 
   const hasSparklines = data.some((c) => c.sparkline.length > 1);
@@ -100,10 +102,8 @@ export default function CryptoWidget() {
                     <span className="dim truncate">{c.name}</span>
                   </span>
                 </td>
-                <td><Flash value={c.price}>{fmtPrice(c.price)}</Flash></td>
-                <td className={pctClass(c.changePercent24h)}>
-                  <Flash value={c.changePercent24h}>{fmt(c.changePercent24h)}%</Flash>
-                </td>
+                <td>{fmtPrice(c.price)}</td>
+                <td className={pctClass(c.changePercent24h)}>{fmt(c.changePercent24h)}%</td>
                 <td>{fmtBig(c.marketCap)}</td>
                 <td>{fmtBig(c.volume24h)}</td>
                 {hasSparklines && <td><Sparkline data={c.sparkline.filter((_, i) => i % 4 === 0)} /></td>}

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { apiGet } from "../../lib/api";
 import { useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
+import { usePoll } from "../../lib/refresh";
 
 type NewsItem = { title: string; link: string; publisher: string; publishedAt: string | null };
 
@@ -11,10 +12,11 @@ export default function NewsWidget({ widget }: { widget: WidgetInstance }) {
   const symbol = useWidgetSymbol(widget);
   const [mode, setMode] = useState<"symbol" | "global">("symbol");
 
+  const poll = usePoll(120_000);
   const { data = [], isLoading } = useQuery({
     queryKey: ["news", mode, symbol],
     queryFn: () => apiGet<NewsItem[]>(mode === "symbol" ? `/api/news?symbol=${symbol}` : "/api/news"),
-    refetchInterval: 30_000,
+    refetchInterval: poll,
   });
 
   return (

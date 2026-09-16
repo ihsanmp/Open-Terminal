@@ -167,6 +167,38 @@ function Start-NodeServer([string]$name, [string]$workDir, [string[]]$arguments)
   return $p
 }
 
+# Windows 11 "Efficiency mode" (EcoQoS) plus below-normal priority. On hybrid Intel
+# CPUs (e.g. Core Ultra P/E/LP-E cores) the scheduler then keeps these background
+# servers on efficiency cores, leaving performance cores to the UI and other apps.
+Add-Type -Namespace OpenTerminal -Name Power -MemberDefinition @'
+[StructLayout(LayoutKind.Sequential)]
+public struct PROCESS_POWER_THROTTLING_STATE { public uint Version; public uint ControlMask; public uint StateMask; }
+[DllImport("kernel32.dll", SetLastError = true)]
+public static extern bool SetProcessInformation(IntPtr hProcess, int infoClass, ref PROCESS_POWER_THROTTLING_STATE info, uint size);
+'@
+
+function Set-EfficiencyMode([int]$processId) {
+  try {
+    $p = Get-Process -Id $processId -ErrorAction Stop
+    $p.PriorityClass = 'BelowNormal'
+    $state = New-Object OpenTerminal.Power+PROCESS_POWER_THROTTLING_STATE
+    $state.Version = 1        # PROCESS_POWER_THROTTLING_CURRENT_VERSION
+    $state.ControlMask = 1    # PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+    $state.StateMask = 1      # on = EcoQoS
+    $size = [System.Runtime.InteropServices.Marshal]::SizeOf($state)
+    [void][OpenTerminal.Power]::SetProcessInformation($p.Handle, 4, [ref]$state, $size) # 4 = ProcessPowerThrottling
+  } catch {
+    # Older Windows or an exited process: running at normal priority is fine.
+  }
+}
+
+# Applies efficiency mode to the given processes and any node children they spawned.
+function Set-ServersEfficient([int[]]$ids) {
+  $all = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'")
+  $targets = @($ids) + @($all | Where-Object { $ids -contains $_.ParentProcessId } | ForEach-Object { [int]$_.ProcessId })
+  foreach ($id in ($targets | Select-Object -Unique)) { Set-EfficiencyMode $id }
+}
+
 # ------------------------------------------------------------------- main ---
 
 New-Item -ItemType Directory -Force -Path $LogDir, $ProfileDir | Out-Null
@@ -210,6 +242,7 @@ try {
       Start-Sleep -Milliseconds 250
     }
     $Splash.Close()
+    if ($started.Count -gt 0) { Set-ServersEfficient @($started | ForEach-Object { $_.Id }) }
   }
 
   Start-Process -FilePath $Browser -ArgumentList @(

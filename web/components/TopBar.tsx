@@ -11,21 +11,34 @@ type Status = {
   ai: boolean;
 };
 
-function Clock({ tz, label }: { tz: string; label: string }) {
+const CLOCKS = [
+  { tz: "America/New_York", label: "NY" },
+  { tz: "Europe/Rome", label: "MIL" },
+  { tz: "Europe/London", label: "LDN" },
+  { tz: "Asia/Tokyo", label: "TYO" },
+].map((c) => ({ ...c, format: new Intl.DateTimeFormat("en-GB", { timeZone: c.tz, hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }) }));
+
+/** All four clocks share one timer aligned to the second, instead of four independent re-renders. */
+function Clocks() {
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
-    setNow(new Date());
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
+    let t: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      setNow(new Date());
+      t = setTimeout(tick, 1000 - (Date.now() % 1000) + 5);
+    };
+    tick();
+    return () => clearTimeout(t);
   }, []);
   if (!now) return null;
   return (
-    <span className="dim">
-      {label}{" "}
-      <span className="text-[var(--text)]">
-        {now.toLocaleTimeString("en-GB", { timeZone: tz, hour12: false })}
-      </span>
-    </span>
+    <>
+      {CLOCKS.map((c) => (
+        <span key={c.label} className="dim">
+          {c.label} <span className="text-[var(--text)]">{c.format.format(now)}</span>
+        </span>
+      ))}
+    </>
   );
 }
 
@@ -43,7 +56,7 @@ export default function TopBar() {
   const { data: status } = useQuery({
     queryKey: ["status"],
     queryFn: () => apiGet<Status>("/api/status"),
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
 
   const market = marketStateNY();
@@ -53,10 +66,7 @@ export default function TopBar() {
     <header className="flex items-center gap-4 px-3 h-8 bg-[var(--panel-2)] border-b border-[var(--border)] text-[11px] shrink-0">
       <span className="amber font-bold tracking-widest">OPENTERMINAL</span>
       <span className={market.open ? "up" : "down"}>● {market.label}</span>
-      <Clock tz="America/New_York" label="NY" />
-      <Clock tz="Europe/Rome" label="MIL" />
-      <Clock tz="Europe/London" label="LDN" />
-      <Clock tz="Asia/Tokyo" label="TYO" />
+      <Clocks />
       <button
         className="term-btn flex-1 max-w-md text-left dim"
         onClick={() => setCommandOpen(true)}
