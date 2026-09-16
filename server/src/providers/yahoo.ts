@@ -87,20 +87,29 @@ function release(): void {
   waiters.shift()?.();
 }
 
+// Yahoo throttles per User-Agent: once one UA's bucket is spent it answers 429 for
+// that UA only, so a 429 first rotates to the next UA and retries before cooling down.
+const USER_AGENTS = ["Mozilla/5.0", UA];
+let uaIndex = 0;
+
 async function yfetch(url: string, withCrumb = false): Promise<any> {
   if (Date.now() < cooldownUntil) {
     throw new Error("yahoo rate-limited (cooling down)");
   }
-  const headers: Record<string, string> = { "User-Agent": UA, Accept: "application/json" };
   let full = url;
   await acquire();
   try {
+    const headers: Record<string, string> = { Accept: "application/json" };
     if (withCrumb) {
       const s = await getSession();
       headers.Cookie = s.cookie;
       full += (url.includes("?") ? "&" : "?") + "crumb=" + encodeURIComponent(s.crumb);
     }
-    const res = await fetch(full, { headers });
+    let res = await fetch(full, { headers: { ...headers, "User-Agent": USER_AGENTS[uaIndex] } });
+    if (res.status === 429 && !withCrumb) {
+      uaIndex = (uaIndex + 1) % USER_AGENTS.length;
+      res = await fetch(full, { headers: { ...headers, "User-Agent": USER_AGENTS[uaIndex] } });
+    }
     if (!res.ok) {
       if (res.status === 429) {
         consecutive429s++;
@@ -264,3 +273,60 @@ export async function options(symbol: string, date?: number): Promise<any> {
   };
 }
 
+
+// ---- fundamentals (annual statements; no crumb needed, global coverage) ----
+
+export const STATEMENT_FIELDS = {
+  income: [
+    "TotalRevenue", "CostOfRevenue", "GrossProfit", "ResearchAndDevelopment", "SellingGeneralAndAdministration",
+    "OperatingIncome", "EBIT", "EBITDA", "InterestExpense", "PretaxIncome", "TaxProvision", "NetIncome",
+    "BasicEPS", "DilutedEPS", "DilutedAverageShares",
+  ],
+  balance: [
+    "CashAndCashEquivalents", "AccountsReceivable", "Inventory", "CurrentAssets", "NetPPE", "TotalAssets",
+    "CurrentLiabilities", "LongTermDebt", "TotalDebt", "TotalLiabilitiesNetMinorityInterest", "RetainedEarnings",
+    "StockholdersEquity", "WorkingCapital", "OrdinarySharesNumber",
+  ],
+  cashflow: [
+    "OperatingCashFlow", "CapitalExpenditure", "FreeCashFlow", "DepreciationAndAmortization",
+    "StockBasedCompensation", "CashDividendsPaid", "RepurchaseOfCapitalStock",
+  ],
+} as const;
+
+export type FiscalYear = { date: string; values: Record<string, number | null> };
+
+/** Up to ~5 fiscal years of annual statement lines, oldest first, plus the reporting currency. */
+export async function fundamentals(symbol: string): Promise<{ currency: string | null; years: FiscalYear[] }> {
+  const fields = [...STATEMENT_FIELDS.income, ...STATEMENT_FIELDS.balance, ...STATEMENT_FIELDS.cashflow];
+  const now = Math.floor(Date.now() / 1000);
+  const url =
+    `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(symbol)}` +
+    `?type=${fields.map((f) => "annual" + f).join(",")}&period1=${now - 7 * 365 * 86_400}&period2=${now}`;
+  const json = await yfetch(url);
+  const byDate = new Map<string, Record<string, number | null>>();
+  let currency: string | null = null;
+  for (const row of json?.timeseries?.result ?? []) {
+    const type: string = row?.meta?.type?.[0] ?? "";
+    const field = type.replace(/^annual/, "");
+    for (const point of row?.[type] ?? []) {
+      if (!point?.asOfDate) continue;
+      const values = byDate.get(point.asOfDate) ?? {};
+      values[field] = n(point.reportedValue?.raw);
+      byDate.set(point.asOfDate, values);
+      currency ??= point.currencyCode ?? null;
+    }
+  }
+  const years = [...byDate.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, values]) => ({ date, values: Object.fromEntries(fields.map((f) => [f, values[f] ?? null])) }));
+  if (years.length === 0) throw new Error("yahoo: no fundamentals for " + symbol);
+  return { currency, years };
+}
+
+/** Units of `to` per one unit of `from` (1 when equal). */
+export async function fxRate(from: string, to: string): Promise<number> {
+  if (from.toUpperCase() === to.toUpperCase()) return 1;
+  const q = await quoteFromChart(`${from.toUpperCase()}${to.toUpperCase()}=X`);
+  if (!q.price) throw new Error(`yahoo: no fx rate ${from}->${to}`);
+  return q.price;
+}

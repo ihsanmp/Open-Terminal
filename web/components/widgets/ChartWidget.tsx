@@ -20,7 +20,7 @@ import {
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { apiGet, fmt, fmtBig, type Candle } from "../../lib/api";
+import { apiGet, fmt, fmtBig, fmtPrice, type Candle } from "../../lib/api";
 import {
   INDICATOR_BY_ID,
   candlesToBars,
@@ -64,7 +64,9 @@ type Prepared = {
 function futureTimes(time: number[], count: number): number[] {
   if (count <= 0 || time.length === 0) return [];
   const spacing = barSpacing(time);
-  const daily = spacing >= 20 * 3600 && spacing <= 2 * 86_400;
+  // Skip weekends only for markets that don't trade them (crypto bars include Sat/Sun).
+  const tradesWeekends = time.slice(-30).some((t) => [0, 6].includes(new Date(t * 1000).getUTCDay()));
+  const daily = spacing >= 20 * 3600 && spacing <= 2 * 86_400 && !tradesWeekends;
   const out: number[] = [];
   let t = time[time.length - 1];
   while (out.length < count) {
@@ -86,6 +88,14 @@ function shifted<T>(values: T[], offset: number, total: number, empty: T): T[] {
     if (j >= 0 && j < total) out[j] = values[i];
   }
   return out;
+}
+
+/** Decimals needed to show a price series (sub-cent tokens need many). */
+function pricePrecision(candles: Candle[]): number {
+  const ref = Math.min(...candles.slice(-50).map((c) => Math.abs(c.low)).filter((x) => x > 0));
+  if (!isFinite(ref) || ref >= 1) return 2;
+  if (ref >= 0.01) return 4;
+  return Math.min(12, Math.ceil(-Math.log10(ref)) + 3);
 }
 
 function formatValue(v: number | undefined, precision: number): string {
@@ -169,6 +179,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     if (!el || !candles || candles.length === 0 || !prepared) return;
     const { times, total, items } = prepared;
     const viewKey = `${symbol}:${range}`;
+    const pxPrecision = pricePrecision(candles);
+    const mainFormat = { type: "price" as const, precision: pxPrecision, minMove: 1 / 10 ** pxPrecision };
 
     const chart: IChartApi = createChart(el, {
       layout: { background: { color: "#0a0a0a" }, textColor: "#808080", fontSize: 10, attributionLogo: false, panes: { separatorColor: "#262626" } },
@@ -194,14 +206,14 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       });
       main =
         chartType === "candles"
-          ? chart.addSeries(CandlestickSeries, { upColor: UP, downColor: DOWN, borderUpColor: UP, borderDownColor: DOWN, wickUpColor: UP, wickDownColor: DOWN })
-          : chart.addSeries(BarSeries, { upColor: UP, downColor: DOWN });
+          ? chart.addSeries(CandlestickSeries, { upColor: UP, downColor: DOWN, borderUpColor: UP, borderDownColor: DOWN, wickUpColor: UP, wickDownColor: DOWN, priceFormat: mainFormat })
+          : chart.addSeries(BarSeries, { upColor: UP, downColor: DOWN, priceFormat: mainFormat });
       main.setData([...data, ...future]);
     } else {
       main =
         chartType === "line"
-          ? chart.addSeries(LineSeries, { color: "#ff9900", lineWidth: 1 })
-          : chart.addSeries(AreaSeries, { lineColor: "#ff9900", topColor: "rgba(255,153,0,0.25)", bottomColor: "rgba(255,153,0,0)" });
+          ? chart.addSeries(LineSeries, { color: "#ff9900", lineWidth: 1, priceFormat: mainFormat })
+          : chart.addSeries(AreaSeries, { lineColor: "#ff9900", topColor: "rgba(255,153,0,0.25)", bottomColor: "rgba(255,153,0,0)", priceFormat: mainFormat });
       main.setData([...candles.map((c) => ({ time: c.time as UTCTimestamp, value: c.close })), ...future]);
     }
 
@@ -215,7 +227,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       if (it.inst.hidden || it.error) continue;
       const paneIndex = it.def.overlay ? 0 : paneOf.get(it.inst.uid);
       if (paneIndex === undefined) continue;
-      const precision = it.def.precision ?? 2;
+      // Price-scale overlays (MAs, bands) need the instrument's own precision.
+      const precision = it.def.overlay && !it.def.volumeOverlay ? Math.max(it.def.precision ?? 2, pxPrecision) : it.def.precision ?? 2;
       const priceFormat =
         it.def.volumeOverlay || precision === 0
           ? ({ type: "volume" } as const)
@@ -330,6 +343,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     saveInstances(latestIndicators(widget.id).map((i) => (i.uid === uid ? { ...i, ...patch } : i)));
   const remove = (uid: string) => saveInstances(latestIndicators(widget.id).filter((i) => i.uid !== uid));
 
+  const legendPrecision = candles && n > 0 ? pricePrecision(candles) : 2;
+
   const legendRow = (it: Prepared) => (
     <div key={it.inst.uid} className="group flex gap-2 items-center pointer-events-auto w-fit max-w-full">
       <span className={`whitespace-nowrap ${it.inst.hidden ? "text-[#4d4d4d]" : "text-[var(--text)]"}`}>{it.label}</span>
@@ -344,7 +359,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
             const v = prep.values[idx];
             return (
               <span key={p.key} style={{ color: prep.colors?.[idx] ?? p.color }} className="whitespace-nowrap">
-                {formatValue(v, it.def.precision ?? 2)}
+                {formatValue(v, it.def.overlay && !it.def.volumeOverlay ? Math.max(it.def.precision ?? 2, legendPrecision) : it.def.precision ?? 2)}
               </span>
             );
           })
@@ -393,10 +408,10 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         {candle && (
           <div className="absolute top-1 left-2 z-10 flex flex-col gap-0.5 text-[11px] pointer-events-none max-w-[85%]">
             <div className="flex gap-3 bg-[rgba(10,10,10,0.7)] w-fit px-1">
-              <span className="dim">O <span className="text-[var(--text)]">{fmt(candle.open)}</span></span>
-              <span className="dim">H <span className="up">{fmt(candle.high)}</span></span>
-              <span className="dim">L <span className="down">{fmt(candle.low)}</span></span>
-              <span className="dim">C <span className={candle.close >= candle.open ? "up" : "down"}>{fmt(candle.close)}</span></span>
+              <span className="dim">O <span className="text-[var(--text)]">{fmtPrice(candle.open)}</span></span>
+              <span className="dim">H <span className="up">{fmtPrice(candle.high)}</span></span>
+              <span className="dim">L <span className="down">{fmtPrice(candle.low)}</span></span>
+              <span className="dim">C <span className={candle.close >= candle.open ? "up" : "down"}>{fmtPrice(candle.close)}</span></span>
               <span className="dim">Vol <span className="text-[var(--text)]">{fmtBig(candle.volume)}</span></span>
             </div>
             {mainLegend.map(legendRow)}

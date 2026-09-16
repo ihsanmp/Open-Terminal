@@ -62,6 +62,15 @@ export function fmt(n: number | null | undefined, digits = 2): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
+/** Price with enough precision for anything from BRK.A to sub-cent tokens. */
+export function fmtPrice(n: number | null | undefined): string {
+  if (n === null || n === undefined || !isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  if (abs >= 1 || abs === 0) return fmt(n, 2);
+  if (abs >= 0.01) return fmt(n, 4);
+  return n.toPrecision(4);
+}
+
 export function fmtBig(n: number | null | undefined): string {
   if (n === null || n === undefined || !isFinite(n)) return "—";
   const abs = Math.abs(n);

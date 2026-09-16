@@ -1,54 +1,76 @@
 import type { CryptoRow } from "./coingecko.js";
 import type { Quote, Candle } from "./yahoo.js";
+import { cryptoTicker } from "../symbols.js";
 
-const NAMES: Record<string, string> = {
-  BTCUSDT: "Bitcoin", ETHUSDT: "Ethereum", SOLUSDT: "Solana", BNBUSDT: "BNB",
-  XRPUSDT: "XRP", ADAUSDT: "Cardano", DOGEUSDT: "Dogecoin", AVAXUSDT: "Avalanche",
-  DOTUSDT: "Polkadot", LINKUSDT: "Chainlink", LTCUSDT: "Litecoin", MATICUSDT: "Polygon",
-};
+// data-api.binance.vision is Binance's official market-data-only mirror. It is
+// tried first because api.binance.com is blocked by some ISPs (e.g. Indonesia
+// resolves it to a block page), which silently broke every crypto quote/chart.
+const BASES = ["https://data-api.binance.vision", "https://api.binance.com"];
 
-/** Plain tickers (BTC, ETH, ...) this app treats as crypto for routing quotes/history. */
-export const CRYPTO_SYMBOLS = new Set(Object.keys(NAMES).map((s) => s.replace("USDT", "")));
+async function bfetch(path: string): Promise<any> {
+  let lastErr: unknown = new Error("binance: no endpoint reachable");
+  for (const base of BASES) {
+    try {
+      const res = await fetch(base + path, { signal: AbortSignal.timeout(8_000) });
+      if (!res.ok) throw new Error(`binance ${res.status} for ${path}`);
+      return await res.json();
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
 
-/** Fallback crypto board built from Binance public 24hr tickers (no key required). */
+let universe: { bases: Set<string>; fetched: number } | null = null;
+
+/** Every base asset with an actively trading USDT spot pair (~500), refreshed every 6h. */
+export async function usdtBases(): Promise<Set<string>> {
+  if (universe && Date.now() - universe.fetched < 6 * 3_600_000) return universe.bases;
+  const info = await bfetch("/api/v3/exchangeInfo?permissions=SPOT");
+  const bases = new Set<string>();
+  for (const s of info.symbols ?? []) {
+    if (s.quoteAsset === "USDT" && s.status === "TRADING") bases.add(s.baseAsset);
+  }
+  if (bases.size === 0) throw new Error("binance: empty exchangeInfo");
+  universe = { bases, fetched: Date.now() };
+  return bases;
+}
+
+/** Whole USDT board from 24h tickers, most traded first (CoinGecko fallback). */
 export async function markets(): Promise<CryptoRow[]> {
-  const symbols = Object.keys(NAMES);
-  const url =
-    "https://api.binance.com/api/v3/ticker/24hr?symbols=" + encodeURIComponent(JSON.stringify(symbols));
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`binance ${res.status}`);
-  const rows: any[] = await res.json();
+  const [bases, rows] = await Promise.all([usdtBases(), bfetch("/api/v3/ticker/24hr") as Promise<any[]>]);
   return rows
-    .map((r) => ({
-      id: r.symbol,
-      symbol: r.symbol.replace("USDT", ""),
-      name: NAMES[r.symbol] ?? r.symbol,
-      price: +r.lastPrice,
-      changePercent24h: +r.priceChangePercent,
-      marketCap: null,
-      volume24h: +r.quoteVolume,
-      rank: null,
-      sparkline: [],
-    }))
+    .filter((r) => r.symbol.endsWith("USDT") && bases.has(r.symbol.slice(0, -4)))
+    .map((r) => {
+      const base = r.symbol.slice(0, -4);
+      return {
+        id: r.symbol,
+        symbol: base,
+        ticker: cryptoTicker(base),
+        name: base,
+        price: +r.lastPrice,
+        changePercent24h: +r.priceChangePercent,
+        marketCap: null,
+        volume24h: +r.quoteVolume,
+        rank: null,
+        sparkline: [],
+        image: null,
+      };
+    })
     .sort((a, b) => (b.volume24h ?? 0) - (a.volume24h ?? 0));
 }
 
-export async function orderBook(symbol: string, limit = 20): Promise<{ bids: [string, string][]; asks: [string, string][] }> {
-  const res = await fetch(`https://api.binance.com/api/v3/depth?symbol=${symbol.toUpperCase()}USDT&limit=${limit}`);
-  if (!res.ok) throw new Error(`binance ${res.status}`);
-  const d = await res.json();
+export async function orderBook(base: string, limit = 20): Promise<{ bids: [string, string][]; asks: [string, string][] }> {
+  const d = await bfetch(`/api/v3/depth?symbol=${base.toUpperCase()}USDT&limit=${limit}`);
   return { bids: d.bids ?? [], asks: d.asks ?? [] };
 }
 
-/** Single-symbol quote so crypto tickers can flow through the same /api/quotes path as stocks. */
-export async function quote(symbol: string): Promise<Quote> {
-  const pair = symbol.toUpperCase() + "USDT";
-  const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${pair}`);
-  if (!res.ok) throw new Error(`binance ticker ${res.status}`);
-  const d = await res.json();
+/** 24h quote for a base asset, reported under the requested display symbol (e.g. "PEPE-USD"). */
+export async function quote(base: string, displaySymbol: string): Promise<Quote> {
+  const d = await bfetch(`/api/v3/ticker/24hr?symbol=${base.toUpperCase()}USDT`);
   return {
-    symbol: symbol.toUpperCase(),
-    name: NAMES[pair] ?? symbol.toUpperCase(),
+    symbol: displaySymbol,
+    name: base.toUpperCase(),
     price: +d.lastPrice,
     change: +d.priceChange,
     changePercent: +d.priceChangePercent,
@@ -76,24 +98,22 @@ export async function quote(symbol: string): Promise<Quote> {
   };
 }
 
+// Binance caps klines at 1000 per request.
 const RANGE_TO_KLINE: Record<string, { interval: string; limit: number }> = {
   "1D": { interval: "5m", limit: 288 },
   "5D": { interval: "15m", limit: 480 },
   "1M": { interval: "1h", limit: 720 },
-  "6M": { interval: "4h", limit: 1080 },
+  "6M": { interval: "4h", limit: 1000 },
   YTD: { interval: "1d", limit: 400 },
   "1Y": { interval: "1d", limit: 365 },
   "5Y": { interval: "1w", limit: 260 },
   MAX: { interval: "1M", limit: 200 },
 };
 
-export async function history(symbol: string, rangeKey: string): Promise<Candle[]> {
+export async function history(base: string, rangeKey: string): Promise<Candle[]> {
   const { interval, limit } = RANGE_TO_KLINE[rangeKey] ?? RANGE_TO_KLINE["6M"];
-  const pair = symbol.toUpperCase() + "USDT";
-  const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${interval}&limit=${limit}`);
-  if (!res.ok) throw new Error(`binance klines ${res.status}`);
-  const rows: any[] = await res.json();
-  return rows.map((r) => ({
+  const rows: any[] = await bfetch(`/api/v3/klines?symbol=${base.toUpperCase()}USDT&interval=${interval}&limit=${limit}`);
+  const candles = rows.map((r) => ({
     time: Math.round(r[0] / 1000),
     open: +r[1],
     high: +r[2],
@@ -101,4 +121,7 @@ export async function history(symbol: string, rangeKey: string): Promise<Candle[
     close: +r[4],
     volume: +r[5],
   }));
+  if (rangeKey !== "YTD") return candles;
+  const jan1 = Date.UTC(new Date().getUTCFullYear(), 0, 1) / 1000;
+  return candles.filter((c) => c.time >= jan1);
 }

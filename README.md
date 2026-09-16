@@ -44,7 +44,9 @@ No signup. No credit card. No rate‑limited demo tier. Clone it, `npm install`,
 - 🔎 **Full‑market screener** — filter by sector, market cap, % change, and volume across the entire US equity market, sortable on every column
 - 🗺️ **Live sector heatmap** — treemap sized by market cap, colored by daily % change, refreshing every few seconds
 - ⛓️ **Options chain** — calls and puts side‑by‑side with strike, bid/ask, volume, open interest, and ITM highlighting
-- 🪙 **Crypto board** — top assets with 7‑day sparklines, BTC/ETH dominance, and full OHLCV charting for any listed coin
+- 🪙 **Every crypto coin & token** — a ranked board of ~2,500 assets (paged, searchable, logos, BTC/ETH dominance) and a chart for any of them: Binance candles for its ~500 USDT pairs, CoinGecko for the rest. Symbols use the `BTC-USD` form so coins never collide with stock tickers
+- 🌍 **World indices** — ~40 benchmarks across the Americas, Europe, Asia‑Pacific and the Middle East (S&P 500, Nikkei 225, IHSG, Nifty 50, DAX…), searchable and chartable like any stock, alongside stocks from exchanges worldwide (`BBCA.JK`, `7203.T`, `0700.HK`)
+- 🔬 **Equity research** — multi‑year income statement, balance sheet and cash flow (global coverage), yearly ratios with DuPont breakdown, Piotroski F‑score, Altman Z‑score, Beneish M‑score, Graham number, an interactive DCF with CAPM defaults, analyst consensus and price targets (converted to the trading currency), and industry peers
 - 🏦 **Macro dashboard** — live US Treasury yield curve, VIX, and major index/commodity proxies
 - 💼 **Portfolio tracker** — log buy/sell transactions, track average cost, realized & unrealized P&L (persisted in SQLite)
 - 📅 **Calendar** — economic events (Fed, ECB, CPI, NFP and more) with consensus forecast, previous reading and, for the major US/EU releases, the actual outcome; plus a per‑watchlist earnings calendar with click‑through history showing forecast vs. actual EPS for the last several quarters and the stock's next‑day price move
@@ -58,7 +60,7 @@ No signup. No credit card. No rate‑limited demo tier. Clone it, `npm install`,
 
 ### Charting
 
-Candlesticks, bars, line, or area — 8 timeframes, six technical indicators, and a live legend under your cursor showing OHLC, volume, and every active indicator's value for the candle you're pointing at.
+Candlesticks, bars, line, or area — 8 timeframes, 97 TradingView built-in indicators, and a live legend under your cursor showing OHLC, volume, and every active indicator's value for the candle you're pointing at.
 
 <img src="docs/screenshots/chart.png" alt="Candlestick chart with SMA/RSI/MACD indicators and hover legend" width="100%" />
 
@@ -74,7 +76,7 @@ The whole US equity market as a treemap — sized by market cap, colored by dail
 
 ### Crypto
 
-Top assets with 7‑day sparklines and BTC/ETH dominance — click through to full OHLCV candlestick charting for any listed coin, same charting engine as stocks.
+Every ranked coin and token, paged and searchable, with market cap, 24h volume and BTC/ETH dominance — click through to full candlestick charting for any of them, same charting engine and indicators as stocks.
 
 <img src="docs/screenshots/crypto.png" alt="Crypto board with sparklines and dominance" width="100%" />
 
@@ -94,15 +96,18 @@ No paid API, no keys, and no single point of failure — every endpoint has a fa
 
 | Data | Primary source | Fallback |
 |---|---|---|
-| Quotes (stocks/ETFs) | Nasdaq public quote API | Yahoo Finance → Stooq |
+| Quotes (US stocks/ETFs) | Nasdaq public quote API | Yahoo Finance → Stooq |
+| Quotes (indices, non‑US stocks) | TradingView scanner API (one batched request) | Yahoo Finance |
 | Fundamentals (P/E, EPS, beta, div yield) | TradingView scanner API | — |
 | Historical candles | Nasdaq chart API | Yahoo Finance → Stooq |
-| Symbol search | TradingView symbol search | Yahoo Finance |
+| Symbol search | TradingView symbol search + built‑in index list + ranked coin universe | Yahoo Finance |
 | Full‑market screener / heatmap | TradingView scanner API (live, whole US market) | — |
 | Options chain | Nasdaq option‑chain API | Yahoo Finance |
 | News | Yahoo Finance RSS | Google News RSS |
-| Crypto quotes & board | CoinGecko | Binance public API |
-| Crypto candles | Binance public API (klines) | — |
+| Crypto board & quotes | TradingView coin scanner (~2,500 ranked assets) · Binance for its USDT pairs | CoinGecko → Yahoo Finance |
+| Crypto candles | Binance market‑data mirror (`data-api.binance.vision`, reachable where api.binance.com is ISP‑blocked) | CoinGecko OHLC → Yahoo Finance |
+| Financial statements | Yahoo Finance fundamentals time series | SEC EDGAR XBRL company facts (US filers) |
+| Company profile, analyst consensus, price targets, peers | TradingView scanner API | — |
 | Macro (Treasury yields, VIX) | FRED (Federal Reserve) | — |
 | Economic calendar (schedule, forecast, previous) | Forex Factory public feed | — |
 | Economic calendar (actual — Fed / ECB / CPI / NFP only) | FRED (Federal Reserve) | — |
@@ -210,6 +215,10 @@ Run tests with `npm test` (Vitest, no network calls). The indicator suite compar
 Have an idea? [Open an issue](../../issues) — contributions are very welcome.
 
 <br/>
+
+## 🙏 Acknowledgements
+
+The equity‑research, world‑indices and all‑crypto features were inspired by [FinceptTerminal](https://github.com/Fincept-Corporation/FinceptTerminal). No code was taken from it — it is AGPL‑3.0 and this project is MIT — the features were reimplemented independently on free public data sources.
 
 ## 🤝 Contributing
 

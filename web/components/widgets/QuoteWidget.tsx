@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { apiGet, fmt, fmtBig, pctClass, type Quote } from "../../lib/api";
+import { apiGet, fmt, fmtBig, fmtPrice, pctClass, type Quote } from "../../lib/api";
 import { useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 import Flash from "../Flash";
 
@@ -47,7 +47,7 @@ export default function QuoteWidget({ widget }: { widget: WidgetInstance }) {
   return (
     <div className="p-2">
       <div className="flex items-baseline gap-3 mb-1">
-        <Flash value={data.price} className="text-xl font-bold">{fmt(data.price)}</Flash>
+        <Flash value={data.price} className="text-xl font-bold">{fmtPrice(data.price)}</Flash>
         <Flash value={data.changePercent} className={`${pctClass(data.changePercent)} text-sm`}>
           {data.change !== null && data.change >= 0 ? "+" : ""}
           {fmt(data.change)} ({fmt(data.changePercent)}%)
