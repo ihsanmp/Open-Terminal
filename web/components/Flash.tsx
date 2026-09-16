@@ -2,22 +2,30 @@
 
 import { useEffect, useRef, useState } from "react";
 
-/** True for a brief moment whenever `value` changes from its previous value. */
-export function useFlash(value: string | number | null | undefined): boolean {
+/**
+ * Flash phase after `value` changes: 2 = bright, 1 = fading, 0 = idle.
+ * Two timed steps instead of a CSS fade: a 450ms background-color animation
+ * renders ~27 frames per changed cell, these steps render three.
+ */
+export function useFlash(value: string | number | null | undefined): 0 | 1 | 2 {
   const prev = useRef(value);
-  const [flashing, setFlashing] = useState(false);
+  const [phase, setPhase] = useState<0 | 1 | 2>(0);
 
   useEffect(() => {
     if (value !== undefined && value !== null && prev.current !== value && prev.current !== undefined && prev.current !== null) {
-      setFlashing(true);
-      const t = setTimeout(() => setFlashing(false), 450);
       prev.current = value;
-      return () => clearTimeout(t);
+      setPhase(2);
+      const t1 = setTimeout(() => setPhase(1), 150);
+      const t2 = setTimeout(() => setPhase(0), 450);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
     }
     prev.current = value;
   }, [value]);
 
-  return flashing;
+  return phase;
 }
 
 /** Wraps children in a span that briefly flashes white whenever `value` changes. */
@@ -30,6 +38,6 @@ export default function Flash({
   className?: string;
   children: React.ReactNode;
 }) {
-  const flashing = useFlash(value);
-  return <span className={`${className ?? ""} ${flashing ? "flash-white" : ""}`}>{children}</span>;
+  const phase = useFlash(value);
+  return <span className={`${className ?? ""} ${phase === 2 ? "flash-on" : phase === 1 ? "flash-fade" : ""}`}>{children}</span>;
 }

@@ -5,6 +5,7 @@ import GridLayout, { WidthProvider } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { useTerminal, type WidgetInstance } from "../store/terminal";
+import { WidgetVisibleContext } from "../lib/refresh";
 import QuoteWidget from "./widgets/QuoteWidget";
 import ChartWidget from "./widgets/ChartWidget";
 import WatchlistWidget from "./widgets/WatchlistWidget";
@@ -45,6 +46,24 @@ function WidgetBody({ widget }: { widget: WidgetInstance }) {
     case "indices": return <IndicesWidget />;
     case "research": return <ResearchWidget widget={widget} />;
   }
+}
+
+/** Tells widgets whether they are on screen, so off-screen ones stop polling and repainting. */
+function VisibilityScope({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { rootMargin: "200px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return (
+    <div ref={ref} className="h-full">
+      <WidgetVisibleContext.Provider value={visible}>{children}</WidgetVisibleContext.Provider>
+    </div>
+  );
 }
 
 function SymbolTag({ widget, activeSymbol }: { widget: WidgetInstance; activeSymbol: string }) {
@@ -150,7 +169,9 @@ export default function Workspace() {
               </span>
             </div>
             <div className="flex-1 overflow-auto min-h-0">
-              <WidgetBody widget={w} />
+              <VisibilityScope>
+                <WidgetBody widget={w} />
+              </VisibilityScope>
             </div>
           </div>
         </div>

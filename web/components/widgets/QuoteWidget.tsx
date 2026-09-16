@@ -4,15 +4,17 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet, fmt, fmtBig, fmtPrice, pctClass, type Quote } from "../../lib/api";
 import { useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 import Flash from "../Flash";
+import { quoteRefreshMs, usePoll } from "../../lib/refresh";
 
 type ShortVolume = { date: string; shortVolume: number; shortExemptVolume: number; totalVolume: number; shortVolumePercent: number };
 
 export default function QuoteWidget({ widget }: { widget: WidgetInstance }) {
   const symbol = useWidgetSymbol(widget);
+  const poll = usePoll(() => quoteRefreshMs(symbol));
   const { data, error } = useQuery({
     queryKey: ["quote", symbol],
     queryFn: async () => (await apiGet<Quote[]>(`/api/quotes?symbols=${symbol}`))[0],
-    refetchInterval: 1_000,
+    refetchInterval: poll,
   });
   // FINRA's Reg SHO file only updates once a day (next-morning), so no point polling it fast.
   const { data: shortVol } = useQuery({

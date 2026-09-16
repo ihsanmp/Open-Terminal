@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet, fmt, pctClass } from "../../lib/api";
 import { useTerminal } from "../../store/terminal";
 import Flash from "../Flash";
+import { sessionRefreshMs, usePoll } from "../../lib/refresh";
 
 type RecapRow = { symbol: string; name: string; changePercent: number | null };
 type RecapIndex = { symbol: string; label: string; price: number | null; changePercent: number | null };
@@ -23,10 +24,11 @@ type Recap = {
 
 export default function RecapWidget() {
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
+  const poll = usePoll(sessionRefreshMs(60_000, 600_000));
   const { data, error } = useQuery({
     queryKey: ["recap"],
     queryFn: () => apiGet<Recap>("/api/recap"),
-    refetchInterval: 15_000,
+    refetchInterval: poll,
   });
 
   if (error) return <div className="p-2 down">Error: {(error as Error).message}</div>;

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { apiGet, fmt, fmtBig } from "../../lib/api";
 import { useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
+import { sessionRefreshMs, usePoll } from "../../lib/refresh";
 
 type OptionRow = {
   strike: number | null; lastPrice: number | null; bid: number | null; ask: number | null;
@@ -18,10 +19,11 @@ export default function OptionsWidget({ widget }: { widget: WidgetInstance }) {
   const symbol = useWidgetSymbol(widget);
   const [expiry, setExpiry] = useState<string | undefined>();
 
+  const poll = usePoll(sessionRefreshMs(60_000, 600_000));
   const { data, error, isLoading } = useQuery({
     queryKey: ["options", symbol, expiry],
     queryFn: () => apiGet<Chain>(`/api/options/${symbol}${expiry ? `?expiry=${encodeURIComponent(expiry)}` : ""}`),
-    refetchInterval: 20_000,
+    refetchInterval: poll,
     retry: 0,
   });
 

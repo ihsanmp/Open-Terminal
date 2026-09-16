@@ -43,11 +43,26 @@ function assetClassOf(symbol: string): "stocks" | "etf" {
   return etfs.has(symbol) ? "etf" : "stocks";
 }
 
+// Summary fields (market cap, average volume, yield) barely move intraday, so they are
+// fetched at most every 5 minutes per symbol instead of on every live quote refresh.
+const SUMMARY_TTL_MS = 5 * 60_000;
+const summaryCache = new Map<string, { data: any; at: number }>();
+
+async function summaryFor(symbol: string, assetclass: string): Promise<any> {
+  const hit = summaryCache.get(symbol);
+  if (hit && Date.now() - hit.at < SUMMARY_TTL_MS) return hit.data;
+  const data = await nfetch(`https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/summary?assetclass=${assetclass}`).catch(
+    () => hit?.data ?? null
+  );
+  summaryCache.set(symbol, { data, at: Date.now() });
+  return data;
+}
+
 export async function quote(symbol: string): Promise<Quote> {
   const assetclass = assetClassOf(symbol);
   const [info, summary] = await Promise.all([
     nfetch(`https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/info?assetclass=${assetclass}`),
-    nfetch(`https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/summary?assetclass=${assetclass}`).catch(() => null),
+    summaryFor(symbol, assetclass),
   ]);
 
   const price = money(info.primaryData?.lastSalePrice);

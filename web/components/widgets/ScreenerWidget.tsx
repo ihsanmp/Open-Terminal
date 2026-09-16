@@ -5,6 +5,7 @@ import { useState } from "react";
 import { apiGet, fmt, fmtBig, pctClass } from "../../lib/api";
 import { useTerminal } from "../../store/terminal";
 import Flash from "../Flash";
+import { sessionRefreshMs, usePoll } from "../../lib/refresh";
 
 type Row = {
   symbol: string; name: string; price: number | null;
@@ -21,6 +22,7 @@ export default function ScreenerWidget() {
   const [sort, setSort] = useState("marketCap");
   const [dir, setDir] = useState<"asc" | "desc">("desc");
 
+  const poll = usePoll(sessionRefreshMs(60_000, 600_000));
   const { data: sectors = [] } = useQuery({
     queryKey: ["sectors"],
     queryFn: () => apiGet<string[]>("/api/sectors"),
@@ -38,7 +40,7 @@ export default function ScreenerWidget() {
   const { data = [], isLoading, error } = useQuery({
     queryKey: ["screener", params.toString()],
     queryFn: () => apiGet<Row[]>(`/api/screener?${params}`),
-    refetchInterval: 20_000,
+    refetchInterval: poll,
   });
 
   const th = (key: string, label: string) => (

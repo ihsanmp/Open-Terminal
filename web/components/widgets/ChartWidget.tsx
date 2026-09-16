@@ -37,6 +37,7 @@ import { barSpacing } from "../../lib/ta/core";
 import { BackgroundPrimitive, FillPrimitive } from "../../lib/ta/chart-primitives";
 import { DEFAULT_CHART_INDICATORS, useTerminal, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 import { IndicatorPicker, IndicatorSettings } from "../chart/IndicatorDialogs";
+import { isCryptoSymbol, usePoll, usSessionActive } from "../../lib/refresh";
 
 const RANGES = ["1D", "5D", "1M", "6M", "YTD", "1Y", "5Y", "MAX"] as const;
 const CHART_TYPES = ["candles", "bars", "line", "area"] as const;
@@ -117,11 +118,16 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
 
   const instances = (widget.indicators ?? DEFAULT_CHART_INDICATORS).filter((i) => INDICATOR_BY_ID.has(i.id));
   const saveInstances = (next: IndicatorInstance[]) => setWidgetIndicators(widget.id, next);
+  const poll = usePoll(() => {
+    const live = isCryptoSymbol(symbol) || usSessionActive();
+    return range === "1D" || range === "5D" ? (live ? 20_000 : 300_000) : live ? 120_000 : 900_000;
+  });
 
   const { data: candles, error } = useQuery({
     queryKey: ["history", symbol, range],
     queryFn: () => apiGet<Candle[]>(`/api/history/${symbol}?range=${range}`),
-    refetchInterval: range === "1D" ? 8_000 : 60_000,
+    // Intraday bars move; daily-and-longer bars only change at the last candle.
+    refetchInterval: poll,
   });
 
   const bars = useMemo(() => (candles && candles.length > 0 ? candlesToBars(candles) : null), [candles]);
@@ -316,10 +322,19 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     const ro = new ResizeObserver(measurePanes);
     ro.observe(el);
 
+    let lastMeasure = 0;
     chart.subscribeCrosshairMove((param) => {
       const idx = param.logical === undefined ? null : Math.round(param.logical);
-      setHoverIndex(idx !== null && idx >= 0 && idx < total ? idx : null);
-      measurePanes(); // pane separators can be dragged without a resize event
+      setHoverIndex((prev) => {
+        const next = idx !== null && idx >= 0 && idx < total ? idx : null;
+        return prev === next ? prev : next;
+      });
+      // Pane separators can be dragged without a resize event; re-measure at most twice a second.
+      const now = performance.now();
+      if (now - lastMeasure > 500) {
+        lastMeasure = now;
+        measurePanes();
+      }
     });
 
     if (savedRange.current?.key === viewKey) chart.timeScale().setVisibleLogicalRange(savedRange.current.range);
