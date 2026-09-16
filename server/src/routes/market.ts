@@ -12,6 +12,8 @@ import * as news from "../providers/news.js";
 import * as econcalendar from "../providers/econcalendar.js";
 import * as finra from "../providers/finra.js";
 import * as secedgar from "../providers/secedgar.js";
+import { cryptoBase, cryptoTicker, isIndex, isYahooOnly } from "../symbols.js";
+import { INDEX_TV_TICKER, WORLD_INDICES, searchIndices } from "../indices.js";
 
 export const marketRouter = Router();
 
@@ -25,9 +27,9 @@ function fail(req: any, res: any, err: unknown) {
   res.status(502).json({ error: "All data providers are temporarily unavailable. Try again shortly.", detail });
 }
 
-// ---- VIX: served from FRED (daily close), since it's an index rather than a
-// tradable stock/ETF — Nasdaq's stock API doesn't carry it, and routing it
-// through Yahoo would make it depend on Yahoo's flaky rate limits for no reason.
+// ---- VIX: an index rather than a tradable stock/ETF, so Nasdaq's stock API
+// doesn't carry it. Quotes come from TradingView/Yahoo like other indices, with
+// FRED's daily close as the last resort (and for the bare "VIX" alias).
 
 function isVix(symbol: string): boolean {
   return symbol.toUpperCase() === "^VIX" || symbol.toUpperCase() === "VIX";
@@ -92,6 +94,35 @@ async function vixHistory(rangeKey: string): Promise<yahoo.Candle[]> {
   });
 }
 
+// ---- crypto routing: Binance for its ~500 USDT pairs; TradingView's coin universe
+// (quotes) and CoinGecko (candles) for every other token ----
+
+async function onBinance(base: string): Promise<boolean> {
+  try {
+    return (await binance.usdtBases()).has(base);
+  } catch {
+    return true; // exchangeInfo unreachable: just try the pair and let the fallback catch it
+  }
+}
+
+async function cryptoQuote(symbol: string): Promise<yahoo.Quote> {
+  const base = cryptoBase(symbol)!;
+  const attempts: Array<[string, () => Promise<yahoo.Quote>]> = [];
+  if (await onBinance(base)) attempts.push(["binance", () => binance.quote(base, symbol)]);
+  attempts.push(["tradingview", () => tradingview.coinQuote(base, symbol)]);
+  attempts.push(["coingecko", () => coingecko.quote(base, symbol)]);
+  attempts.push(["yahoo", async () => ({ ...(await yahoo.quoteFromChart(cryptoTicker(base))), symbol })]);
+  return withFallback(attempts);
+}
+
+async function cryptoHistory(base: string, symbol: string, rangeKey: string): Promise<yahoo.Candle[]> {
+  const attempts: Array<[string, () => Promise<yahoo.Candle[]>]> = [];
+  if (await onBinance(base)) attempts.push(["binance", () => binance.history(base, rangeKey)]);
+  attempts.push(["coingecko", () => coingecko.history(base, rangeKey)]);
+  attempts.push(["yahoo", () => yahoo.history(cryptoTicker(base), yahooRange(rangeKey).range, yahooRange(rangeKey).interval)]);
+  return withFallback(attempts);
+}
+
 // ---- quotes (per-symbol cache, so overlapping widgets share one fetch) ----
 
 /**
@@ -114,27 +145,48 @@ async function getQuotes(symbols: string[]): Promise<yahoo.Quote[]> {
   const fetched = new Map<string, yahoo.Quote>();
   let remaining = missing;
 
-  const cryptoSymbols = remaining.filter((s) => binance.CRYPTO_SYMBOLS.has(s));
+  const cryptoSymbols = remaining.filter((s) => cryptoBase(s));
   if (cryptoSymbols.length > 0) {
-    const results = await Promise.allSettled(cryptoSymbols.map((s) => binance.quote(s)));
+    const results = await Promise.allSettled(cryptoSymbols.map((s) => cryptoQuote(s)));
     results.forEach((r, i) => {
       if (r.status === "fulfilled") fetched.set(cryptoSymbols[i], r.value);
     });
+    // Unresolvable coins stop here rather than being looked up as stocks.
+    remaining = remaining.filter((s) => !cryptoBase(s));
+  }
+
+  // Indices and non-US listings: one TradingView scanner request covers all of them,
+  // which keeps a ~40-index board from burning through Yahoo's per-IP rate limit.
+  const tvSymbols = remaining.filter((s) => isYahooOnly(s));
+  if (tvSymbols.length > 0) {
+    try {
+      const found = await tradingview.batchQuotes(tvSymbols, (s) =>
+        INDEX_TV_TICKER.has(s) ? [INDEX_TV_TICKER.get(s)!] : tradingview.tvTickers(s)
+      );
+      for (const [s, q] of found) fetched.set(s, q);
+    } catch {
+      // fall through to Yahoo below
+    }
     remaining = remaining.filter((s) => !fetched.has(s));
   }
 
   const vixSymbols = remaining.filter((s) => isVix(s));
   if (vixSymbols.length > 0) {
-    const results = await Promise.allSettled(vixSymbols.map(() => vixQuote()));
+    // Live index level from Yahoo; FRED's daily close is the fallback.
+    const results = await Promise.allSettled(
+      vixSymbols.map(async (s) => ({ ...(await yahoo.quoteFromChart("^VIX").catch(() => vixQuote())), symbol: s }))
+    );
     results.forEach((r, i) => {
       if (r.status === "fulfilled") fetched.set(vixSymbols[i], r.value);
     });
     remaining = remaining.filter((s) => !fetched.has(s));
   }
 
-  const nasdaqResults = await Promise.allSettled(remaining.map((s) => nasdaq.quote(s)));
+  // Nasdaq only knows US listings; indices, suffixed foreign tickers and FX go straight to Yahoo.
+  const usListed = remaining.filter((s) => !isYahooOnly(s));
+  const nasdaqResults = await Promise.allSettled(usListed.map((s) => nasdaq.quote(s)));
   nasdaqResults.forEach((r, i) => {
-    if (r.status === "fulfilled") fetched.set(remaining[i], r.value);
+    if (r.status === "fulfilled") fetched.set(usListed[i], r.value);
   });
   remaining = remaining.filter((s) => !fetched.has(s));
 
@@ -219,14 +271,21 @@ marketRouter.get("/history/:symbol", async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
   const rangeKey = String(req.query.range ?? "6M");
   try {
+    const base = cryptoBase(symbol);
+    const yahooHistory = () => yahoo.history(symbol, yahooRange(rangeKey).range, yahooRange(rangeKey).interval);
     const data = await cached(`history:${symbol}:${rangeKey}`, HISTORY_TTL, () =>
-      binance.CRYPTO_SYMBOLS.has(symbol)
-        ? binance.history(symbol, rangeKey)
+      base
+        ? cryptoHistory(base, symbol, rangeKey)
         : isVix(symbol)
-        ? vixHistory(rangeKey)
+        ? withFallback([
+            ["yahoo", yahooHistory],
+            ["fred", () => vixHistory(rangeKey)],
+          ])
+        : isYahooOnly(symbol)
+        ? withFallback([["yahoo", yahooHistory]])
         : withFallback([
             ["nasdaq", () => nasdaq.history(symbol, rangeKey)],
-            ["yahoo", () => yahoo.history(symbol, yahooRange(rangeKey).range, yahooRange(rangeKey).interval)],
+            ["yahoo", yahooHistory],
             ["stooq", () => stooq.history(symbol)],
           ])
     );
@@ -257,12 +316,33 @@ marketRouter.get("/search", async (req, res) => {
   const q = String(req.query.q ?? "").trim();
   if (!q) return res.json([]);
   try {
-    const data = await cached(`search:${q.toLowerCase()}`, 300_000, () =>
-      withFallback([
-        ["tradingview", () => tradingview.search(q)],
-        ["yahoo", () => yahoo.search(q)],
-      ])
-    );
+    const data = await cached(`search:${q.toLowerCase()}`, 300_000, async () => {
+      const [stocks, coins] = await Promise.allSettled([
+        withFallback([
+          ["tradingview", () => tradingview.search(q)],
+          ["yahoo", () => yahoo.search(q)],
+        ]),
+        tradingview.coinSearch(q, 5),
+      ]);
+      const indices = searchIndices(q).map((i) => ({ symbol: i.symbol, name: i.name, exchange: i.country, type: "index" }));
+      const merged = [...indices, ...(stocks.status === "fulfilled" ? stocks.value : []), ...(coins.status === "fulfilled" ? coins.value : [])];
+      if (merged.length === 0 && stocks.status === "rejected") throw stocks.reason;
+      // Exact ticker hits first (typing "BTC" should surface BTC-USD before bitcoin ETFs).
+      const needle = q.toUpperCase();
+      const rank = (r: { symbol: string; name: string; type: string }) =>
+        r.symbol === needle || r.symbol === `${needle}-USD` || r.symbol === `^${needle}` || r.name.toUpperCase() === needle
+          ? 0
+          : r.type === "index" || r.symbol.startsWith(needle)
+          ? 1
+          : 2;
+      const seen = new Set<string>();
+      return merged
+        .map((r, i) => ({ r, i }))
+        .sort((a, b) => rank(a.r) - rank(b.r) || a.i - b.i)
+        .map(({ r }) => r)
+        .filter((r) => !seen.has(r.symbol) && seen.add(r.symbol))
+        .slice(0, 25);
+    });
     res.json(data);
   } catch (err) {
     fail(req, res, err);
@@ -341,10 +421,20 @@ marketRouter.get("/options/:symbol", async (req, res) => {
 
 marketRouter.get("/crypto", async (req, res) => {
   try {
-    const data = await cached("crypto:markets", 5_000, () =>
+    const page = Math.max(1, Math.min(200, Number(req.query.page) || 1));
+    const perPage = Math.max(10, Math.min(250, Number(req.query.perPage) || 100));
+    const q = String(req.query.q ?? "").trim().toLowerCase();
+    if (q) {
+      const rows = await tradingview.coinBoard();
+      return res.json(rows.filter((r) => r.symbol.toLowerCase().includes(q) || r.name.toLowerCase().includes(q)).slice(0, perPage));
+    }
+    // TradingView's ranked coin universe (one request, ~2,500 coins) is sliced into pages;
+    // CoinGecko and Binance's USDT board back it up.
+    const data = await cached(`crypto:markets:${page}:${perPage}`, 20_000, () =>
       withFallback([
-        ["coingecko", () => coingecko.markets(50)],
-        ["binance", () => binance.markets()],
+        ["tradingview", async () => (await tradingview.coinBoard()).slice((page - 1) * perPage, page * perPage)],
+        ["coingecko", () => coingecko.markets(perPage, page)],
+        ["binance", async () => (await cached("crypto:binance-board", 10_000, () => binance.markets())).slice((page - 1) * perPage, page * perPage)],
       ])
     );
     res.json(data);
@@ -356,7 +446,18 @@ marketRouter.get("/crypto", async (req, res) => {
 marketRouter.get("/crypto/global", async (req, res) => {
   try {
     const data = await cached("crypto:global", 120_000, () =>
-      withFallback([["coingecko", () => coingecko.globalStats()]])
+      withFallback([
+        ["coingecko", () => coingecko.globalStats()],
+        [
+          "tradingview",
+          async () => {
+            const rows = await tradingview.coinBoard();
+            const total = rows.reduce((sum, r) => sum + (r.marketCap ?? 0), 0);
+            const share = (sym: string) => ((rows.find((r) => r.symbol === sym)?.marketCap ?? 0) / total) * 100;
+            return { totalMarketCap: total, btcDominance: share("BTC"), ethDominance: share("ETH"), coins: rows.length };
+          },
+        ],
+      ])
     );
     res.json(data);
   } catch (err) {
@@ -366,9 +467,29 @@ marketRouter.get("/crypto/global", async (req, res) => {
 
 marketRouter.get("/crypto/orderbook/:symbol", async (req, res) => {
   try {
-    const data = await cached(`orderbook:${req.params.symbol}`, 5_000, () =>
-      withFallback([["binance", () => binance.orderBook(req.params.symbol)]])
-    );
+    const base = cryptoBase(req.params.symbol) ?? req.params.symbol.toUpperCase();
+    const data = await cached(`orderbook:${base}`, 5_000, () => withFallback([["binance", () => binance.orderBook(base)]]));
+    res.json(data);
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// ---- world indices (Yahoo) ----
+
+marketRouter.get("/indices", async (req, res) => {
+  try {
+    // ~40 Yahoo lookups behind a polite rate limiter, so the board is shared for 15s.
+    const data = await cached("indices:world", 15_000, async () => {
+      const quotes = await getQuotes(WORLD_INDICES.map((i) => i.symbol));
+      const bySymbol = new Map(quotes.map((q) => [q.symbol, q]));
+      const rows = WORLD_INDICES.map((i) => {
+        const q = bySymbol.get(i.symbol);
+        return { ...i, price: q?.price ?? null, change: q?.change ?? null, changePercent: q?.changePercent ?? null, currency: q?.currency ?? null };
+      });
+      if (rows.every((d) => d.price === null)) throw new Error("no index quotes from any provider");
+      return rows;
+    });
     res.json(data);
   } catch (err) {
     fail(req, res, err);
