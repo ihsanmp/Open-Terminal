@@ -412,3 +412,107 @@ export const community: IndicatorDef[] = [
     },
   },
 ];
+
+// Bitcoin Power Law Oscillator [InvestorUnknown] — ported from the published Pine v6
+// source (MPL-2.0). Fair value follows price ≈ 10^(A + B·log10(days since 2009-01-01));
+// the oscillator is how far price sits from that midline, rescaled to -1…+1 against the
+// extremes seen so far. Built for a BTC chart — the model is Bitcoin's, not a generic one.
+const POWER_LAW_EPOCH = Date.UTC(2009, 0, 1) / 1000; // the script's day count: barssince(first BLX bar) + 564
+const NORMALIZATION_START = Date.UTC(2011, 0, 1) / 1000;
+
+/** Linear blend between two hex colors, like Pine's color.from_gradient. */
+function gradient(from: string, to: string, t: number): string {
+  const clamped = Math.min(1, Math.max(0, t));
+  const parse = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const [r1, g1, b1] = parse(from);
+  const [r2, g2, b2] = parse(to);
+  const mix = (x: number, y: number) => Math.round(x + (y - x) * clamped);
+  return `rgb(${mix(r1, r2)},${mix(g1, g2)},${mix(b1, b2)})`;
+}
+
+community.push({
+  id: "btcpowerlaw",
+  name: "Bitcoin Power Law Oscillator [InvestorUnknown]",
+  short: "BTC Power Law",
+  category: "Community",
+  overlay: false,
+  description: "Distance from the Bitcoin power-law midline, rescaled to -1…+1. Meant for a BTC chart; other assets need the fitted mode.",
+  inputs: [
+    src(),
+    float("coefA", "Regression Coef. A", -16.98212206, 0.00000001),
+    float("coefB", "Regression Coef. B", 5.83430649, 0.00000001),
+    bool("fit", "Fit A and B to the loaded range", false),
+    bool("plotMa", "Plot Moving Average", true),
+    select("maType", "Moving Average Type", ["SMA", "EMA"], "SMA"),
+    int("maLength", "Moving Average Length", 200),
+  ],
+  plots: [
+    { key: "osc", title: "Power Law Oscillator", color: C.red, width: 2 },
+    { key: "ma", title: "Moving Average", color: "#9C27B0", width: 2 },
+    { key: "midline", title: "Power law midline", color: C.gray, display: "legend" },
+    { key: "distance", title: "Midline distance %", color: C.gray, display: "legend" },
+  ],
+  precision: 3,
+  compute: (bars, p) => {
+    const price = ta.source(bars, s(p, "source"));
+    const days = bars.time.map((t) => Math.max(1, Math.floor((t - POWER_LAW_EPOCH) / 86_400)));
+    const logDays = days.map(Math.log10);
+
+    let intercept = n(p, "coefA");
+    let slope = n(p, "coefB");
+    if (b(p, "fit")) {
+      // Least squares of log10(price) on log10(days) over the loaded bars, so the same
+      // oscillator can be read on assets the Bitcoin coefficients don't describe.
+      const pts = price.map((v, i) => [logDays[i], Math.log10(v)]).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+      if (pts.length >= 2) {
+        const mean = (get: (pt: number[]) => number) => pts.reduce((sum, pt) => sum + get(pt), 0) / pts.length;
+        const mx = mean((pt) => pt[0]);
+        const my = mean((pt) => pt[1]);
+        const cov = pts.reduce((sum, [x, y]) => sum + (x - mx) * (y - my), 0);
+        const varX = pts.reduce((sum, [x]) => sum + (x - mx) ** 2, 0);
+        if (varX > 0) {
+          slope = cov / varX;
+          intercept = my - slope * mx;
+        }
+      }
+    }
+
+    const midline = logDays.map((ld) => Math.pow(10, intercept + slope * ld));
+    // The script rounds the percentage distance to whole points before normalizing.
+    const distance = price.map((v, i) => (v > 0 ? Math.round((midline[i] / v - 1) * 100) : NaN));
+
+    // Running extremes from 2011 onwards; nothing is plotted until both exist.
+    const osc = ta.fill(bars.length);
+    let min = NaN;
+    let max = NaN;
+    for (let i = 0; i < bars.length; i++) {
+      const value = -distance[i];
+      if (!Number.isFinite(value)) continue;
+      if (bars.time[i] >= NORMALIZATION_START) {
+        if (!Number.isFinite(max) || value > max) max = value;
+        if (!Number.isFinite(min) || value < min) min = value;
+      }
+      if (Number.isFinite(min) && Number.isFinite(max) && max !== min) {
+        osc[i] = (2 * (value - min)) / (max - min) - 1;
+      }
+    }
+
+    const ma = b(p, "plotMa") ? ta.maByType(s(p, "maType"), osc, n(p, "maLength")) : ta.fill(bars.length);
+    // Green at -1 through red at +1, with the fill to the zero line fading out at zero.
+    const line = osc.map((v) => (Number.isFinite(v) ? gradient("#4CAF50", "#F23645", (v + 1) / 2) : undefined));
+    const fill = osc.map((v) =>
+      Number.isFinite(v) ? alpha(v >= 0 ? "#F23645" : "#4CAF50", Math.min(0.7, 0.7 * Math.abs(v))) : undefined
+    );
+
+    return {
+      plots: { osc, ma, midline, distance },
+      colors: { osc: line },
+      fills: [{ a: "osc", b: 0, color: fill }],
+      hlines: [
+        { price: 1, color: C.gray, dashed: true },
+        { price: 0, color: C.gray, dashed: true },
+        { price: -1, color: C.gray, dashed: true },
+      ],
+    };
+  },
+});
