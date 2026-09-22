@@ -38,6 +38,7 @@ import { BackgroundPrimitive, FillPrimitive } from "../../lib/ta/chart-primitive
 import { DEFAULT_CHART_INDICATORS, useTerminal, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 import { IndicatorPicker, IndicatorSettings } from "../chart/IndicatorDialogs";
 import { isCryptoSymbol, usePoll, usSessionActive } from "../../lib/refresh";
+import { barIntervalSeconds, formatBarTime, formatCountdown, intervalLabel, isIntradayInterval, secondsToClose } from "../../lib/candle-time";
 
 const RANGES = ["1D", "5D", "1M", "6M", "YTD", "1Y", "5Y", "MAX"] as const;
 const CHART_TYPES = ["candles", "bars", "line", "area"] as const;
@@ -99,6 +100,22 @@ function pricePrecision(candles: Candle[]): number {
   return Math.min(12, Math.ceil(-Math.log10(ref)) + 3);
 }
 
+/** Ticks once a second while a candle is still open, so it only re-renders this one label. */
+function BarCountdown({ barTime, intervalSeconds }: { barTime: number; intervalSeconds: number }) {
+  const [left, setLeft] = useState(() => secondsToClose(barTime, intervalSeconds));
+  useEffect(() => {
+    setLeft(secondsToClose(barTime, intervalSeconds));
+    const id = setInterval(() => setLeft(secondsToClose(barTime, intervalSeconds)), 1_000);
+    return () => clearInterval(id);
+  }, [barTime, intervalSeconds]);
+  if (left === null) return <span className="dim">closing…</span>;
+  return (
+    <span className="dim">
+      closes in <span className="amber">{formatCountdown(left)}</span>
+    </span>
+  );
+}
+
 function formatValue(v: number | undefined, precision: number): string {
   if (v === undefined || !Number.isFinite(v)) return "∅";
   return Math.abs(v) >= 100_000 ? fmtBig(v) : fmt(v, precision);
@@ -120,7 +137,9 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const saveInstances = (next: IndicatorInstance[]) => setWidgetIndicators(widget.id, next);
   const poll = usePoll(() => {
     const live = isCryptoSymbol(symbol) || usSessionActive();
-    return range === "1D" || range === "5D" ? (live ? 20_000 : 300_000) : live ? 120_000 : 900_000;
+    if (range === "1D" || range === "5D") return live ? 10_000 : 300_000;
+    if (range === "1M") return live ? 30_000 : 600_000;
+    return live ? 120_000 : 900_000;
   });
 
   const { data: candles, error } = useQuery({
@@ -359,6 +378,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const remove = (uid: string) => saveInstances(latestIndicators(widget.id).filter((i) => i.uid !== uid));
 
   const legendPrecision = candles && n > 0 ? pricePrecision(candles) : 2;
+  const intervalSeconds = bars ? barIntervalSeconds(bars.time) : 86_400;
+  const hoveringLastBar = hoverIndex === null || hoverIndex >= n - 1;
 
   const legendRow = (it: Prepared) => (
     <div key={it.inst.uid} className="group flex gap-2 items-center pointer-events-auto w-fit max-w-full">
@@ -423,6 +444,12 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         {candle && (
           <div className="absolute top-1 left-2 z-10 flex flex-col gap-0.5 text-[11px] pointer-events-none max-w-[85%]">
             <div className="flex gap-3 bg-[rgba(10,10,10,0.7)] w-fit px-1">
+              <span className="dim">
+                <span className="amber">{intervalLabel(intervalSeconds)}</span> {formatBarTime(candle.time, intervalSeconds)}
+              </span>
+              {hoveringLastBar && isIntradayInterval(intervalSeconds) && (
+                <BarCountdown barTime={candle.time} intervalSeconds={intervalSeconds} />
+              )}
               <span className="dim">O <span className="text-[var(--text)]">{fmtPrice(candle.open)}</span></span>
               <span className="dim">H <span className="up">{fmtPrice(candle.high)}</span></span>
               <span className="dim">L <span className="down">{fmtPrice(candle.low)}</span></span>

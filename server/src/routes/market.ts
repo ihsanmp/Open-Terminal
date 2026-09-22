@@ -19,6 +19,9 @@ export const marketRouter = Router();
 
 const QUOTE_TTL = 1_000;
 const HISTORY_TTL = 20_000;
+const INTRADAY_HISTORY_TTL = 8_000;
+/** Ranges drawn from intraday candles. */
+const INTRADAY_RANGES = new Set(["1D", "5D", "1M"]);
 const NEWS_TTL = 60_000;
 
 function fail(req: any, res: any, err: unknown) {
@@ -277,7 +280,8 @@ marketRouter.get("/history/:symbol", async (req, res) => {
   try {
     const base = cryptoBase(symbol);
     const yahooHistory = () => yahoo.history(symbol, yahooRange(rangeKey).range, yahooRange(rangeKey).interval);
-    const data = await cached(`history:${symbol}:${rangeKey}`, HISTORY_TTL, () =>
+    const ttl = INTRADAY_RANGES.has(rangeKey) ? INTRADAY_HISTORY_TTL : HISTORY_TTL;
+    const data = await cached(`history:${symbol}:${rangeKey}`, ttl, () =>
       base
         ? cryptoHistory(base, symbol, rangeKey)
         : isVix(symbol)
@@ -287,6 +291,13 @@ marketRouter.get("/history/:symbol", async (req, res) => {
           ])
         : isYahooOnly(symbol)
         ? withFallback([["yahoo", yahooHistory]])
+        : INTRADAY_RANGES.has(rangeKey)
+        ? // Nasdaq's chart API only returns daily bars, so an intraday range drawn from it
+          // is a handful of stale daily candles. Yahoo serves real 5m/15m/1h bars.
+          withFallback([
+            ["yahoo", yahooHistory],
+            ["nasdaq", () => nasdaq.history(symbol, rangeKey)],
+          ])
         : withFallback([
             ["nasdaq", () => nasdaq.history(symbol, rangeKey)],
             ["yahoo", yahooHistory],
