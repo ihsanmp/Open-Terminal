@@ -89,8 +89,17 @@ describe("every indicator", () => {
   const row = (fixture.symbols as Record<string, Row>).AAPL;
   const bars: Bars = { ...row, length: row.close.length };
 
+  // Synthetic on-chain history reaching past the fixture, for indicators that read it.
+  const firstDay = Date.UTC(2010, 7, 18) / 1000;
+  const days = Math.ceil((bars.time[bars.length - 1] - firstDay) / 86_400) + 1;
+  const btcDaily = {
+    time: Array.from({ length: days }, (_, i) => firstDay + i * 86_400),
+    price: Array.from({ length: days }, (_, i) => 0.1 + i * 20 + 500 * Math.sin(i / 90) ** 2),
+    blocks: Array.from({ length: days }, (_, i) => 130 + (i % 30)),
+  };
+
   it.each([...INDICATOR_BY_ID.values()].map((d) => [d.id, d] as const))("%s computes aligned, finite output", (_id, def) => {
-    const result = def.compute(bars, defaultParams(def));
+    const result = def.compute(bars, defaultParams(def), { btcDaily });
     for (const plot of def.plots) {
       const series = result.plots[plot.key];
       if (!series) continue; // optional plots (e.g. an MA set to "None")

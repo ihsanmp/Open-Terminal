@@ -27,7 +27,9 @@ import {
   createInstance,
   instanceLabel,
   resolveParams,
+  type BtcDaily,
   type Color,
+  type ExternalData,
   type IndicatorDef,
   type IndicatorInstance,
   type IndicatorResult,
@@ -151,6 +153,18 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
 
   const bars = useMemo(() => (candles && candles.length > 0 ? candlesToBars(candles) : null), [candles]);
 
+  // On-chain series (Bitcoin Thermocap) are fetched only while an indicator that reads them is shown.
+  const needsBtcDaily = instances.some((i) => !i.hidden && INDICATOR_BY_ID.get(i.id)?.needs?.includes("btcDaily"));
+  const btcDailyPoll = usePoll(600_000);
+  const { data: btcDaily } = useQuery({
+    queryKey: ["onchain", "btc-daily"],
+    queryFn: () => apiGet<BtcDaily>("/api/onchain/btc-daily"),
+    enabled: needsBtcDaily,
+    staleTime: 300_000,
+    refetchInterval: btcDailyPoll,
+  });
+  const ext = useMemo<ExternalData>(() => ({ btcDaily }), [btcDaily]);
+
   const instancesKey = JSON.stringify(instances);
   const prepared = useMemo(() => {
     if (!bars) return null;
@@ -161,7 +175,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       let result: IndicatorResult = { plots: {} };
       let err: string | undefined;
       try {
-        result = def.compute(bars, params);
+        result = def.compute(bars, params, ext);
       } catch (e) {
         err = e instanceof Error ? e.message : String(e);
       }
@@ -186,7 +200,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       return { ...c, plots };
     });
     return { times: times as UTCTimestamp[], total, items };
-  }, [bars, instancesKey]);
+  }, [bars, ext, instancesKey]);
 
   // Pane index per visible separate-pane indicator, in list order.
   const paneOf = useMemo(() => {
