@@ -17,6 +17,7 @@ import * as tvchart from "../providers/tvchart.js";
 import * as newsfeeds from "../providers/newsfeeds.js";
 import { cryptoBase, cryptoTicker, isIndex, isYahooOnly } from "../symbols.js";
 import { INDEX_TV_TICKER, WORLD_INDICES, searchIndices } from "../indices.js";
+import { cryptoTerm, matchCoins, rankResults, type Coin, type SearchResult } from "../search.js";
 
 export const marketRouter = Router();
 
@@ -330,6 +331,18 @@ function yahooRange(rangeKey: string): { range: string; interval: string } {
 
 // ---- search ----
 
+/** Coin matches from TradingView's ranked board, plus Binance USDT bases it lacks (or all of them if it's down). */
+async function searchCoins(q: string): Promise<SearchResult[]> {
+  const [board, bases] = await Promise.allSettled([tradingview.coinBoard(), binance.usdtBases()]);
+  const coins: Coin[] = board.status === "fulfilled" ? board.value.map((c) => ({ symbol: c.symbol, name: c.name, rank: c.rank })) : [];
+  if (bases.status === "fulfilled") {
+    const listed = new Set(coins.map((c) => c.symbol));
+    for (const base of bases.value) if (!listed.has(base)) coins.push({ symbol: base, name: base, rank: null });
+  }
+  if (coins.length === 0) throw board.status === "rejected" ? board.reason : new Error("no coin universe");
+  return matchCoins(coins, q, cryptoTerm(q).pair ? 8 : 5);
+}
+
 marketRouter.get("/search", async (req, res) => {
   const q = String(req.query.q ?? "").trim();
   if (!q) return res.json([]);
@@ -340,26 +353,12 @@ marketRouter.get("/search", async (req, res) => {
           ["tradingview", () => tradingview.search(q)],
           ["yahoo", () => yahoo.search(q)],
         ]),
-        tradingview.coinSearch(q, 5),
+        searchCoins(q),
       ]);
       const indices = searchIndices(q).map((i) => ({ symbol: i.symbol, name: i.name, exchange: i.country, type: "index" }));
-      const merged = [...indices, ...(stocks.status === "fulfilled" ? stocks.value : []), ...(coins.status === "fulfilled" ? coins.value : [])];
-      if (merged.length === 0 && stocks.status === "rejected") throw stocks.reason;
-      // Exact ticker hits first (typing "BTC" should surface BTC-USD before bitcoin ETFs).
-      const needle = q.toUpperCase();
-      const rank = (r: { symbol: string; name: string; type: string }) =>
-        r.symbol === needle || r.symbol === `${needle}-USD` || r.symbol === `^${needle}` || r.name.toUpperCase() === needle
-          ? 0
-          : r.type === "index" || r.symbol.startsWith(needle)
-          ? 1
-          : 2;
-      const seen = new Set<string>();
-      return merged
-        .map((r, i) => ({ r, i }))
-        .sort((a, b) => rank(a.r) - rank(b.r) || a.i - b.i)
-        .map(({ r }) => r)
-        .filter((r) => !seen.has(r.symbol) && seen.add(r.symbol))
-        .slice(0, 25);
+      const found = [indices, stocks.status === "fulfilled" ? stocks.value : [], coins.status === "fulfilled" ? coins.value : []];
+      if (found.every((l) => l.length === 0) && stocks.status === "rejected") throw stocks.reason;
+      return rankResults(found, q);
     });
     res.json(data);
   } catch (err) {

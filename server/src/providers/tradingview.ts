@@ -425,24 +425,6 @@ export async function coinQuote(base: string, displaySymbol: string): Promise<Qu
   };
 }
 
-export async function coinSearch(query: string, limit = 6): Promise<SearchResult[]> {
-  const q = query.trim().toLowerCase();
-  if (!q) return [];
-  const rows = await coinBoard();
-  // Exact ticker and exact name tie, so "bitcoin" finds Bitcoin (#1) before a small token whose ticker is BITCOIN.
-  const score = (c: CryptoRow) =>
-    c.symbol.toLowerCase() === q || c.name.toLowerCase() === q ? 0 : c.symbol.toLowerCase().startsWith(q) || c.name.toLowerCase().startsWith(q) ? 1 : 2;
-  const seen = new Set<string>();
-  return rows
-    .filter((c) => c.symbol.toLowerCase().includes(q) || c.name.toLowerCase().includes(q))
-    .map((c, i) => ({ c, i, s: score(c) }))
-    .sort((a, b) => a.s - b.s || a.i - b.i) // rows are already in rank order
-    .map(({ c }) => c)
-    .filter((c) => !seen.has(c.symbol) && seen.add(c.symbol))
-    .slice(0, limit)
-    .map((c) => ({ symbol: c.ticker, name: c.name, exchange: c.rank ? `Crypto #${c.rank}` : "Crypto", type: "crypto" }));
-}
-
 /** Units of `to` per one unit of `from`, from TradingView's FX_IDC reference rates. */
 export async function fxRate(from: string, to: string): Promise<number> {
   const a = from.toUpperCase();
