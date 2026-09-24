@@ -40,7 +40,11 @@ const SUFFIX_TZ: Record<string, string> = {
 
 /** syminfo for a chart symbol as TradingView would report it. Crypto charts here are
  *  Binance USDT pairs shown as "-USD", so their ticker is BASEUSDT. */
-export function chartContext(symbol: string, intervalSeconds: number): ChartContext {
+export function chartContext(symbol: string, intervalSeconds: number, range?: string): ChartContext {
+  return { ...baseContext(symbol, intervalSeconds), range };
+}
+
+function baseContext(symbol: string, intervalSeconds: number): ChartContext {
   const upper = symbol.toUpperCase();
   if (isCryptoSymbol(upper)) {
     const base = upper.replace(/-USDT?$/, "");

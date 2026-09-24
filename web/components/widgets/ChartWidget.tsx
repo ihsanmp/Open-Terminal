@@ -171,7 +171,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
 
   // request.security() of other symbols: each indicator names the API paths it needs.
   const intervalSeconds = bars ? barIntervalSeconds(bars.time) : 86_400;
-  const ctx = useMemo(() => chartContext(symbol, intervalSeconds), [symbol, intervalSeconds]);
+  const ctx = useMemo(() => chartContext(symbol, intervalSeconds, range), [symbol, intervalSeconds, range]);
   const instancesJson = JSON.stringify(instances);
   const fetchPaths = useMemo(() => {
     const paths = new Set<string>();
@@ -314,7 +314,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     }
 
     const overlayMarkers: SeriesMarker<Time>[] = [];
-    const drawings: DrawingsSpec = { lines: [], labels: [], crosses: [] };
+    const drawings: DrawingsSpec = { lines: [], labels: [], crosses: [], boxes: [] };
     const toMarkers = (it: Prepared) =>
       (it.result.markers ?? [])
         .filter((m) => m.index >= 0 && m.index < candles.length && m.shape !== "xcross")
@@ -400,6 +400,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         overlayMarkers.push(...toMarkers(it));
         drawings.lines.push(...(it.result.lines ?? []));
         drawings.labels.push(...(it.result.labels ?? []));
+        drawings.boxes.push(...(it.result.boxes ?? []));
         for (const m of it.result.markers ?? []) {
           if (m.shape !== "xcross" || m.index < 0 || m.index >= candles.length) continue;
           const above = m.position === "aboveBar";
@@ -409,7 +410,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       else if (it.result.markers?.length) createSeriesMarkers(anchor, toMarkers(it).sort((x, y) => (x.time as number) - (y.time as number)));
     }
     if (overlayMarkers.length) createSeriesMarkers(main, overlayMarkers.sort((x, y) => (x.time as number) - (y.time as number)));
-    if (drawings.lines.length || drawings.labels.length || drawings.crosses.length) main.attachPrimitive(new DrawingsPrimitive(drawings));
+    if (drawings.lines.length || drawings.labels.length || drawings.crosses.length || drawings.boxes.length) main.attachPrimitive(new DrawingsPrimitive(drawings));
 
     const panes = chart.panes();
     panes.forEach((p, i) => p.setStretchFactor(i === 0 ? Math.max(2, panes.length - 1) * 1.5 : 1));

@@ -17,7 +17,9 @@ export type InputDef =
   | { key: string; label: string; type: "source"; default: string; external?: boolean }
   | { key: string; label: string; type: "select"; default: string; options: readonly string[] }
   | { key: string; label: string; type: "bool"; default: boolean }
-  | { key: string; label: string; type: "color"; default: string };
+  | { key: string; label: string; type: "color"; default: string }
+  /** Free text, e.g. a symbol for request.security (Correlation Coefficient). */
+  | { key: string; label: string; type: "text"; default: string };
 
 export type Params = Record<string, number | string | boolean>;
 
@@ -52,16 +54,30 @@ export type Line = { x1: number; y1: number; x2: number; y2: number; color: stri
 
 export type DrawSize = "tiny" | "small" | "normal" | "large" | "huge";
 
-/** Pine label.new(). "left": text starts at the point (style_label_left); "center": boxed text
- *  centered on it; "circle": a filled dot (style_circle with no text). */
+/** Pine label.new(). "left": text starts at the point (style_label_left); "right": text ends
+ *  at it (style_label_right); "center": boxed text centered on it; "circle": a filled dot
+ *  (style_circle with no text). */
 export type Label = {
   index: number;
   price: number;
   text: string;
-  style: "left" | "center" | "circle";
+  style: "left" | "right" | "center" | "circle";
   textColor?: string;
   bg?: string;
   size: DrawSize;
+};
+
+/** Pine box.new(): bar indices and prices, drawn behind the candles. */
+export type Box = {
+  x1: number;
+  x2: number;
+  top: number;
+  bottom: number;
+  bg: string;
+  border?: string;
+  dashed?: boolean;
+  text?: string;
+  textColor?: string;
 };
 
 export type TableCell = {
@@ -105,6 +121,7 @@ export type IndicatorResult = {
   bgColors?: Color[];
   lines?: Line[];
   labels?: Label[];
+  boxes?: Box[];
   table?: IndicatorTable;
 };
 
@@ -120,6 +137,8 @@ export type ChartContext = {
   /** Exchange time zone for hour()/dayofweek() etc. */
   timezone: string;
   intervalSeconds: number;
+  /** The chart's range button (1D, 5D, 1M, 6M, YTD, 1Y, 5Y, MAX), for fetching other symbols alike. */
+  range?: string;
 };
 
 /** Data an indicator reads from outside the chart's own candles, like Pine's request.security. */
@@ -178,6 +197,7 @@ export const select = (key: string, label: string, options: readonly string[], d
 });
 export const bool = (key: string, label: string, def: boolean): InputDef => ({ key, label, type: "bool", default: def });
 export const colorInput = (key: string, label: string, def: string): InputDef => ({ key, label, type: "color", default: def });
+export const text = (key: string, label: string, def: string): InputDef => ({ key, label, type: "text", default: def });
 
 export const n = (p: Params, key: string) => Number(p[key]);
 export const s = (p: Params, key: string) => String(p[key]);

@@ -98,8 +98,18 @@ describe("every indicator", () => {
     blocks: Array.from({ length: days }, (_, i) => 130 + (i % 30)),
   };
 
-  it.each([...INDICATOR_BY_ID.values()].map((d) => [d.id, d] as const))("%s computes aligned, finite output", (_id, def) => {
-    const result = def.compute(bars, defaultParams(def), { btcDaily });
+  // Another symbol for request.security-style inputs (Correlation Coefficient reads candles).
+  const jpm = (fixture.symbols as Record<string, Row>).JPM;
+  const otherCandles = jpm.time.map((time, i) => ({ time, open: jpm.open[i], high: jpm.high[i], low: jpm.low[i], close: jpm.close[i], volume: jpm.volume[i] }));
+  const chart = { symbol: "AAPL", ticker: "AAPL", type: "stock" as const, timezone: "America/New_York", intervalSeconds: 86_400, range: "5Y" };
+  // Relative Volume at Time only means something on intraday bars.
+  const INTRADAY_ONLY = new Set(["rvat"]);
+
+  it.each([...INDICATOR_BY_ID.values()].filter((d) => !INTRADAY_ONLY.has(d.id)).map((d) => [d.id, d] as const))("%s computes aligned, finite output", (_id, def) => {
+    const params = defaultParams(def);
+    const fetched: Record<string, unknown> = {};
+    for (const path of def.fetches?.(params, chart) ?? []) if (path.startsWith("/api/history/")) fetched[path] = otherCandles;
+    const result = def.compute(bars, params, { btcDaily, chart, fetched });
     for (const plot of def.plots) {
       const series = result.plots[plot.key];
       if (!series) continue; // optional plots (e.g. an MA set to "None")

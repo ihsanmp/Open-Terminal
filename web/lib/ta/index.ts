@@ -4,16 +4,42 @@ import { bands } from "./indicators/bands";
 import { oscillators } from "./indicators/oscillators";
 import { community, volatility, volume } from "./indicators/volume";
 import { luxalgo } from "./indicators/luxalgo";
+import { more } from "./indicators/more";
 import type { Category, ExternalData, IndicatorDef, IndicatorInstance, IndicatorResult, Params } from "./types";
 
 export * from "./types";
 export type { Bars, Series } from "./core";
 
-export const INDICATORS: IndicatorDef[] = [...averages, ...bands, ...oscillators, ...volume, ...volatility, ...community, ...luxalgo].sort(
+export const INDICATORS: IndicatorDef[] = [...averages, ...bands, ...oscillators, ...volume, ...volatility, ...community, ...luxalgo, ...more].sort(
   (a, b) => a.name.localeCompare(b.name)
 );
 
 export const INDICATOR_BY_ID = new Map(INDICATORS.map((d) => [d.id, d]));
+
+// Other names TradingView users search by (its older names, common abbreviations).
+const ALIASES: Record<string, string[]> = {
+  lsma: ["Linear Regression Curve"],
+  kama: ["Moving Average Adaptive", "AMA"],
+  macd: ["Moving Average Convergence Divergence"],
+  stoch: ["Stochastic Oscillator"],
+  stochrsi: ["Stoch RSI"],
+  rsi: ["RSI"],
+  volume: ["Vol", "Volume bars"],
+  bb: ["Bollinger"],
+  ppo: ["Price Oscillator"],
+  dmi: ["Directional Movement"],
+  efi: ["Elder's Force Index"],
+  env: ["Envelopes"],
+  mfi: ["Money Flow"],
+  tsi: ["True Strength Indicator"],
+  hv: ["Historical Volatility"],
+  fractals: ["Williams Fractals"],
+  psar: ["SAR"],
+};
+for (const [id, names] of Object.entries(ALIASES)) {
+  const def = INDICATOR_BY_ID.get(id);
+  if (def) def.aliases = [...(def.aliases ?? []), ...names];
+}
 
 export const CATEGORIES: Category[] = [
   "Moving Averages",
