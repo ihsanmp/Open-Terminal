@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart,
@@ -30,13 +30,16 @@ import {
   type BtcDaily,
   type Color,
   type ExternalData,
+  type Series,
   type IndicatorDef,
   type IndicatorInstance,
   type IndicatorResult,
   type Params,
 } from "../../lib/ta";
 import { barSpacing } from "../../lib/ta/core";
-import { BackgroundPrimitive, FillPrimitive } from "../../lib/ta/chart-primitives";
+import { BackgroundPrimitive, DrawingsPrimitive, FillPrimitive, type DrawingsSpec } from "../../lib/ta/chart-primitives";
+import { IndicatorTableView } from "../chart/IndicatorTableView";
+import { chartContext } from "../../lib/chart-context";
 import { DEFAULT_CHART_INDICATORS, useTerminal, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 import { IndicatorPicker, IndicatorSettings } from "../chart/IndicatorDialogs";
 import { isCryptoSymbol, usePoll, usSessionActive } from "../../lib/refresh";
@@ -130,6 +133,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const [chartType, setChartType] = useState<ChartType>("candles");
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [paneTops, setPaneTops] = useState<number[]>([0]);
+  // Price-scale width and time-scale height, so tables sit inside the plotting area like Pine's.
+  const [axes, setAxes] = useState({ right: 60, bottom: 26 });
   const [pickerOpen, setPickerOpen] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -163,24 +168,76 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     staleTime: 300_000,
     refetchInterval: btcDailyPoll,
   });
-  const ext = useMemo<ExternalData>(() => ({ btcDaily }), [btcDaily]);
 
-  const instancesKey = JSON.stringify(instances);
+  // request.security() of other symbols: each indicator names the API paths it needs.
+  const intervalSeconds = bars ? barIntervalSeconds(bars.time) : 86_400;
+  const ctx = useMemo(() => chartContext(symbol, intervalSeconds), [symbol, intervalSeconds]);
+  const instancesJson = JSON.stringify(instances);
+  const fetchPaths = useMemo(() => {
+    const paths = new Set<string>();
+    for (const inst of JSON.parse(instancesJson) as IndicatorInstance[]) {
+      const def = INDICATOR_BY_ID.get(inst.id);
+      if (inst.hidden || !def?.fetches) continue;
+      for (const p of def.fetches(resolveParams(def, inst), ctx)) paths.add(p);
+    }
+    return [...paths].sort();
+  }, [instancesJson, ctx]);
+  const fetchPoll = usePoll(() => (isCryptoSymbol(symbol) || usSessionActive() ? 30_000 : 300_000));
+  const fetchResults = useQueries({
+    queries: fetchPaths.map((path) => ({
+      queryKey: ["indicator-fetch", path],
+      queryFn: () => apiGet<unknown>(path),
+      staleTime: 15_000,
+      refetchInterval: fetchPoll,
+    })),
+  });
+  const fetchedKey = fetchResults.map((r) => r.dataUpdatedAt).join(",");
+  const fetched = useMemo(() => {
+    const out: Record<string, unknown> = {};
+    fetchPaths.forEach((path, i) => {
+      if (fetchResults[i]?.data !== undefined) out[path] = fetchResults[i].data;
+    });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchPaths, fetchedKey]);
+  const ext = useMemo<ExternalData>(() => ({ btcDaily, chart: ctx, fetched }), [btcDaily, ctx, fetched]);
+
+  const instancesKey = instancesJson;
   const prepared = useMemo(() => {
     if (!bars) return null;
     const list = JSON.parse(instancesKey) as IndicatorInstance[];
-    const computed = list.map((inst) => {
+    // An input can read another indicator's plot ("plot:<uid>:<key>"), so indicators are
+    // computed once everything they read has been; a missing or circular source is an error.
+    const refsOf = (inst: IndicatorInstance) =>
+      Object.values(inst.params).filter((v): v is string => typeof v === "string" && v.startsWith("plot:"));
+    const plots: Record<string, Series> = {};
+    const done = new Map<string, Omit<Prepared, "plots">>();
+    const run = (inst: IndicatorInstance, forcedError?: string) => {
       const def = INDICATOR_BY_ID.get(inst.id)!;
       const params = resolveParams(def, inst);
       let result: IndicatorResult = { plots: {} };
-      let err: string | undefined;
-      try {
-        result = def.compute(bars, params, ext);
-      } catch (e) {
-        err = e instanceof Error ? e.message : String(e);
+      let err = forcedError;
+      if (!err) {
+        try {
+          result = def.compute(bars, params, { ...ext, plots });
+        } catch (e) {
+          err = e instanceof Error ? e.message : String(e);
+        }
       }
-      return { inst, def, params, label: instanceLabel(def, params), result, error: err };
-    });
+      for (const [key, values] of Object.entries(result.plots)) plots[`plot:${inst.uid}:${key}`] = values;
+      done.set(inst.uid, { inst, def, params, label: instanceLabel(def, params), result, error: err });
+    };
+    let pending = list;
+    while (pending.length) {
+      const ready = pending.filter((inst) => refsOf(inst).every((r) => r in plots));
+      if (ready.length === 0) {
+        pending.forEach((inst) => run(inst, "source indicator missing or circular"));
+        break;
+      }
+      ready.forEach((inst) => run(inst));
+      pending = pending.filter((inst) => !ready.includes(inst));
+    }
+    const computed = list.map((inst) => done.get(inst.uid)!);
     const maxFuture = Math.max(
       0,
       ...computed.filter((c) => !c.inst.hidden).flatMap((c) => Object.values(c.result.offsets ?? {}))
@@ -257,9 +314,10 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     }
 
     const overlayMarkers: SeriesMarker<Time>[] = [];
+    const drawings: DrawingsSpec = { lines: [], labels: [], crosses: [] };
     const toMarkers = (it: Prepared) =>
       (it.result.markers ?? [])
-        .filter((m) => m.index >= 0 && m.index < candles.length)
+        .filter((m) => m.index >= 0 && m.index < candles.length && m.shape !== "xcross")
         .map((m) => ({ time: times[m.index], position: m.position, shape: m.shape, color: m.color, text: m.text }) as SeriesMarker<Time>);
 
     for (const it of items) {
@@ -338,10 +396,20 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       if (it.result.bgColors) {
         anchor.attachPrimitive(new BackgroundPrimitive(times, shifted<Color>(it.result.bgColors, 0, total, undefined)));
       }
-      if (it.def.overlay) overlayMarkers.push(...toMarkers(it));
+      if (it.def.overlay) {
+        overlayMarkers.push(...toMarkers(it));
+        drawings.lines.push(...(it.result.lines ?? []));
+        drawings.labels.push(...(it.result.labels ?? []));
+        for (const m of it.result.markers ?? []) {
+          if (m.shape !== "xcross" || m.index < 0 || m.index >= candles.length) continue;
+          const above = m.position === "aboveBar";
+          drawings.crosses.push({ index: m.index, price: above ? candles[m.index].high : candles[m.index].low, position: above ? "above" : "below", color: m.color });
+        }
+      }
       else if (it.result.markers?.length) createSeriesMarkers(anchor, toMarkers(it).sort((x, y) => (x.time as number) - (y.time as number)));
     }
     if (overlayMarkers.length) createSeriesMarkers(main, overlayMarkers.sort((x, y) => (x.time as number) - (y.time as number)));
+    if (drawings.lines.length || drawings.labels.length || drawings.crosses.length) main.attachPrimitive(new DrawingsPrimitive(drawings));
 
     const panes = chart.panes();
     panes.forEach((p, i) => p.setStretchFactor(i === 0 ? Math.max(2, panes.length - 1) * 1.5 : 1));
@@ -350,6 +418,9 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       const top = el.getBoundingClientRect().top;
       const tops = chart.panes().map((p) => Math.round((p.getHTMLElement()?.getBoundingClientRect().top ?? top) - top));
       setPaneTops((prev) => (prev.length === tops.length && prev.every((v, i) => v === tops[i]) ? prev : tops));
+      const right = chart.priceScale("right").width();
+      const bottom = chart.timeScale().height();
+      setAxes((prev) => (prev.right === right && prev.bottom === bottom ? prev : { right, bottom }));
     };
     const raf = requestAnimationFrame(measurePanes);
     const ro = new ResizeObserver(measurePanes);
@@ -392,7 +463,6 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const remove = (uid: string) => saveInstances(latestIndicators(widget.id).filter((i) => i.uid !== uid));
 
   const legendPrecision = candles && n > 0 ? pricePrecision(candles) : 2;
-  const intervalSeconds = bars ? barIntervalSeconds(bars.time) : 86_400;
   const hoveringLastBar = hoverIndex === null || hoverIndex >= n - 1;
 
   const legendRow = (it: Prepared) => (
@@ -484,6 +554,11 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
               {legendRow(it)}
             </div>
           ))}
+        {items
+          .filter((it) => it.def.overlay && !it.inst.hidden && !it.error && it.result.table)
+          .map((it) => (
+            <IndicatorTableView key={`table-${it.inst.uid}`} table={it.result.table!} inset={axes} paneBottom={paneTops.length > 1 ? paneTops[1] : undefined} />
+          ))}
         <div ref={containerRef} className="w-full h-full" />
       </div>
       {pickerOpen && (
@@ -496,6 +571,13 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         <IndicatorSettings
           def={editingItem.def}
           instance={editingItem.inst}
+          plotSources={items
+            .filter((it) => it.inst.uid !== editingItem.inst.uid)
+            .flatMap((it) =>
+              it.def.plots
+                .filter((p) => it.result.plots[p.key])
+                .map((p) => ({ value: `plot:${it.inst.uid}:${p.key}`, label: `${it.label}: ${p.title}` }))
+            )}
           onClose={() => setEditing(null)}
           onApply={(params) => update(editingItem.inst.uid, { params })}
         />

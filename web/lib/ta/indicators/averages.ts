@@ -16,9 +16,50 @@ function simpleMa(id: string, name: string, short: string, len: number, f: (x: S
   };
 }
 
+const SMOOTHING_TYPES = ["None", "SMA", "SMA + Bollinger Bands", "EMA", "SMMA (RMA)", "WMA", "VWMA"] as const;
+
+/** TradingView's built-in "Moving Average Simple/Exponential": the average plus its Smoothing
+ *  section — an MA of the average, optionally with Bollinger Bands around it. */
+function smoothedMa(id: string, name: string, short: string, aliases: string[], f: (x: Series, len: number) => Series): IndicatorDef {
+  return {
+    id, name, short, category: "Moving Averages", overlay: true, aliases,
+    inputs: [
+      int("length", "Length", 9), src(), offset,
+      select("smoothing", "Smoothing Type", SMOOTHING_TYPES, "None"),
+      int("smoothingLength", "Smoothing Length", 14),
+      float("bbMult", "BB StdDev", 2, 0.5, 0.001),
+    ],
+    plots: [
+      { key: "ma", title: short, color: C.blue },
+      { key: "smoothing", title: `${short}-based MA`, color: "#FFEB3B" },
+      { key: "upper", title: "Upper Bollinger Band", color: "#4CAF50" },
+      { key: "lower", title: "Lower Bollinger Band", color: "#4CAF50" },
+    ],
+    compute: (bars, p) => {
+      const out = f(ta.source(bars, s(p, "source")), n(p, "length"));
+      const type = s(p, "smoothing");
+      const plots: Record<string, Series> = { ma: out };
+      if (type === "None") return { plots, offsets: { ma: n(p, "offset") } };
+      const len = n(p, "smoothingLength");
+      const isBB = type === "SMA + Bollinger Bands";
+      plots.smoothing = isBB ? ta.sma(out, len) : ta.maByType(type, out, len, bars.volume);
+      if (isBB) {
+        const dev = ta.stdev(out, len).map((v) => v * n(p, "bbMult"));
+        plots.upper = plots.smoothing.map((m, i) => m + dev[i]);
+        plots.lower = plots.smoothing.map((m, i) => m - dev[i]);
+      }
+      return {
+        plots,
+        offsets: { ma: n(p, "offset") },
+        fills: isBB ? [{ a: "upper", b: "lower", color: alpha("#4CAF50", 0.1) }] : undefined,
+      };
+    },
+  };
+}
+
 export const averages: IndicatorDef[] = [
-  simpleMa("sma", "Moving Average Simple", "SMA", 9, ta.sma),
-  simpleMa("ema", "Moving Average Exponential", "EMA", 9, ta.ema),
+  smoothedMa("sma", "Moving Average Simple", "SMA", ["Simple Moving Average", "MA"], ta.sma),
+  smoothedMa("ema", "Moving Average Exponential", "EMA", ["Exponential Moving Average"], ta.ema),
   simpleMa("wma", "Moving Average Weighted", "WMA", 9, ta.wma),
   simpleMa("smma", "Smoothed Moving Average", "SMMA", 7, ta.rma),
   simpleMa("hma", "Hull Moving Average", "HMA", 9, ta.hma),

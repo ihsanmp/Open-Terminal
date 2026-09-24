@@ -13,6 +13,7 @@ import * as econcalendar from "../providers/econcalendar.js";
 import * as finra from "../providers/finra.js";
 import * as secedgar from "../providers/secedgar.js";
 import * as onchain from "../providers/onchain.js";
+import * as tvchart from "../providers/tvchart.js";
 import { cryptoBase, cryptoTicker, isIndex, isYahooOnly } from "../symbols.js";
 import { INDEX_TV_TICKER, WORLD_INDICES, searchIndices } from "../indices.js";
 
@@ -486,6 +487,28 @@ marketRouter.get("/crypto/global", async (req, res) => {
 marketRouter.get("/onchain/btc-daily", async (req, res) => {
   try {
     res.json(await cached("onchain:btc-daily", 10 * 60_000, () => onchain.btcDaily()));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// Recent bars of EXCHANGE:TICKER symbols from TradingView's chart feed, for indicators
+// that read other exchanges' data (Pine request.security). Invalid symbols come back null.
+marketRouter.get("/tv/bars", async (req, res) => {
+  try {
+    const symbols = [...new Set(String(req.query.symbols ?? "").toUpperCase().split(",").filter(Boolean))];
+    const resolution = String(req.query.resolution ?? "1D").toUpperCase();
+    const count = Math.round(Number(req.query.count ?? 100));
+    if (symbols.length === 0 || symbols.length > 40 || !symbols.every((sym) => tvchart.SYMBOL_RE.test(sym))) {
+      res.status(400).json({ error: "symbols: 1-40 EXCHANGE:TICKER values" });
+      return;
+    }
+    if (!tvchart.RESOLUTION_RE.test(resolution) || !(count >= 1 && count <= 5000)) {
+      res.status(400).json({ error: "invalid resolution or count" });
+      return;
+    }
+    const key = `tv:bars:${resolution}:${count}:${symbols.join(",")}`;
+    res.json(await cached(key, 15_000, () => tvchart.bars(symbols, resolution, count)));
   } catch (err) {
     fail(req, res, err);
   }

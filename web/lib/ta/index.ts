@@ -3,12 +3,13 @@ import { averages } from "./indicators/averages";
 import { bands } from "./indicators/bands";
 import { oscillators } from "./indicators/oscillators";
 import { community, volatility, volume } from "./indicators/volume";
+import { luxalgo } from "./indicators/luxalgo";
 import type { Category, ExternalData, IndicatorDef, IndicatorInstance, IndicatorResult, Params } from "./types";
 
 export * from "./types";
-export type { Bars } from "./core";
+export type { Bars, Series } from "./core";
 
-export const INDICATORS: IndicatorDef[] = [...averages, ...bands, ...oscillators, ...volume, ...volatility, ...community].sort(
+export const INDICATORS: IndicatorDef[] = [...averages, ...bands, ...oscillators, ...volume, ...volatility, ...community, ...luxalgo].sort(
   (a, b) => a.name.localeCompare(b.name)
 );
 
@@ -25,6 +26,15 @@ export const CATEGORIES: Category[] = [
   "Support & Resistance",
   "Community",
 ];
+
+/** Picker search: every word of the query must appear in the name, short name or an alias,
+ *  so "exponential moving average" finds "Moving Average Exponential". */
+export function matchesQuery(def: IndicatorDef, query: string): boolean {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+  const haystack = [def.name, def.short, ...(def.aliases ?? [])].join(" ").toLowerCase();
+  return words.every((w) => haystack.includes(w));
+}
 
 export function defaultParams(def: IndicatorDef): Params {
   return Object.fromEntries(def.inputs.map((i) => [i.key, i.default]));
@@ -48,8 +58,9 @@ export function resolveParams(def: IndicatorDef, inst: IndicatorInstance): Param
 export function instanceLabel(def: IndicatorDef, params: Params): string {
   const shown: Array<string | number | boolean> = [];
   def.inputs.forEach((input, i) => {
+    if (def.legendInputs && !def.legendInputs.includes(input.key)) return;
     const v = params[input.key];
-    if (input.type === "bool" || v === undefined || v === "None") return;
+    if (input.type === "bool" || input.type === "color" || v === undefined || v === "None") return;
     // An MA type set to "None" also hides the length input that follows it.
     const prev = def.inputs[i - 1];
     if (prev?.type === "select" && params[prev.key] === "None") return;

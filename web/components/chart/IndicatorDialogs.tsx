@@ -7,6 +7,7 @@ import {
   CATEGORIES,
   INDICATORS,
   defaultParams,
+  matchesQuery,
   type Category,
   type IndicatorDef,
   type IndicatorInstance,
@@ -53,12 +54,7 @@ export function IndicatorPicker({ onAdd, onClose }: { onAdd: (def: IndicatorDef)
   }, []);
 
   const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return INDICATORS.filter(
-      (d) =>
-        (category === "All" || d.category === category) &&
-        (!q || d.name.toLowerCase().includes(q) || d.short.toLowerCase().includes(q))
-    );
+    return INDICATORS.filter((d) => (category === "All" || d.category === category) && matchesQuery(d, query));
   }, [query, category]);
 
   const add = (def: IndicatorDef) => {
@@ -115,11 +111,14 @@ export function IndicatorPicker({ onAdd, onClose }: { onAdd: (def: IndicatorDef)
 export function IndicatorSettings({
   def,
   instance,
+  plotSources = [],
   onApply,
   onClose,
 }: {
   def: IndicatorDef;
   instance: IndicatorInstance;
+  /** Other indicators' plots on the chart, offered by source inputs marked `external`. */
+  plotSources?: Array<{ value: string; label: string }>;
   onApply: (params: Params) => void;
   onClose: () => void;
 }) {
@@ -135,6 +134,8 @@ export function IndicatorSettings({
             <span className="dim">{input.label}</span>
             {input.type === "bool" ? (
               <input type="checkbox" checked={Boolean(draft[input.key])} onChange={(e) => set(input.key, e.target.checked)} />
+            ) : input.type === "color" ? (
+              <input type="color" className="w-40 h-6 bg-transparent" value={String(draft[input.key])} onChange={(e) => set(input.key, e.target.value)} />
             ) : input.type === "source" || input.type === "select" ? (
               <select className="w-40" value={String(draft[input.key])} onChange={(e) => set(input.key, e.target.value)}>
                 {(input.type === "source" ? SOURCES : input.options).map((o) => (
@@ -142,6 +143,20 @@ export function IndicatorSettings({
                     {o}
                   </option>
                 ))}
+                {input.type === "source" && input.external && plotSources.length > 0 && (
+                  <optgroup label="Indicators on this chart">
+                    {plotSources.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {input.type === "source" &&
+                  String(draft[input.key]).startsWith("plot:") &&
+                  !plotSources.some((o) => o.value === draft[input.key]) && (
+                    <option value={String(draft[input.key])}>(removed indicator)</option>
+                  )}
               </select>
             ) : (
               <input

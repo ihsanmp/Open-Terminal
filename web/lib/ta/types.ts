@@ -13,9 +13,11 @@ export type Category =
 
 export type InputDef =
   | { key: string; label: string; type: "int" | "float"; default: number; min?: number; max?: number; step?: number }
-  | { key: string; label: string; type: "source"; default: string }
+  /** `external`: may also read another indicator's plot on the same chart (value "plot:<uid>:<key>"). */
+  | { key: string; label: string; type: "source"; default: string; external?: boolean }
   | { key: string; label: string; type: "select"; default: string; options: readonly string[] }
-  | { key: string; label: string; type: "bool"; default: boolean };
+  | { key: string; label: string; type: "bool"; default: boolean }
+  | { key: string; label: string; type: "color"; default: string };
 
 export type Params = Record<string, number | string | boolean>;
 
@@ -39,9 +41,52 @@ export type Color = string | undefined;
 export type Marker = {
   index: number;
   position: "aboveBar" | "belowBar" | "inBar";
-  shape: "arrowUp" | "arrowDown" | "circle" | "square";
+  /** "xcross" is Pine's shape.xcross, drawn by the chart's own primitive. */
+  shape: "arrowUp" | "arrowDown" | "circle" | "square" | "xcross";
   color: string;
   text?: string;
+};
+
+/** Pine line.new(): bar indices and prices. */
+export type Line = { x1: number; y1: number; x2: number; y2: number; color: string; dashed?: boolean; width?: number };
+
+export type DrawSize = "tiny" | "small" | "normal" | "large" | "huge";
+
+/** Pine label.new(). "left": text starts at the point (style_label_left); "center": boxed text
+ *  centered on it; "circle": a filled dot (style_circle with no text). */
+export type Label = {
+  index: number;
+  price: number;
+  text: string;
+  style: "left" | "center" | "circle";
+  textColor?: string;
+  bg?: string;
+  size: DrawSize;
+};
+
+export type TableCell = {
+  col: number;
+  row: number;
+  /** Merged cells, like table.merge_cells(). */
+  colSpan?: number;
+  text: string;
+  color?: string;
+  bg?: string;
+  size?: DrawSize;
+  align?: "left" | "center" | "right";
+  bold?: boolean;
+  tooltip?: string;
+  /** Thin divider rows (Pine's height=0.5). */
+  thin?: boolean;
+};
+
+/** Pine table.new(): drawn over the price pane at a corner. */
+export type IndicatorTable = {
+  position: "top_right" | "bottom_right" | "bottom_left" | "top_left";
+  bg: string;
+  frame: string;
+  border: string;
+  cells: TableCell[];
 };
 
 export type IndicatorResult = {
@@ -58,13 +103,34 @@ export type IndicatorResult = {
   barColors?: Color[];
   /** Pane background per bar, like Pine's bgcolor(). */
   bgColors?: Color[];
+  lines?: Line[];
+  labels?: Label[];
+  table?: IndicatorTable;
 };
 
 /** Daily Bitcoin price and blocks mined per UTC day (/api/onchain/btc-daily). */
 export type BtcDaily = { time: number[]; price: number[]; blocks: number[] };
 
+/** What Pine's syminfo / timeframe would say about the chart. */
+export type ChartContext = {
+  symbol: string;
+  /** syminfo.ticker as TradingView would spell it (BTCUSDT, EURUSD, AAPL). */
+  ticker: string;
+  type: "crypto" | "forex" | "stock" | "index";
+  /** Exchange time zone for hour()/dayofweek() etc. */
+  timezone: string;
+  intervalSeconds: number;
+};
+
 /** Data an indicator reads from outside the chart's own candles, like Pine's request.security. */
-export type ExternalData = { btcDaily?: BtcDaily };
+export type ExternalData = {
+  btcDaily?: BtcDaily;
+  chart?: ChartContext;
+  /** Other indicators' plots on the same chart, keyed "plot:<uid>:<key>" (see InputDef source). */
+  plots?: Record<string, Series>;
+  /** Responses for the API paths an indicator asked for through `fetches`. */
+  fetched?: Record<string, unknown>;
+};
 
 export type IndicatorDef = {
   id: string;
@@ -81,7 +147,13 @@ export type IndicatorDef = {
   precision?: number;
   description?: string;
   /** External series the chart must fetch before computing; plots stay empty until they arrive. */
-  needs?: ReadonlyArray<keyof ExternalData>;
+  needs?: ReadonlyArray<"btcDaily">;
+  /** API paths to load before computing (request.security of other symbols); results arrive in ext.fetched. */
+  fetches?(p: Params, chart: ChartContext): string[];
+  /** Other names people search for (e.g. "Exponential Moving Average" for EMA). */
+  aliases?: string[];
+  /** Inputs shown in the legend title; all non-bool inputs when omitted. */
+  legendInputs?: string[];
   compute(bars: Bars, p: Params, ext?: ExternalData): IndicatorResult;
 };
 
@@ -105,6 +177,7 @@ export const select = (key: string, label: string, options: readonly string[], d
   key, label, type: "select", options, default: def,
 });
 export const bool = (key: string, label: string, def: boolean): InputDef => ({ key, label, type: "bool", default: def });
+export const colorInput = (key: string, label: string, def: string): InputDef => ({ key, label, type: "color", default: def });
 
 export const n = (p: Params, key: string) => Number(p[key]);
 export const s = (p: Params, key: string) => String(p[key]);
