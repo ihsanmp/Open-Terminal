@@ -134,6 +134,8 @@ export function IndicatorSettings({
             <span className="dim">{input.label}</span>
             {input.type === "bool" ? (
               <input type="checkbox" checked={Boolean(draft[input.key])} onChange={(e) => set(input.key, e.target.checked)} />
+            ) : input.type === "text" ? (
+              <input type="text" className="w-40" value={String(draft[input.key])} onChange={(e) => set(input.key, e.target.value.toUpperCase())} />
             ) : input.type === "color" ? (
               <input type="color" className="w-40 h-6 bg-transparent" value={String(draft[input.key])} onChange={(e) => set(input.key, e.target.value)} />
             ) : input.type === "source" || input.type === "select" ? (

@@ -65,7 +65,7 @@ export function formatVolume(v: number): string {
   return formatPattern(v / div, "#.###") + suffix;
 }
 
-export type TimeParts = { year: number; month: number; day: number; hour: number; dayofweek: number; weekofyear: number };
+export type TimeParts = { year: number; month: number; day: number; hour: number; minute: number; dayofweek: number; weekofyear: number };
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 const WEEKDAY: Record<string, number> = { Sun: 1, Mon: 2, Tue: 3, Wed: 4, Thu: 5, Fri: 6, Sat: 7 };
@@ -81,6 +81,7 @@ export function timeParts(timeSec: number, timezone: string): TimeParts {
       month: "numeric",
       day: "numeric",
       hour: "numeric",
+      minute: "numeric",
       hourCycle: "h23",
       weekday: "short",
     });
@@ -91,7 +92,7 @@ export function timeParts(timeSec: number, timezone: string): TimeParts {
   const year = Number(parts.year);
   const month = Number(parts.month);
   const day = Number(parts.day);
-  return { year, month, day, hour: Number(parts.hour) % 24, dayofweek: WEEKDAY[parts.weekday], weekofyear: weekOfYear(year, month, day) };
+  return { year, month, day, hour: Number(parts.hour) % 24, minute: Number(parts.minute), dayofweek: WEEKDAY[parts.weekday], weekofyear: weekOfYear(year, month, day) };
 }
 
 /** weekofyear(): Sunday-first weeks, week 1 being the one that holds January 1st — so the

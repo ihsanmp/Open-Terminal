@@ -180,13 +180,14 @@ export type DrawingsSpec = {
     index: number;
     price: number;
     text: string;
-    style: "left" | "center" | "circle";
+    style: "left" | "right" | "center" | "circle";
     textColor?: string;
     bg?: string;
     size: "tiny" | "small" | "normal" | "large" | "huge";
   }>;
   /** plotshape(shape.xcross) above the bar's high or below its low. */
   crosses: Array<{ index: number; price: number; position: "above" | "below"; color: string }>;
+  boxes: Array<{ x1: number; x2: number; top: number; bottom: number; bg: string; border?: string; dashed?: boolean; text?: string; textColor?: string }>;
 };
 
 // Pine's size.* for label text and for a text-less style_circle dot, in CSS pixels.
@@ -252,6 +253,11 @@ class DrawingsRenderer implements IPrimitivePaneRenderer {
           ctx.fillStyle = lb.textColor ?? "#ffffff";
           ctx.textAlign = "center";
           ctx.fillText(lb.text, lb.x, lb.y);
+        } else if (lb.style === "right") {
+          // style_label_right: the point sits at the label's right edge.
+          ctx.fillStyle = lb.textColor ?? "#ffffff";
+          ctx.textAlign = "right";
+          ctx.fillText(lb.text, lb.x - 4, lb.y);
         } else {
           // style_label_left: the point sits at the label's left edge.
           const x = lb.x + 4;
@@ -269,17 +275,79 @@ class DrawingsRenderer implements IPrimitivePaneRenderer {
   }
 }
 
+type PlacedBox = DrawingsSpec["boxes"][number] & { ax: number; bx: number; ay: number; by: number };
+
+/** box.new(): drawn behind the series like TradingView's boxes. */
+class BoxRenderer implements IPrimitivePaneRenderer {
+  constructor(private boxes: PlacedBox[]) {}
+
+  draw() {}
+
+  drawBackground(target: CanvasRenderingTarget2D) {
+    target.useBitmapCoordinateSpace((scope) => {
+      const ctx = scope.context;
+      ctx.save();
+      ctx.scale(scope.horizontalPixelRatio, scope.verticalPixelRatio);
+      for (const b of this.boxes) {
+        const x = Math.min(b.ax, b.bx);
+        const y = Math.min(b.ay, b.by);
+        const w = Math.abs(b.bx - b.ax);
+        const h = Math.max(1, Math.abs(b.by - b.ay));
+        ctx.fillStyle = b.bg;
+        ctx.fillRect(x, y, w, h);
+        if (b.border) {
+          ctx.strokeStyle = b.border;
+          ctx.lineWidth = 1;
+          ctx.setLineDash(b.dashed ? [4, 3] : []);
+          ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+        }
+        if (b.text) {
+          ctx.setLineDash([]);
+          ctx.font = `10px ${FONT}`;
+          ctx.textBaseline = "top";
+          ctx.textAlign = "left";
+          ctx.fillStyle = b.textColor ?? "#ffffff";
+          ctx.fillText(b.text, x + 3, y + 3);
+        }
+      }
+      ctx.restore();
+    });
+  }
+}
+
 export class DrawingsPrimitive extends PrimitiveBase {
   private view: IPrimitivePaneView;
+  private boxView: IPrimitivePaneView;
 
   constructor(private spec: DrawingsSpec) {
     super();
     const self = this;
     this.view = { renderer: () => self.build() };
+    this.boxView = { zOrder: (): PrimitivePaneViewZOrder => "bottom", renderer: () => self.buildBoxes() };
   }
 
   paneViews() {
-    return [this.view];
+    return [this.boxView, this.view];
+  }
+
+  private buildBoxes() {
+    const at = this.attachedTo;
+    if (!at || this.spec.boxes.length === 0) return null;
+    const ts = at.chart.timeScale();
+    const r = ts.getVisibleLogicalRange();
+    const from = r ? r.from - 2 : -Infinity;
+    const to = r ? r.to + 2 : Infinity;
+    const placed: PlacedBox[] = [];
+    for (const b of this.spec.boxes) {
+      if (Math.max(b.x1, b.x2) < from || Math.min(b.x1, b.x2) > to) continue;
+      const ax = ts.logicalToCoordinate(b.x1 as Logical);
+      const bx = ts.logicalToCoordinate(b.x2 as Logical);
+      const ay = at.series.priceToCoordinate(b.top);
+      const by = at.series.priceToCoordinate(b.bottom);
+      if (ax === null || bx === null || ay === null || by === null) continue;
+      placed.push({ ...b, ax, bx, ay, by });
+    }
+    return new BoxRenderer(placed);
   }
 
   private build() {
