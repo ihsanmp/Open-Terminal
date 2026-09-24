@@ -12,6 +12,7 @@ import * as news from "../providers/news.js";
 import * as econcalendar from "../providers/econcalendar.js";
 import * as finra from "../providers/finra.js";
 import * as secedgar from "../providers/secedgar.js";
+import * as onchain from "../providers/onchain.js";
 import { cryptoBase, cryptoTicker, isIndex, isYahooOnly } from "../symbols.js";
 import { INDEX_TV_TICKER, WORLD_INDICES, searchIndices } from "../indices.js";
 
@@ -475,6 +476,16 @@ marketRouter.get("/crypto/global", async (req, res) => {
       ])
     );
     res.json(data);
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// Daily BTC price + blocks mined since 2010, for on-chain indicators (Bitcoin Thermocap).
+// Only the last day moves, so it refreshes on the same cadence as a daily chart.
+marketRouter.get("/onchain/btc-daily", async (req, res) => {
+  try {
+    res.json(await cached("onchain:btc-daily", 10 * 60_000, () => onchain.btcDaily()));
   } catch (err) {
     fail(req, res, err);
   }

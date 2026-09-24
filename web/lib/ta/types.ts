@@ -60,6 +60,12 @@ export type IndicatorResult = {
   bgColors?: Color[];
 };
 
+/** Daily Bitcoin price and blocks mined per UTC day (/api/onchain/btc-daily). */
+export type BtcDaily = { time: number[]; price: number[]; blocks: number[] };
+
+/** Data an indicator reads from outside the chart's own candles, like Pine's request.security. */
+export type ExternalData = { btcDaily?: BtcDaily };
+
 export type IndicatorDef = {
   id: string;
   name: string;
@@ -74,7 +80,9 @@ export type IndicatorDef = {
   plots: PlotDef[];
   precision?: number;
   description?: string;
-  compute(bars: Bars, p: Params): IndicatorResult;
+  /** External series the chart must fetch before computing; plots stay empty until they arrive. */
+  needs?: ReadonlyArray<keyof ExternalData>;
+  compute(bars: Bars, p: Params, ext?: ExternalData): IndicatorResult;
 };
 
 export type IndicatorInstance = {

@@ -516,3 +516,116 @@ community.push({
     };
   },
 });
+
+// Bitcoin Thermocap [InvestorUnknown] — ported from the published Pine v5 source (MPL-2.0).
+// Thermocap is the running total of what miners were paid: every day's blocks mined times
+// that day's price. The script plots price over that total (x1e6), its log, the log over
+// its own moving average, or that ratio normalized against decaying extremes since 2012.
+//
+// Like the script (INDEX:BTCUSD and BTC_BLOCKSMINED via request.security) it reads daily
+// Bitcoin data whatever the chart shows, and it runs over the full history from 2010 before
+// sampling onto the chart's bars — so a short chart range shows the same values as a daily
+// chart of all of Bitcoin's history would.
+const THERMOCAP_NORMALIZATION_START = Date.UTC(2012, 0, 1) / 1000;
+const THERMOCAP_MODES = ["RAW", "LOG", "MA Oscillator", "Normalized MA Oscillator"] as const;
+
+export type ThermocapSeries = { thermocap: Series; log: Series; maOsc: Series; normalized: Series };
+
+/** The script's calculations, one value per day of `daily`. */
+export function thermocapDaily(
+  daily: { time: number[]; price: number[]; blocks: number[] },
+  p: { maType: string; maLen: number; lim: number; neg: boolean; decay: number }
+): ThermocapSeries {
+  const len = daily.time.length;
+  const thermocap = ta.fill(len);
+  let historical = NaN;
+  for (let i = 0; i < len; i++) {
+    if (Number.isNaN(historical)) historical = 0;
+    historical += daily.blocks[i] * daily.price[i];
+    // Pine division by zero is na, e.g. before the first priced day.
+    thermocap[i] = historical !== 0 ? (daily.price[i] / historical) * 1_000_000 : NaN;
+  }
+  const log = thermocap.map((v) => Math.log(v));
+  const ma = p.maType === "SMA" ? ta.sma(log, p.maLen) : ta.ema(log, p.maLen);
+  const maOsc = log.map((v, i) => v / ma[i]);
+
+  const normalized = ta.fill(len);
+  let min = NaN;
+  let max = NaN;
+  for (let i = 0; i < len; i++) {
+    const x = maOsc[i];
+    if (daily.time[i] >= THERMOCAP_NORMALIZATION_START) {
+      // `x > max or na(max)`: an na oscillator resets an na extreme to na, as in Pine.
+      if (x > max || Number.isNaN(max)) max = x;
+      if (min > x || Number.isNaN(min)) min = x;
+      max *= p.decay;
+      min *= p.decay;
+    }
+    const scale = p.lim * (p.neg ? 2 : 1);
+    const range = max - min; // Pine: dividing by zero is na
+    normalized[i] = range !== 0 ? (scale * (x - min)) / range - (p.neg ? p.lim : 0) : NaN;
+  }
+  return { thermocap, log, maOsc, normalized };
+}
+
+/** For each chart bar, the index of the daily row Pine's request.security("1D") would
+ *  return: the bar's own day on daily-or-faster charts, the last day inside the bar on
+ *  weekly and monthly ones. -1 before the data starts. */
+function dailyIndexForBars(barTimes: number[], dayTimes: number[]): number[] {
+  const multiDay = ta.barSpacing(barTimes) > 1.5 * 86_400;
+  const out: number[] = [];
+  let j = -1;
+  for (let i = 0; i < barTimes.length; i++) {
+    const end = multiDay ? (i + 1 < barTimes.length ? barTimes[i + 1] - 1 : Infinity) : barTimes[i];
+    const day = Number.isFinite(end) ? Math.floor(end / 86_400) * 86_400 : Infinity;
+    while (j + 1 < dayTimes.length && dayTimes[j + 1] <= day) j++;
+    out.push(j);
+  }
+  return out;
+}
+
+community.push({
+  id: "btcthermocap",
+  name: "Bitcoin Thermocap [InvestorUnknown]",
+  short: "BTC Thermocap",
+  category: "Community",
+  overlay: false,
+  needs: ["btcDaily"],
+  description: "Bitcoin price over cumulative miner revenue (blocks mined × price), from daily on-chain data whatever the chart shows.",
+  inputs: [
+    select("mode", "Display Mode", THERMOCAP_MODES, "MA Oscillator"),
+    select("maType", "Moving Average Type", ["SMA", "EMA"], "EMA"),
+    int("maLen", "MA Length", 365),
+    float("lim", "Limit", 1, 0.1, 0),
+    bool("neg", "Allow Negatives", true),
+    { key: "decay", label: "Decay", type: "float", default: 0.99998, step: 0.00001, min: 0, max: 1 },
+    bool("gradient", "Use Gradient Colors", true),
+  ],
+  plots: [{ key: "value", title: "Plot Value", color: "#4CAF50", width: 3 }],
+  precision: 4,
+  compute: (bars, p, ext) => {
+    const value = ta.fill(bars.length);
+    const daily = ext?.btcDaily;
+    if (!daily || daily.time.length === 0) return { plots: { value } };
+
+    const lim = n(p, "lim");
+    const neg = b(p, "neg");
+    const series = thermocapDaily(daily, { maType: s(p, "maType"), maLen: n(p, "maLen"), lim, neg, decay: n(p, "decay") });
+    const mode = s(p, "mode");
+    const source =
+      mode === "RAW" ? series.thermocap : mode === "LOG" ? series.log : mode === "MA Oscillator" ? series.maOsc : series.normalized;
+
+    const index = dailyIndexForBars(bars.time, daily.time);
+    for (let i = 0; i < bars.length; i++) if (index[i] >= 0) value[i] = source[index[i]];
+
+    // Pine's color.blue / color.red / color.green / color.orange.
+    const fixed = mode === "RAW" ? "#2196F3" : mode === "LOG" ? "#F23645" : mode === "MA Oscillator" ? "#4CAF50" : null;
+    if (fixed) return { plots: { value }, colors: { value: value.map(() => fixed) } };
+
+    const bottom = neg ? -lim : 0;
+    const colors = value.map((v) =>
+      !Number.isFinite(v) ? undefined : b(p, "gradient") ? gradient("#4CAF50", "#F23645", (v - bottom) / (lim - bottom)) : "#FF9800"
+    );
+    return { plots: { value }, colors: { value: colors } };
+  },
+});

@@ -3,7 +3,7 @@ import { averages } from "./indicators/averages";
 import { bands } from "./indicators/bands";
 import { oscillators } from "./indicators/oscillators";
 import { community, volatility, volume } from "./indicators/volume";
-import type { Category, IndicatorDef, IndicatorInstance, IndicatorResult, Params } from "./types";
+import type { Category, ExternalData, IndicatorDef, IndicatorInstance, IndicatorResult, Params } from "./types";
 
 export * from "./types";
 export type { Bars } from "./core";
@@ -70,6 +70,6 @@ export function candlesToBars(candles: Array<{ time: number; open: number; high:
   };
 }
 
-export function runIndicator(def: IndicatorDef, bars: Bars, params: Params): IndicatorResult {
-  return def.compute(bars, params);
+export function runIndicator(def: IndicatorDef, bars: Bars, params: Params, ext?: ExternalData): IndicatorResult {
+  return def.compute(bars, params, ext);
 }
