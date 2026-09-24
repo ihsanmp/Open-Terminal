@@ -14,6 +14,7 @@ import * as finra from "../providers/finra.js";
 import * as secedgar from "../providers/secedgar.js";
 import * as onchain from "../providers/onchain.js";
 import * as tvchart from "../providers/tvchart.js";
+import * as newsfeeds from "../providers/newsfeeds.js";
 import { cryptoBase, cryptoTicker, isIndex, isYahooOnly } from "../symbols.js";
 import { INDEX_TV_TICKER, WORLD_INDICES, searchIndices } from "../indices.js";
 
@@ -367,6 +368,27 @@ marketRouter.get("/search", async (req, res) => {
 });
 
 // ---- news ----
+
+// The live wire: ~58 feeds polled every minute while anyone reads it, filterable.
+marketRouter.get("/news/wire", async (req, res) => {
+  try {
+    const str = (v: unknown) => (typeof v === "string" && v.length <= 100 ? v : undefined);
+    res.json(
+      await newsfeeds.wire({
+        category: str(req.query.category)?.toUpperCase(),
+        region: str(req.query.region)?.toUpperCase(),
+        q: str(req.query.q),
+        limit: Number(req.query.limit) || undefined,
+      })
+    );
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+marketRouter.get("/news/sources", (_req, res) => {
+  res.json(newsfeeds.feedStatus());
+});
 
 marketRouter.get("/news", async (req, res) => {
   const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : null;
