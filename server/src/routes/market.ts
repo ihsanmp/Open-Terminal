@@ -17,6 +17,7 @@ import * as tvchart from "../providers/tvchart.js";
 import * as newsfeeds from "../providers/newsfeeds.js";
 import { cryptoBase, cryptoTicker, isIndex, isYahooOnly } from "../symbols.js";
 import { INDEX_TV_TICKER, WORLD_INDICES, searchIndices } from "../indices.js";
+import { BINANCE_INTERVAL, INTERVAL_SECONDS, MAX_BARS, clip, groupCandles, isInterval, rangeStart, yahooPlan, type Interval } from "../intervals.js";
 import { cryptoTerm, matchCoins, rankResults, type Coin, type SearchResult } from "../search.js";
 
 export const marketRouter = Router();
@@ -278,9 +279,43 @@ marketRouter.get("/quotes", async (req, res) => {
 
 // ---- history / candles ----
 
+/** Candles at a chosen interval (the chart's interval menu); ranges still set how far back. */
+async function historyAtInterval(symbol: string, rangeKey: string, interval: Interval): Promise<yahoo.Candle[]> {
+  const base = cryptoBase(symbol);
+  const yahooSymbol = base ? cryptoTicker(base) : symbol;
+  const yahooAt = async () => {
+    const plan = yahooPlan(rangeKey, interval);
+    const candles = await yahoo.historyBetween(yahooSymbol, plan.from, plan.to, plan.interval);
+    return plan.group ? groupCandles(candles, plan.group, 3600) : candles;
+  };
+  const attempts: Array<[string, () => Promise<yahoo.Candle[]>]> = [];
+  if (base && (await onBinance(base))) {
+    attempts.push(["binance", () => binance.historyInterval(base, BINANCE_INTERVAL[interval], rangeStart(rangeKey), MAX_BARS)]);
+  }
+  attempts.push(["yahoo", yahooAt]);
+  // Daily-only sources still serve a daily chart when Yahoo is out.
+  if (interval === "1D" && !base) {
+    if (isVix(symbol)) attempts.push(["fred", () => vixHistory(rangeKey)]);
+    else if (!isYahooOnly(symbol)) attempts.push(["nasdaq", () => nasdaq.history(symbol, rangeKey)], ["stooq", () => stooq.history(symbol)]);
+  }
+  return clip(await withFallback(attempts), rangeKey);
+}
+
 marketRouter.get("/history/:symbol", async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
   const rangeKey = String(req.query.range ?? "6M");
+  const interval = req.query.interval;
+  if (isInterval(interval)) {
+    try {
+      const ttl = INTERVAL_SECONDS[interval] < 86_400 ? INTRADAY_HISTORY_TTL : HISTORY_TTL;
+      const data = await cached(`history:${symbol}:${rangeKey}:${interval}`, ttl, () => historyAtInterval(symbol, rangeKey, interval));
+      if (data.length === 0) throw new Error("empty history from all providers");
+      res.json(data);
+    } catch (err) {
+      fail(req, res, err);
+    }
+    return;
+  }
   try {
     const base = cryptoBase(symbol);
     const yahooHistory = () => yahoo.history(symbol, yahooRange(rangeKey).range, yahooRange(rangeKey).interval);

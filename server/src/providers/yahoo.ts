@@ -206,9 +206,46 @@ export async function quoteFromChart(symbol: string): Promise<Quote> {
 // ---- history ----
 
 export async function history(symbol: string, range: string, interval: string): Promise<Candle[]> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
-    symbol
-  )}?range=${range}&interval=${interval}&includePrePost=false`;
+  return chartCandles(symbol, `range=${range}&interval=${interval}`, interval);
+}
+
+/** Candles between two unix times (from = null: the whole history). An explicit period, because
+ *  range=max quietly turns daily bars into monthly ones. */
+export async function historyBetween(symbol: string, from: number | null, to: number, interval: string): Promise<Candle[]> {
+  const period = `period1=${Math.floor(from ?? -2208988800)}&period2=${Math.ceil(to)}`;
+  return chartCandles(symbol, `${period}&interval=${interval}`, interval);
+}
+
+const STEP_SECONDS: Record<string, number> = {
+  "1m": 60, "2m": 120, "5m": 300, "15m": 900, "30m": 1800, "60m": 3600, "90m": 5400, "1h": 3600,
+  "1d": 86_400, "5d": 432_000, "1wk": 604_800, "1mo": 28 * 86_400, "3mo": 89 * 86_400,
+};
+
+/** Yahoo ends a series with a point at the last trade time (e.g. 20:00 on 1h bars, mid-week on
+ *  weekly ones). It belongs to the candle already open, so it is folded into it. */
+export function foldLiveTick(candles: Candle[], interval: string, sessionEnd?: number): Candle[] {
+  const step = STEP_SECONDS[interval];
+  if (!step || candles.length < 2) return candles;
+  const last = candles[candles.length - 1];
+  const prev = candles[candles.length - 2];
+  const gap = last.time - prev.time;
+  // Shorter than a bar, or a volume-less point at the session's closing time of day (the 16:00
+  // point after the 15:55 bar) — no real bar opens at the close.
+  const atClose = sessionEnd !== undefined && (last.time - sessionEnd) % 86_400 === 0 && last.volume === 0;
+  const isTick = gap < step * 0.9 || (atClose && gap <= step);
+  if (!isTick) return candles;
+  const merged = {
+    ...prev,
+    high: Math.max(prev.high, last.high),
+    low: Math.min(prev.low, last.low),
+    close: last.close,
+    volume: Math.max(prev.volume, last.volume),
+  };
+  return [...candles.slice(0, -2), merged];
+}
+
+async function chartCandles(symbol: string, query: string, interval: string): Promise<Candle[]> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${query}&includePrePost=false`;
   const json = await yfetch(url);
   const result = json?.chart?.result?.[0];
   if (!result) throw new Error("yahoo: no chart data for " + symbol);
@@ -220,7 +257,7 @@ export async function history(symbol: string, range: string, interval: string): 
     if (o == null || h == null || l == null || c == null) continue;
     candles.push({ time: ts[i], open: o, high: h, low: l, close: c, volume: q.volume?.[i] ?? 0 });
   }
-  return candles;
+  return foldLiveTick(candles, interval, result.meta?.currentTradingPeriod?.regular?.end);
 }
 
 // ---- search ----

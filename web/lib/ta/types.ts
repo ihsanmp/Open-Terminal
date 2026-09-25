@@ -139,6 +139,8 @@ export type ChartContext = {
   intervalSeconds: number;
   /** The chart's range button (1D, 5D, 1M, 6M, YTD, 1Y, 5Y, MAX), for fetching other symbols alike. */
   range?: string;
+  /** The chosen candle interval (1m … 1M), or undefined for the range's own. */
+  interval?: string;
 };
 
 /** Data an indicator reads from outside the chart's own candles, like Pine's request.security. */
