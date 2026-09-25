@@ -48,3 +48,106 @@ export function formatCountdown(seconds: number): string {
   const rest = s % 3_600;
   return hours > 0 ? `${hours}:${pad(Math.floor(rest / 60))}:${pad(rest % 60)}` : `${pad(Math.floor(rest / 60))}:${pad(rest % 60)}`;
 }
+
+// ---- when the open candle closes ------------------------------------------------------
+
+/** Regular-session close (local time) by exchange time zone; US hours otherwise. */
+const SESSION_CLOSE: Record<string, [number, number]> = {
+  "America/New_York": [16, 0],
+  "America/Toronto": [16, 0],
+  "America/Sao_Paulo": [17, 0],
+  "America/Mexico_City": [15, 0],
+  "Europe/London": [16, 30],
+  "Europe/Berlin": [17, 30],
+  "Europe/Paris": [17, 30],
+  "Europe/Amsterdam": [17, 30],
+  "Europe/Brussels": [17, 30],
+  "Europe/Madrid": [17, 30],
+  "Europe/Rome": [17, 30],
+  "Europe/Zurich": [17, 30],
+  "Europe/Stockholm": [17, 30],
+  "Europe/Oslo": [16, 20],
+  "Europe/Copenhagen": [17, 0],
+  "Europe/Helsinki": [18, 30],
+  "Asia/Jakarta": [16, 0],
+  "Asia/Tokyo": [15, 30],
+  "Asia/Hong_Kong": [16, 0],
+  "Asia/Shanghai": [15, 0],
+  "Asia/Seoul": [15, 30],
+  "Asia/Kolkata": [15, 30],
+  "Asia/Singapore": [17, 0],
+  "Asia/Taipei": [13, 30],
+  "Asia/Bangkok": [16, 30],
+  "Asia/Kuala_Lumpur": [17, 0],
+  "Australia/Sydney": [16, 0],
+  "Pacific/Auckland": [16, 45],
+  "Africa/Johannesburg": [17, 0],
+};
+
+const partFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/** Calendar date and weekday (0 = Sunday) of a moment in a time zone. */
+function zonedDate(t: number, timeZone: string) {
+  let f = partFormatters.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric", hourCycle: "h23" });
+    partFormatters.set(timeZone, f);
+  }
+  const p: Record<string, number> = {};
+  for (const x of f.formatToParts(new Date(t * 1000))) if (x.type !== "literal") p[x.type] = Number(x.value);
+  return { year: p.year, month: p.month, day: p.day, hour: p.hour, minute: p.minute, second: p.second };
+}
+
+/** Unix time of a wall-clock time in a time zone. */
+function zonedTime(year: number, month: number, day: number, hour: number, minute: number, timeZone: string): number {
+  const guess = Date.UTC(year, month - 1, day, hour, minute) / 1000;
+  const shown = zonedDate(guess, timeZone);
+  const offset = Date.UTC(shown.year, shown.month - 1, shown.day, shown.hour, shown.minute, shown.second) / 1000 - guess;
+  return guess - offset;
+}
+
+export type Market = { type: "crypto" | "forex" | "stock" | "index"; timezone: string };
+
+/** When the candle that opened at `barTime` closes. Crypto and forex bars run their full length;
+ *  stock and index bars end with the session (a daily bar at 16:00, the last 4h bar at 16:00 too,
+ *  a weekly one on Friday's close, a monthly one on the month's last weekday). */
+export function candleCloseTime(barTime: number, intervalSeconds: number, market: Market): number {
+  const monthly = intervalSeconds >= 28 * 86_400;
+  if (market.type === "crypto" || market.type === "forex") {
+    if (!monthly) return barTime + intervalSeconds;
+    const d = new Date(barTime * 1000);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) / 1000;
+  }
+  const tz = market.timezone;
+  const [hh, mm] = SESSION_CLOSE[tz] ?? [16, 0];
+  const day = zonedDate(barTime, tz);
+  const closeOn = (y: number, m: number, d: number) => zonedTime(y, m, d, hh, mm, tz);
+  if (intervalSeconds < 86_400) return Math.min(barTime + intervalSeconds, closeOn(day.year, day.month, day.day));
+  if (!monthly && intervalSeconds < 7 * 86_400) return closeOn(day.year, day.month, day.day);
+  const utcDay = new Date(Date.UTC(day.year, day.month - 1, day.day));
+  if (!monthly) {
+    // Friday of the bar's week.
+    const friday = new Date(utcDay.getTime() + ((5 - utcDay.getUTCDay() + 7) % 7) * 86_400_000);
+    return closeOn(friday.getUTCFullYear(), friday.getUTCMonth() + 1, friday.getUTCDate());
+  }
+  // Last weekday of the bar's month.
+  const last = new Date(Date.UTC(day.year, day.month, 0));
+  while (last.getUTCDay() === 0 || last.getUTCDay() === 6) last.setUTCDate(last.getUTCDate() - 1);
+  return closeOn(last.getUTCFullYear(), last.getUTCMonth() + 1, last.getUTCDate());
+}
+
+/** Seconds until the open candle closes; null when it already has (the market is shut) or
+ *  hasn't opened yet. */
+export function secondsUntilClose(barTime: number, intervalSeconds: number, market: Market, now = Date.now()): number | null {
+  const t = Math.floor(now / 1000);
+  if (t < barTime) return null;
+  const left = candleCloseTime(barTime, intervalSeconds, market) - t;
+  return left > 0 ? left : null;
+}
+
+/** Countdown for the price-axis label, as TradingView shows it: 11:48, 3:05:12, 2d 03h. */
+export function formatAxisCountdown(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  if (s >= 86_400) return `${Math.floor(s / 86_400)}d ${String(Math.floor((s % 86_400) / 3_600)).padStart(2, "0")}h`;
+  return formatCountdown(s);
+}

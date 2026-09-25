@@ -37,14 +37,14 @@ import {
   type Params,
 } from "../../lib/ta";
 import { barSpacing } from "../../lib/ta/core";
-import { BackgroundPrimitive, DrawingsPrimitive, FillPrimitive, type DrawingsSpec } from "../../lib/ta/chart-primitives";
+import { BackgroundPrimitive, CountdownPrimitive, DrawingsPrimitive, FillPrimitive, type DrawingsSpec } from "../../lib/ta/chart-primitives";
 import { IndicatorTableView } from "../chart/IndicatorTableView";
 import { chartContext } from "../../lib/chart-context";
 import { INTERVALS, INTERVAL_SECONDS, RANGES, defaultInterval, resolveChartView, type ChartInterval, type Range } from "../../lib/chart-intervals";
 import { DEFAULT_CHART_INDICATORS, useTerminal, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 import { IndicatorPicker, IndicatorSettings } from "../chart/IndicatorDialogs";
 import { isCryptoSymbol, usePoll, usSessionActive } from "../../lib/refresh";
-import { formatBarTime, formatCountdown, intervalLabel, isIntradayInterval, secondsToClose } from "../../lib/candle-time";
+import { formatAxisCountdown, formatBarTime, formatCountdown, intervalLabel, isIntradayInterval, secondsUntilClose, type Market } from "../../lib/candle-time";
 
 
 const CHART_TYPES = ["candles", "bars", "line", "area"] as const;
@@ -53,6 +53,8 @@ const CHART_TYPES = ["candles", "bars", "line", "area"] as const;
 type ChartType = (typeof CHART_TYPES)[number];
 
 const UP = "#00c853";
+/** Axis font size; the countdown label is stacked by the height it gives the price label. */
+const AXIS_FONT_SIZE = 10;
 const DOWN = "#ff3d3d";
 
 type PreparedPlot = { values: number[]; colors?: Color[] };
@@ -107,18 +109,15 @@ function pricePrecision(candles: Candle[]): number {
 }
 
 /** Ticks once a second while a candle is still open, so it only re-renders this one label. */
-function BarCountdown({ barTime, intervalSeconds }: { barTime: number; intervalSeconds: number }) {
-  const [left, setLeft] = useState(() => secondsToClose(barTime, intervalSeconds));
+function BarCountdown({ barTime, intervalSeconds, market }: { barTime: number; intervalSeconds: number; market: Market }) {
+  const [left, setLeft] = useState(() => secondsUntilClose(barTime, intervalSeconds, market));
   useEffect(() => {
-    setLeft(secondsToClose(barTime, intervalSeconds));
-    const id = setInterval(() => setLeft(secondsToClose(barTime, intervalSeconds)), 1_000);
+    setLeft(secondsUntilClose(barTime, intervalSeconds, market));
+    const id = setInterval(() => setLeft(secondsUntilClose(barTime, intervalSeconds, market)), 1_000);
     return () => clearInterval(id);
-  }, [barTime, intervalSeconds]);
-  if (left === null) {
-    // Long past its close (market shut): nothing is counting down.
-    if (Date.now() / 1000 - (barTime + intervalSeconds) > 60) return null;
-    return <span className="dim">closing…</span>;
-  }
+  }, [barTime, intervalSeconds, market]);
+  // Closed (market shut) or not yet open: nothing is counting down.
+  if (left === null) return null;
   return (
     <span className="dim">
       closes in <span className="amber">{formatCountdown(left)}</span>
@@ -295,7 +294,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     const mainFormat = { type: "price" as const, precision: pxPrecision, minMove: 1 / 10 ** pxPrecision };
 
     const chart: IChartApi = createChart(el, {
-      layout: { background: { color: "#0a0a0a" }, textColor: "#808080", fontSize: 10, attributionLogo: false, panes: { separatorColor: "#262626" } },
+      layout: { background: { color: "#0a0a0a" }, textColor: "#808080", fontSize: AXIS_FONT_SIZE, attributionLogo: false, panes: { separatorColor: "#262626" } },
       grid: { vertLines: { color: "#1a1a1a" }, horzLines: { color: "#1a1a1a" } },
       crosshair: { mode: 0 },
       timeScale: { borderColor: "#262626", timeVisible: isIntradayInterval(intervalSeconds) },
@@ -428,6 +427,20 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     if (overlayMarkers.length) createSeriesMarkers(main, overlayMarkers.sort((x, y) => (x.time as number) - (y.time as number)));
     if (drawings.lines.length || drawings.labels.length || drawings.crosses.length || drawings.boxes.length) main.attachPrimitive(new DrawingsPrimitive(drawings));
 
+    // Time left on the open candle, under the last-price label on the price axis.
+    const last = candles[candles.length - 1];
+    const lastColor =
+      chartType === "line" || chartType === "area" ? "#ff9900" : barColors?.[candles.length - 1] ?? (last.close >= last.open ? UP : DOWN);
+    const market: Market = { type: ctx.type, timezone: ctx.timezone };
+    const countdown = new CountdownPrimitive(() => {
+      const left = secondsUntilClose(last.time, intervalSeconds, market);
+      return left === null ? null : { price: last.close, text: formatAxisCountdown(left), color: lastColor };
+    }, AXIS_FONT_SIZE * (1 + 5 / 12));
+    main.attachPrimitive(countdown);
+    const countdownTimer = setInterval(() => {
+      if (!document.hidden) countdown.refresh();
+    }, 1_000);
+
     const panes = chart.panes();
     panes.forEach((p, i) => p.setStretchFactor(i === 0 ? Math.max(2, panes.length - 1) * 1.5 : 1));
 
@@ -465,10 +478,11 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       const r = chart.timeScale().getVisibleLogicalRange();
       if (r) savedRange.current = { key: viewKey, range: r };
       cancelAnimationFrame(raf);
+      clearInterval(countdownTimer);
       ro.disconnect();
       chart.remove();
     };
-  }, [candles, chartType, prepared, paneOf, range, interval, intervalSeconds, symbol]);
+  }, [candles, chartType, prepared, paneOf, range, interval, intervalSeconds, symbol, ctx]);
 
   // ---- legend ----
   const n = candles?.length ?? 0;
@@ -480,6 +494,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const remove = (uid: string) => saveInstances(latestIndicators(widget.id).filter((i) => i.uid !== uid));
 
   const legendPrecision = candles && n > 0 ? pricePrecision(candles) : 2;
+  const legendMarket = useMemo<Market>(() => ({ type: ctx.type, timezone: ctx.timezone }), [ctx.type, ctx.timezone]);
   const hoveringLastBar = hoverIndex === null || hoverIndex >= n - 1;
 
   const legendRow = (it: Prepared) => (
@@ -560,9 +575,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
               <span className="dim">
                 <span className="amber">{intervalLabel(intervalSeconds)}</span> {formatBarTime(candle.time, intervalSeconds)}
               </span>
-              {hoveringLastBar && isIntradayInterval(intervalSeconds) && (
-                <BarCountdown barTime={candle.time} intervalSeconds={intervalSeconds} />
-              )}
+              {hoveringLastBar && <BarCountdown barTime={candle.time} intervalSeconds={intervalSeconds} market={legendMarket} />}
               <span className="dim">O <span className="text-[var(--text)]">{fmtPrice(candle.open)}</span></span>
               <span className="dim">H <span className="up">{fmtPrice(candle.high)}</span></span>
               <span className="dim">L <span className="down">{fmtPrice(candle.low)}</span></span>
