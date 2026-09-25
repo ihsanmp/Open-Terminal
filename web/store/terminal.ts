@@ -29,6 +29,8 @@ export type WidgetInstance = {
   symbol?: string;
   linked: boolean; // follows the globally active symbol
   indicators?: IndicatorInstance[]; // chart widgets only; undefined = defaults
+  chartRange?: string; // chart widgets: date range button (default 6M)
+  chartInterval?: string; // chart widgets: candle interval, "auto" = the range's own
 };
 
 export const DEFAULT_CHART_INDICATORS: IndicatorInstance[] = [
@@ -51,6 +53,7 @@ type TerminalState = {
   setWidgetSymbol: (id: string, symbol: string) => void;
   toggleLinked: (id: string) => void;
   setWidgetIndicators: (id: string, indicators: IndicatorInstance[]) => void;
+  setWidgetChart: (id: string, patch: { chartRange?: string; chartInterval?: string }) => void;
   setLayout: (layout: LayoutItem[]) => void;
   addToWatchlist: (s: string) => void;
   removeFromWatchlist: (s: string) => void;
@@ -129,6 +132,10 @@ export const useTerminal = create<TerminalState>()(
       setWidgetIndicators: (id, indicators) =>
         set((st) => ({
           widgets: st.widgets.map((w) => (w.id === id ? { ...w, indicators } : w)),
+        })),
+      setWidgetChart: (id, patch) =>
+        set((st) => ({
+          widgets: st.widgets.map((w) => (w.id === id ? { ...w, ...patch } : w)),
         })),
       setLayout: (layout) => set({ layout }),
       addToWatchlist: (s) =>

@@ -40,8 +40,13 @@ const SUFFIX_TZ: Record<string, string> = {
 
 /** syminfo for a chart symbol as TradingView would report it. Crypto charts here are
  *  Binance USDT pairs shown as "-USD", so their ticker is BASEUSDT. */
-export function chartContext(symbol: string, intervalSeconds: number, range?: string): ChartContext {
-  return { ...baseContext(symbol, intervalSeconds), range };
+export function chartContext(symbol: string, intervalSeconds: number, range?: string, interval?: string): ChartContext {
+  return { ...baseContext(symbol, intervalSeconds), range, interval };
+}
+
+/** Query string for /api/history matching the chart's range and chosen interval. */
+export function historyQuery(chart: Pick<ChartContext, "range" | "interval">): string {
+  return `range=${chart.range ?? "1Y"}${chart.interval ? `&interval=${chart.interval}` : ""}`;
 }
 
 function baseContext(symbol: string, intervalSeconds: number): ChartContext {

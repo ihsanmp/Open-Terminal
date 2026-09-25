@@ -8,6 +8,7 @@
 import * as ta from "../core";
 import { type Bars, type Series } from "../core";
 import { colorNew, timeParts } from "../pine";
+import { historyQuery } from "../../chart-context";
 import { C, alpha, b, bool, float, int, n, s, select, src, text, type Box, type IndicatorDef, type Label, type Line, type Marker } from "../types";
 
 const zero = { price: 0, color: C.gray, dashed: true };
@@ -418,10 +419,10 @@ export const more: IndicatorDef[] = [
     inputs: [text("symbol", "Symbol", "GOOG"), src(), int("length", "Length", 20, 2)],
     plots: [{ key: "cc", title: "Correlation", color: C.blue, style: "area" }],
     precision: 3,
-    fetches: (p, chart) => (s(p, "symbol").trim() ? [`/api/history/${encodeURIComponent(s(p, "symbol").trim().toUpperCase())}?range=${chart.range ?? "1Y"}`] : []),
+    fetches: (p, chart) => (s(p, "symbol").trim() ? [`/api/history/${encodeURIComponent(s(p, "symbol").trim().toUpperCase())}?${historyQuery(chart)}`] : []),
     compute: (bars, p, ext) => {
       const sym = s(p, "symbol").trim().toUpperCase();
-      const path = ext?.chart ? `/api/history/${encodeURIComponent(sym)}?range=${ext.chart.range ?? "1Y"}` : "";
+      const path = ext?.chart ? `/api/history/${encodeURIComponent(sym)}?${historyQuery(ext.chart)}` : "";
       const other = ext?.fetched?.[path] as Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> | undefined;
       if (!other?.length) return { plots: { cc: ta.fill(bars.length) } };
       const otherBars = ta.source(

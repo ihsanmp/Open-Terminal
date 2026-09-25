@@ -110,6 +110,24 @@ const RANGE_TO_KLINE: Record<string, { interval: string; limit: number }> = {
   MAX: { interval: "1M", limit: 200 },
 };
 
+/** Klines at any Binance interval back to `from` (null: as far as maxBars allows), paging
+ *  1000 at a time from the newest. */
+export async function historyInterval(base: string, interval: string, from: number | null, maxBars: number): Promise<Candle[]> {
+  const out: Candle[] = [];
+  let endTime: number | undefined;
+  while (out.length < maxBars) {
+    const rows: any[] = await bfetch(
+      `/api/v3/klines?symbol=${base.toUpperCase()}USDT&interval=${interval}&limit=1000${endTime ? `&endTime=${endTime}` : ""}`
+    );
+    if (rows.length === 0) break;
+    const batch = rows.map((r) => ({ time: Math.round(r[0] / 1000), open: +r[1], high: +r[2], low: +r[3], close: +r[4], volume: +r[5] }));
+    out.unshift(...batch);
+    if (rows.length < 1000 || (from !== null && batch[0].time <= from)) break;
+    endTime = rows[0][0] - 1;
+  }
+  return out;
+}
+
 export async function history(base: string, rangeKey: string): Promise<Candle[]> {
   const { interval, limit } = RANGE_TO_KLINE[rangeKey] ?? RANGE_TO_KLINE["6M"];
   const rows: any[] = await bfetch(`/api/v3/klines?symbol=${base.toUpperCase()}USDT&interval=${interval}&limit=${limit}`);
