@@ -5,6 +5,7 @@
 import type { CanvasRenderingTarget2D } from "fancy-canvas";
 import type {
   IChartApi,
+  ISeriesPrimitiveAxisView,
   Logical,
   IPrimitivePaneRenderer,
   IPrimitivePaneView,
@@ -385,5 +386,48 @@ export class DrawingsPrimitive extends PrimitiveBase {
       if (cx !== null && cy !== null) crosses.push({ x: cx, y: cy + (c.position === "above" ? -9 : 9), color: c.color });
     }
     return new DrawingsRenderer(lines, labels, crosses);
+  }
+}
+
+export type CountdownState = { price: number; text: string; color: string } | null;
+
+/** The open candle's time to close, on the price axis right under the last-price label, as
+ *  TradingView shows it. Refresh it once a second; it hides itself once the candle has closed. */
+export class CountdownPrimitive extends PrimitiveBase {
+  private axisView: ISeriesPrimitiveAxisView;
+
+  /** `labelHeight`: height of the series' own last-price label, so the two stack flush. */
+  constructor(private state: () => CountdownState, private labelHeight: number) {
+    super();
+    const self = this;
+    const y = () => {
+      const s = self.state();
+      const at = self.attachedTo;
+      if (!s || !at) return null;
+      const c = at.series.priceToCoordinate(s.price);
+      return c === null ? null : c + self.labelHeight;
+    };
+    this.axisView = {
+      // Placed like any other label so the axis re-stacks overlapping ones (a moving average
+      // priced near the last close) around it instead of drawing over it.
+      coordinate: () => y() ?? -1e6,
+      text: () => self.state()?.text ?? "",
+      textColor: () => "#ffffff",
+      backColor: () => self.state()?.color ?? "transparent",
+      visible: () => y() !== null,
+      tickVisible: () => false,
+    };
+  }
+
+  paneViews() {
+    return [];
+  }
+
+  priceAxisViews() {
+    return [this.axisView];
+  }
+
+  refresh() {
+    this.attachedTo?.requestUpdate();
   }
 }
