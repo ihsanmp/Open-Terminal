@@ -17,7 +17,7 @@ import * as tvchart from "../providers/tvchart.js";
 import * as newsfeeds from "../providers/newsfeeds.js";
 import { cryptoBase, cryptoTicker, isIndex, isYahooOnly } from "../symbols.js";
 import { INDEX_TV_TICKER, WORLD_INDICES, searchIndices } from "../indices.js";
-import { BINANCE_INTERVAL, INTERVAL_SECONDS, MAX_BARS, clip, groupCandles, isInterval, rangeStart, yahooPlan, type Interval } from "../intervals.js";
+import { BINANCE_INTERVAL, INTERVAL_SECONDS, MAX_BARS, aggregateByPeriod, clip, groupCandles, isInterval, rangeStart, yahooPlan, type Interval } from "../intervals.js";
 import { cryptoTerm, matchCoins, rankResults, type Coin, type SearchResult } from "../search.js";
 
 export const marketRouter = Router();
@@ -289,14 +289,23 @@ async function historyAtInterval(symbol: string, rangeKey: string, interval: Int
     return plan.group ? groupCandles(candles, plan.group, 3600) : candles;
   };
   const attempts: Array<[string, () => Promise<yahoo.Candle[]>]> = [];
-  if (base && (await onBinance(base))) {
-    attempts.push(["binance", () => binance.historyInterval(base, BINANCE_INTERVAL[interval], rangeStart(rangeKey), MAX_BARS)]);
-  }
-  attempts.push(["yahoo", yahooAt]);
-  // Daily-only sources still serve a daily chart when Yahoo is out.
-  if (interval === "1D" && !base) {
+  const nasdaqOk = !base && !isVix(symbol) && !isYahooOnly(symbol);
+  if (base) {
+    if (await onBinance(base)) attempts.push(["binance", () => binance.historyInterval(base, BINANCE_INTERVAL[interval], rangeStart(rangeKey), MAX_BARS)]);
+    attempts.push(["yahoo", yahooAt], ["coingecko", () => coingecko.history(base, rangeKey)]);
+  } else if (interval === "1D") {
+    // Daily stock charts stay on Nasdaq first, which Yahoo's per-client throttling can't touch.
+    if (nasdaqOk) attempts.push(["nasdaq", () => nasdaq.history(symbol, rangeKey)]);
+    attempts.push(["yahoo", yahooAt]);
     if (isVix(symbol)) attempts.push(["fred", () => vixHistory(rangeKey)]);
-    else if (!isYahooOnly(symbol)) attempts.push(["nasdaq", () => nasdaq.history(symbol, rangeKey)], ["stooq", () => stooq.history(symbol)]);
+    else if (nasdaqOk) attempts.push(["stooq", () => stooq.history(symbol)]);
+  } else {
+    attempts.push(["yahoo", yahooAt]);
+    // Weekly and monthly bars can be built from Nasdaq's daily ones when Yahoo is out.
+    if (nasdaqOk && (interval === "1W" || interval === "1M")) {
+      const period = interval === "1W" ? "week" : "month";
+      attempts.push(["nasdaq", async () => aggregateByPeriod(await nasdaq.history(symbol, rangeKey === "MAX" ? "MAX" : "5Y"), period)]);
+    }
   }
   return clip(await withFallback(attempts), rangeKey);
 }

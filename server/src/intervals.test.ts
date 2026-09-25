@@ -68,3 +68,19 @@ describe("Yahoo's trailing last-trade point", () => {
     expect(foldLiveTick([bar(h(13, 30) - DAY, 1, 1, 1, 1), bar(h(13, 30), 1, 1, 1, 1)], "1d")).toHaveLength(2);
   });
 });
+
+describe("weekly and monthly bars from daily ones", () => {
+  it("groups Monday-start weeks and calendar months", async () => {
+    const { aggregateByPeriod } = await import("./intervals.js");
+    // Thu 2026-09-17 … Tue 2026-09-22 (a weekend in between), then 2026-10-01.
+    const d = (m: number, day: number) => Date.UTC(2026, m - 1, day, 13, 30) / 1000;
+    const daily = [bar(d(9, 17), 1, 2, 0.5, 1.5, 10), bar(d(9, 18), 1.5, 3, 1, 2, 10), bar(d(9, 21), 2, 2.5, 1.8, 2.2, 10), bar(d(9, 22), 2.2, 4, 2, 3, 10), bar(d(10, 1), 3, 3.5, 2.9, 3.1, 10)];
+    const weeks = aggregateByPeriod(daily, "week");
+    expect(weeks.map((w) => [new Date(w.time * 1000).toISOString().slice(0, 10), w.open, w.high, w.low, w.close, w.volume])).toEqual([
+      ["2026-09-17", 1, 3, 0.5, 2, 20],
+      ["2026-09-21", 2, 4, 1.8, 3, 20],
+      ["2026-10-01", 3, 3.5, 2.9, 3.1, 10],
+    ]);
+    expect(aggregateByPeriod(daily, "month").map((m) => [m.open, m.close, m.volume])).toEqual([[1, 3, 40], [3, 3.1, 10]]);
+  });
+});
