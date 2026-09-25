@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_BARS, clip, groupCandles, isInterval, rangeStart, yahooPlan } from "./intervals.js";
+import { MAX_BARS, MIN_BARS, clip, groupCandles, isInterval, loadStart, rangeStart, yahooPlan } from "./intervals.js";
 
 const NOW = Date.UTC(2026, 8, 25, 12) / 1000; // Fri 2026-09-25 12:00 UTC
 const DAY = 86_400;
@@ -22,28 +22,31 @@ describe("chart intervals", () => {
     expect(out[1]).toMatchObject({ open: 14, high: 17, low: 13, close: 16.5, volume: 300 });
   });
 
+  it("loads at least MIN_BARS bars whatever the range", () => {
+    // 5D at 1D on crypto: a thousand days back, not five.
+    expect(loadStart("5D", "1D", true, NOW)).toBeCloseTo(NOW - MIN_BARS * DAY * 0.99, 0);
+    // Stocks need more calendar time per bar (weekends, and 6.5 trading hours a day intraday).
+    expect(loadStart("5D", "1h", false, NOW)!).toBeLessThan(NOW - MIN_BARS * 3600 * 5);
+    // A long range reaches further than MIN_BARS already needs.
+    expect(loadStart("5Y", "1W", true, NOW)).toBe(Math.min(rangeStart("5Y", NOW)!, NOW - MIN_BARS * 604_800 * 0.99));
+    expect(loadStart("MAX", "1D", true, NOW)).toBeNull();
+    // Crypto 1D at 1m: one day (1440 bars), not the five days stocks reach back over weekends.
+    expect(loadStart("1D", "1m", true, NOW)).toBe(NOW - DAY);
+    expect(loadStart("1D", "1m", false, NOW)).toBeLessThan(NOW - 4 * DAY);
+  });
+
   it("asks Yahoo only for what it keeps", () => {
     expect(yahooPlan("1Y", "5m", NOW)).toMatchObject({ interval: "5m", from: NOW - 59 * DAY });
     expect(yahooPlan("5D", "1m", NOW)).toMatchObject({ interval: "1m", from: NOW - 7 * DAY });
-    expect(yahooPlan("1M", "4h", NOW)).toMatchObject({ interval: "60m", group: 4, from: rangeStart("1M", NOW) });
+    // A thousand 4h stock bars need ~2.6 years, beyond the 729 days Yahoo keeps 1h bars for.
+    expect(yahooPlan("1M", "4h", NOW)).toMatchObject({ interval: "60m", group: 4, from: NOW - 729 * DAY });
+    expect(yahooPlan("1M", "1D", NOW).from).toBe(loadStart("1M", "1D", false, NOW));
     expect(yahooPlan("MAX", "1D", NOW).from).toBeNull();
   });
 
-  it("clips 1D and 5D to the last sessions with data, not the last 24 hours", () => {
-    // Saturday: Friday's session is still "1D".
-    const sat = Date.UTC(2026, 8, 26, 12) / 1000;
-    const fri = Date.UTC(2026, 8, 25, 14) / 1000;
-    const thu = fri - DAY;
-    const candles = [bar(thu, 1, 1, 1, 1), bar(fri, 2, 2, 2, 2), bar(fri + 3600, 3, 3, 3, 3)];
-    expect(clip(candles, "1D", sat).map((c) => c.close)).toEqual([2, 3]);
-    expect(clip(candles, "5D", sat)).toHaveLength(3);
-  });
-
-  it("clips calendar ranges and keeps the newest MAX_BARS", () => {
-    const start = rangeStart("6M", NOW)!;
-    expect(clip([bar(start - 60, 1, 1, 1, 1), bar(start + 60, 2, 2, 2, 2)], "6M", NOW).map((c) => c.close)).toEqual([2]);
+  it("keeps the newest MAX_BARS", () => {
     const many = Array.from({ length: MAX_BARS + 10 }, (_, k) => bar(k * 60, k, k, k, k));
-    const kept = clip(many, "MAX", NOW);
+    const kept = clip(many);
     expect(kept).toHaveLength(MAX_BARS);
     expect(kept.at(-1)!.close).toBe(MAX_BARS + 9);
   });

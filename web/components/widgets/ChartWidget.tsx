@@ -40,7 +40,7 @@ import { barSpacing } from "../../lib/ta/core";
 import { BackgroundPrimitive, CountdownPrimitive, DrawingsPrimitive, FillPrimitive, type DrawingsSpec } from "../../lib/ta/chart-primitives";
 import { IndicatorTableView } from "../chart/IndicatorTableView";
 import { chartContext } from "../../lib/chart-context";
-import { INTERVALS, INTERVAL_SECONDS, RANGES, defaultInterval, resolveChartView, type ChartInterval, type Range } from "../../lib/chart-intervals";
+import { INTERVALS, INTERVAL_SECONDS, RANGES, defaultInterval, initialVisibleRange, resolveChartView, type ChartInterval, type Range } from "../../lib/chart-intervals";
 import { DEFAULT_CHART_INDICATORS, useTerminal, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 import { IndicatorPicker, IndicatorSettings } from "../chart/IndicatorDialogs";
 import { isCryptoSymbol, usePoll, usSessionActive } from "../../lib/refresh";
@@ -472,7 +472,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     });
 
     if (savedRange.current?.key === viewKey) chart.timeScale().setVisibleLogicalRange(savedRange.current.range);
-    else chart.timeScale().fitContent();
+    // The range sets what's in view; the rest of the loaded history sits to the left.
+    else chart.timeScale().setVisibleLogicalRange(initialVisibleRange(candles.map((c) => c.time), range, Date.now() / 1000, ctx.type === "crypto"));
 
     return () => {
       const r = chart.timeScale().getVisibleLogicalRange();

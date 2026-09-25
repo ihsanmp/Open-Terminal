@@ -21,15 +21,15 @@ export const INTERVAL_SECONDS: Record<Interval, number> = {
 
 /** Most bars one chart loads, as TradingView does; long ranges at fine intervals keep the newest. */
 export const MAX_BARS = 5000;
+/** Fewest bars a chart loads whatever its range: the range only sets what's in view, as on
+ *  TradingView, so a 5D range at 1D still has history to scroll back into and indicators
+ *  (SMA 200…) have bars to warm up on. */
+export const MIN_BARS = 1000;
 
 const DAY = 86_400;
 
-/** Trading days that 1D and 5D span: the last sessions with data, not the last 24 hours
- *  (a stock chart on a Sunday still shows Friday). */
-const SESSION_RANGES: Record<string, number> = { "1D": 1, "5D": 5 };
-
-/** Where to start fetching for a range, in unix seconds; null for MAX. 1D and 5D reach back
- *  far enough to cover weekends and holidays, then clip() keeps their sessions. */
+/** Start of a range in unix seconds; null for MAX. 1D and 5D reach back far enough to cover
+ *  weekends and holidays (the chart shows their last one or five sessions). */
 export function rangeStart(rangeKey: string, now = Date.now() / 1000): number | null {
   const d = new Date(now * 1000);
   switch (rangeKey) {
@@ -65,10 +65,22 @@ const YAHOO: Record<Interval, { interval: string; lookback: number | null; group
   "1M": { interval: "1mo", lookback: null },
 };
 
+/** Where to start loading: the range's start, or earlier so at least MIN_BARS bars arrive.
+ *  `continuous`: trades around the clock (crypto); stocks need more calendar time per bar. */
+export function loadStart(rangeKey: string, interval: Interval, continuous: boolean, now = Date.now() / 1000): number | null {
+  // Around-the-clock markets have no weekends to reach over: 1D and 5D are exactly that long.
+  const start = continuous && (rangeKey === "1D" || rangeKey === "5D") ? now - (rangeKey === "1D" ? 1 : 5) * DAY : rangeStart(rangeKey, now);
+  if (start === null) return null;
+  const perBar = INTERVAL_SECONDS[interval];
+  // Just under MIN_BARS for crypto, so one 1000-kline Binance page covers it.
+  const calendarPerBar = continuous ? 0.99 : perBar < DAY ? (24 / 6.5) * (7 / 5) * 1.1 : (7 / 5) * 1.1;
+  return Math.min(start, now - MIN_BARS * perBar * calendarPerBar);
+}
+
 /** What to ask Yahoo for: its interval and the period it can actually serve. */
-export function yahooPlan(rangeKey: string, interval: Interval, now = Date.now() / 1000) {
+export function yahooPlan(rangeKey: string, interval: Interval, now = Date.now() / 1000, continuous = false) {
   const plan = YAHOO[interval];
-  const start = rangeStart(rangeKey, now);
+  const start = loadStart(rangeKey, interval, continuous, now);
   const earliest = plan.lookback === null ? null : now - plan.lookback;
   const from = start === null ? earliest : earliest === null ? start : Math.max(start, earliest);
   return { interval: plan.interval, from, to: Math.ceil(now), group: plan.group };
@@ -133,16 +145,7 @@ export function aggregateByPeriod(candles: Candle[], period: "week" | "month"): 
   return out;
 }
 
-/** Trim to the range and to MAX_BARS, newest kept. */
-export function clip(candles: Candle[], rangeKey: string, now = Date.now() / 1000): Candle[] {
-  const sessions = SESSION_RANGES[rangeKey];
-  let inRange: Candle[];
-  if (sessions) {
-    const days = [...new Set(candles.map((c) => Math.floor(c.time / DAY)))].slice(-sessions);
-    inRange = candles.filter((c) => Math.floor(c.time / DAY) >= (days[0] ?? Infinity));
-  } else {
-    const start = rangeStart(rangeKey, now);
-    inRange = start === null ? candles : candles.filter((c) => c.time >= start);
-  }
-  return inRange.slice(-MAX_BARS);
+/** The newest MAX_BARS; the range itself is applied by the chart as what's in view. */
+export function clip(candles: Candle[]): Candle[] {
+  return candles.slice(-MAX_BARS);
 }
