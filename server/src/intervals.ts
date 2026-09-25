@@ -108,6 +108,31 @@ export function groupCandles(candles: Candle[], size: number, barSeconds: number
   return out;
 }
 
+/** Weekly (Monday-start) or monthly candles from daily ones, for daily-only sources. */
+export function aggregateByPeriod(candles: Candle[], period: "week" | "month"): Candle[] {
+  const key = (t: number) => {
+    const d = new Date(t * 1000);
+    if (period === "month") return d.getUTCFullYear() * 12 + d.getUTCMonth();
+    return Math.floor((Math.floor(t / DAY) + 3) / 7); // 1970-01-01 was a Thursday
+  };
+  const out: Candle[] = [];
+  let last: number | null = null;
+  for (const c of candles) {
+    const k = key(c.time);
+    const cur = out[out.length - 1];
+    if (!cur || k !== last) {
+      out.push({ ...c });
+      last = k;
+    } else {
+      cur.high = Math.max(cur.high, c.high);
+      cur.low = Math.min(cur.low, c.low);
+      cur.close = c.close;
+      cur.volume += c.volume;
+    }
+  }
+  return out;
+}
+
 /** Trim to the range and to MAX_BARS, newest kept. */
 export function clip(candles: Candle[], rangeKey: string, now = Date.now() / 1000): Candle[] {
   const sessions = SESSION_RANGES[rangeKey];

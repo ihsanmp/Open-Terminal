@@ -40,19 +40,16 @@ import { barSpacing } from "../../lib/ta/core";
 import { BackgroundPrimitive, DrawingsPrimitive, FillPrimitive, type DrawingsSpec } from "../../lib/ta/chart-primitives";
 import { IndicatorTableView } from "../chart/IndicatorTableView";
 import { chartContext } from "../../lib/chart-context";
+import { INTERVALS, INTERVAL_SECONDS, RANGES, defaultInterval, resolveChartView, type ChartInterval, type Range } from "../../lib/chart-intervals";
 import { DEFAULT_CHART_INDICATORS, useTerminal, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 import { IndicatorPicker, IndicatorSettings } from "../chart/IndicatorDialogs";
 import { isCryptoSymbol, usePoll, usSessionActive } from "../../lib/refresh";
-import { barIntervalSeconds, formatBarTime, formatCountdown, intervalLabel, isIntradayInterval, secondsToClose } from "../../lib/candle-time";
+import { formatBarTime, formatCountdown, intervalLabel, isIntradayInterval, secondsToClose } from "../../lib/candle-time";
 
-const RANGES = ["1D", "5D", "1M", "6M", "YTD", "1Y", "5Y", "MAX"] as const;
-// Candle interval, chosen apart from the range as on TradingView; "auto" = the range's own.
-const INTERVALS = ["auto", "1m", "5m", "15m", "1h", "4h", "1D", "1W", "1M"] as const;
-const INTERVAL_SECONDS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14_400, "1D": 86_400, "1W": 604_800, "1M": 2_592_000 };
+
 const CHART_TYPES = ["candles", "bars", "line", "area"] as const;
 
-type Range = (typeof RANGES)[number];
-type ChartInterval = (typeof INTERVALS)[number];
+
 type ChartType = (typeof CHART_TYPES)[number];
 
 const UP = "#00c853";
@@ -138,10 +135,10 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const symbol = useWidgetSymbol(widget);
   const setWidgetIndicators = useTerminal((s) => s.setWidgetIndicators);
   const setWidgetChart = useTerminal((s) => s.setWidgetChart);
-  // Range and interval are saved with the widget, so they survive a restart.
-  const range: Range = (RANGES as readonly string[]).includes(widget.chartRange ?? "") ? (widget.chartRange as Range) : "6M";
-  const interval: ChartInterval = (INTERVALS as readonly string[]).includes(widget.chartInterval ?? "") ? (widget.chartInterval as ChartInterval) : "auto";
-  const setRange = (r: Range) => setWidgetChart(widget.id, { chartRange: r });
+  // Range and interval are saved with the widget, so they survive a restart. Picking a range
+  // also picks its usual interval, which the interval menu shows and can override.
+  const { range, interval } = resolveChartView(widget.chartRange, widget.chartInterval, symbol);
+  const setRange = (r: Range) => setWidgetChart(widget.id, { chartRange: r, chartInterval: defaultInterval(r, symbol) });
   const setInterval_ = (i: ChartInterval) => setWidgetChart(widget.id, { chartInterval: i });
   const [chartType, setChartType] = useState<ChartType>("candles");
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -157,8 +154,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const saveInstances = (next: IndicatorInstance[]) => setWidgetIndicators(widget.id, next);
   const poll = usePoll(() => {
     const live = isCryptoSymbol(symbol) || usSessionActive();
-    // A chosen interval sets the pace; otherwise the range's own interval does.
-    const seconds = interval !== "auto" ? INTERVAL_SECONDS[interval] : range === "1D" || range === "5D" ? 300 : range === "1M" ? 3600 : 86_400;
+    const seconds = INTERVAL_SECONDS[interval];
     if (seconds <= 900) return live ? 10_000 : 300_000;
     if (seconds < 86_400) return live ? 30_000 : 600_000;
     return live ? 120_000 : 900_000;
@@ -166,7 +162,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
 
   const { data: candles, error } = useQuery({
     queryKey: ["history", symbol, range, interval],
-    queryFn: () => apiGet<Candle[]>(`/api/history/${symbol}?range=${range}${interval !== "auto" ? `&interval=${interval}` : ""}`),
+    queryFn: () => apiGet<Candle[]>(`/api/history/${symbol}?range=${range}&interval=${interval}`),
     // Intraday bars move; daily-and-longer bars only change at the last candle.
     refetchInterval: poll,
   });
@@ -185,11 +181,11 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   });
 
   // request.security() of other symbols: each indicator names the API paths it needs.
-  // A chosen interval is exact; measuring the bars would read a stock's 4h candles (4h, then 20h
-  // overnight) as 20h.
-  const intervalSeconds = interval !== "auto" ? INTERVAL_SECONDS[interval] : bars ? barIntervalSeconds(bars.time) : 86_400;
+  // The chosen interval is exact; measuring the bars would read a stock's 4h candles (4h, then
+  // 20h overnight) as 20h.
+  const intervalSeconds = INTERVAL_SECONDS[interval];
   const ctx = useMemo(
-    () => chartContext(symbol, intervalSeconds, range, interval !== "auto" ? interval : undefined),
+    () => chartContext(symbol, intervalSeconds, range, interval),
     [symbol, intervalSeconds, range, interval]
   );
   const instancesJson = JSON.stringify(instances);
@@ -537,11 +533,11 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           className="term-btn"
           value={interval}
           onChange={(e) => setInterval_(e.target.value as ChartInterval)}
-          title="Candle interval — Auto uses the range's own"
+          title="Candle interval — each range opens at its usual one"
         >
           {INTERVALS.map((i) => (
             <option key={i} value={i}>
-              {i === "auto" ? "AUTO" : i}
+              {i}
             </option>
           ))}
         </select>
