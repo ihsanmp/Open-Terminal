@@ -118,7 +118,11 @@ const RANGE_DAYS: Record<string, number> = {
 };
 
 export async function history(symbol: string, rangeKey: string): Promise<Candle[]> {
-  const days = RANGE_DAYS[rangeKey] ?? 190;
+  return historyDays(symbol, RANGE_DAYS[rangeKey] ?? 190);
+}
+
+/** Daily bars for the last `days` calendar days. */
+export async function historyDays(symbol: string, days: number): Promise<Candle[]> {
   const to = new Date();
   const from = new Date(to.getTime() - days * 86_400_000);
   const assetclass = assetClassOf(symbol);

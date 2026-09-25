@@ -17,7 +17,7 @@ import * as tvchart from "../providers/tvchart.js";
 import * as newsfeeds from "../providers/newsfeeds.js";
 import { cryptoBase, cryptoTicker, isIndex, isYahooOnly } from "../symbols.js";
 import { INDEX_TV_TICKER, WORLD_INDICES, searchIndices } from "../indices.js";
-import { BINANCE_INTERVAL, INTERVAL_SECONDS, MAX_BARS, aggregateByPeriod, clip, groupCandles, isInterval, rangeStart, yahooPlan, type Interval } from "../intervals.js";
+import { BINANCE_INTERVAL, INTERVAL_SECONDS, MAX_BARS, aggregateByPeriod, clip, groupCandles, isInterval, loadStart, yahooPlan, type Interval } from "../intervals.js";
 import { cryptoTerm, matchCoins, rankResults, type Coin, type SearchResult } from "../search.js";
 
 export const marketRouter = Router();
@@ -283,19 +283,23 @@ marketRouter.get("/quotes", async (req, res) => {
 async function historyAtInterval(symbol: string, rangeKey: string, interval: Interval): Promise<yahoo.Candle[]> {
   const base = cryptoBase(symbol);
   const yahooSymbol = base ? cryptoTicker(base) : symbol;
+  const now = Date.now() / 1000;
+  const from = loadStart(rangeKey, interval, Boolean(base), now);
+  // Nasdaq's daily chart takes a day count; 7300 days is as far as it goes.
+  const nasdaqDays = from === null ? 7300 : Math.min(7300, Math.ceil((now - from) / 86_400));
   const yahooAt = async () => {
-    const plan = yahooPlan(rangeKey, interval);
+    const plan = yahooPlan(rangeKey, interval, now, Boolean(base));
     const candles = await yahoo.historyBetween(yahooSymbol, plan.from, plan.to, plan.interval);
     return plan.group ? groupCandles(candles, plan.group, 3600) : candles;
   };
   const attempts: Array<[string, () => Promise<yahoo.Candle[]>]> = [];
   const nasdaqOk = !base && !isVix(symbol) && !isYahooOnly(symbol);
   if (base) {
-    if (await onBinance(base)) attempts.push(["binance", () => binance.historyInterval(base, BINANCE_INTERVAL[interval], rangeStart(rangeKey), MAX_BARS)]);
+    if (await onBinance(base)) attempts.push(["binance", () => binance.historyInterval(base, BINANCE_INTERVAL[interval], from, MAX_BARS)]);
     attempts.push(["yahoo", yahooAt], ["coingecko", () => coingecko.history(base, rangeKey)]);
   } else if (interval === "1D") {
     // Daily stock charts stay on Nasdaq first, which Yahoo's per-client throttling can't touch.
-    if (nasdaqOk) attempts.push(["nasdaq", () => nasdaq.history(symbol, rangeKey)]);
+    if (nasdaqOk) attempts.push(["nasdaq", () => nasdaq.historyDays(symbol, nasdaqDays)]);
     attempts.push(["yahoo", yahooAt]);
     if (isVix(symbol)) attempts.push(["fred", () => vixHistory(rangeKey)]);
     else if (nasdaqOk) attempts.push(["stooq", () => stooq.history(symbol)]);
@@ -304,10 +308,10 @@ async function historyAtInterval(symbol: string, rangeKey: string, interval: Int
     // Weekly and monthly bars can be built from Nasdaq's daily ones when Yahoo is out.
     if (nasdaqOk && (interval === "1W" || interval === "1M")) {
       const period = interval === "1W" ? "week" : "month";
-      attempts.push(["nasdaq", async () => aggregateByPeriod(await nasdaq.history(symbol, rangeKey === "MAX" ? "MAX" : "5Y"), period)]);
+      attempts.push(["nasdaq", async () => aggregateByPeriod(await nasdaq.historyDays(symbol, 7300), period)]);
     }
   }
-  return clip(await withFallback(attempts), rangeKey);
+  return clip(await withFallback(attempts));
 }
 
 marketRouter.get("/history/:symbol", async (req, res) => {
