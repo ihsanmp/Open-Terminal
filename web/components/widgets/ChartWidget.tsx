@@ -30,7 +30,10 @@ import {
   type BtcDaily,
   type Color,
   type ExternalData,
+  type IndicatorStyle,
+  type LineDash,
   type Series,
+  timeframeKind,
   type IndicatorDef,
   type IndicatorInstance,
   type IndicatorResult,
@@ -69,6 +72,20 @@ type Prepared = {
   plots: Record<string, PreparedPlot>;
   error?: string;
 };
+
+const LINE_STYLE: Record<LineDash, LineStyle> = { solid: LineStyle.Solid, dashed: LineStyle.Dashed, dotted: LineStyle.Dotted };
+
+/** Shown on the chart right now: not hidden, not failing, and on for this kind of interval
+ *  (the Visibility tab). */
+const shownOn = (it: { inst: IndicatorInstance; error?: string }, intervalSeconds: number) =>
+  !it.inst.hidden && !it.error && it.inst.style?.visibility?.[timeframeKind(intervalSeconds)] !== false;
+
+/** Decimals for an indicator's values: the Style tab's precision, else its own (overlays on the
+ *  price scale need at least the instrument's). */
+function valuePrecision(def: IndicatorDef, style: IndicatorStyle | undefined, pricePrecision: number): number {
+  if (style?.precision !== undefined) return style.precision;
+  return def.overlay && !def.volumeOverlay ? Math.max(def.precision ?? 2, pricePrecision) : def.precision ?? 2;
+}
 
 /** Future bar times so positive offsets (Ichimoku cloud, Alligator) can be drawn. */
 function futureTimes(time: number[], count: number): number[] {
@@ -279,11 +296,12 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     const m = new Map<string, number>();
     let next = 1;
     for (const it of prepared?.items ?? []) {
-      if (it.def.overlay || it.inst.hidden || it.error) continue;
-      if (it.def.plots.some((p) => !p.display && it.plots[p.key])) m.set(it.inst.uid, next++);
+      if (it.def.overlay || !shownOn(it, intervalSeconds)) continue;
+      const drawn = it.def.plots.some((p) => !p.display && it.plots[p.key] && it.inst.style?.plots?.[p.key]?.visible !== false);
+      if (drawn) m.set(it.inst.uid, next++);
     }
     return m;
-  }, [prepared]);
+  }, [prepared, intervalSeconds]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -306,7 +324,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     });
 
     // ---- main price series (with optional barcolor from an indicator) ----
-    const barColors = [...items].reverse().find((it) => !it.inst.hidden && it.result.barColors)?.result.barColors;
+    const barColors = [...items].reverse().find((it) => shownOn(it, intervalSeconds) && it.result.barColors)?.result.barColors;
     const future = times.slice(candles.length).map((time) => ({ time }));
     let main: ISeriesApi<SeriesType>;
     if (chartType === "candles" || chartType === "bars") {
@@ -336,11 +354,11 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         .map((m) => ({ time: times[m.index], position: m.position, shape: m.shape, color: m.color, text: m.text }) as SeriesMarker<Time>);
 
     for (const it of items) {
-      if (it.inst.hidden || it.error) continue;
+      if (!shownOn(it, intervalSeconds)) continue;
       const paneIndex = it.def.overlay ? 0 : paneOf.get(it.inst.uid);
       if (paneIndex === undefined) continue;
-      // Price-scale overlays (MAs, bands) need the instrument's own precision.
-      const precision = it.def.overlay && !it.def.volumeOverlay ? Math.max(it.def.precision ?? 2, pxPrecision) : it.def.precision ?? 2;
+      const style = it.inst.style ?? {};
+      const precision = valuePrecision(it.def, style, pxPrecision);
       const priceFormat =
         it.def.volumeOverlay || precision === 0
           ? ({ type: "volume" } as const)
@@ -350,10 +368,16 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
 
       for (const plot of it.def.plots) {
         const prep = it.plots[plot.key];
-        if (!prep || plot.display) continue;
+        const o = style.plots?.[plot.key] ?? {};
+        if (!prep || plot.display || o.visible === false) continue;
+        // A color chosen on the Style tab replaces per-bar colors too, as on TradingView.
+        const baseColor = o.color ?? plot.color;
+        const barColors = o.color ? undefined : prep.colors;
+        const lineWidth = (o.width ?? plot.width ?? 1) as 1 | 2 | 3 | 4;
+        const lineStyle = LINE_STYLE[o.dash ?? (plot.dashed ? "dashed" : "solid")];
         const common = {
           priceLineVisible: false,
-          lastValueVisible: !it.def.volumeOverlay,
+          lastValueVisible: !it.def.volumeOverlay && style.labelsOnPriceScale !== false,
           priceFormat,
           ...(scaleId ? { priceScaleId: scaleId } : {}),
           ...(it.def.autoscale === false ? { autoscaleInfoProvider: () => null } : {}),
@@ -365,22 +389,22 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
             if (!plot.connectGaps) data.push({ time: times[i] });
             continue;
           }
-          const color = prep.colors?.[i];
+          const color = barColors?.[i];
           data.push(color ? { time: times[i], value: v, color } : { time: times[i], value: v });
         }
         let series: ISeriesApi<SeriesType>;
         if (plot.style === "histogram") {
-          series = chart.addSeries(HistogramSeries, { ...common, color: plot.color }, paneIndex);
+          series = chart.addSeries(HistogramSeries, { ...common, color: baseColor }, paneIndex);
         } else if (plot.style === "area") {
-          series = chart.addSeries(AreaSeries, { ...common, lineColor: plot.color, topColor: plot.color, bottomColor: "rgba(0,0,0,0)", lineWidth: plot.width ?? 1 }, paneIndex);
+          series = chart.addSeries(AreaSeries, { ...common, lineColor: baseColor, topColor: baseColor, bottomColor: "rgba(0,0,0,0)", lineWidth, lineStyle }, paneIndex);
         } else {
           series = chart.addSeries(
             LineSeries,
             {
               ...common,
-              color: plot.color,
-              lineWidth: plot.width ?? 1,
-              lineStyle: plot.dashed ? LineStyle.Dashed : LineStyle.Solid,
+              color: baseColor,
+              lineWidth,
+              lineStyle,
               lineType: plot.style === "step" ? LineType.WithSteps : LineType.Simple,
               lineVisible: plot.style !== "circles",
               pointMarkersVisible: plot.style === "circles",
@@ -396,10 +420,14 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       }
       if (!anchor) continue;
 
-      for (const h of it.result.hlines ?? []) {
-        anchor.createPriceLine({ price: h.price, color: h.color, lineWidth: 1, lineStyle: h.dashed ? LineStyle.Dashed : LineStyle.Solid, axisLabelVisible: false, title: "" });
+      for (const h of style.levels?.visible === false ? [] : it.result.hlines ?? []) {
+        const dash = style.levels?.dash ?? (h.dashed ? "dashed" : "solid");
+        anchor.createPriceLine({ price: h.price, color: style.levels?.color ?? h.color, lineWidth: 1, lineStyle: LINE_STYLE[dash], axisLabelVisible: false, title: "" });
       }
-      for (const f of it.result.fills ?? []) {
+      for (const [fi, f0] of (it.result.fills ?? []).entries()) {
+        const fs = style.fills?.[fi];
+        if (fs?.visible === false) continue;
+        const f = fs?.color ? { ...f0, color: fs.color } : f0;
         const side = (ref: string | number) => (typeof ref === "number" ? new Array<number>(total).fill(ref) : it.plots[ref]?.values);
         const a = side(f.a);
         const b = side(f.b);
@@ -500,19 +528,23 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
 
   const legendRow = (it: Prepared) => (
     <div key={it.inst.uid} className="group flex gap-2 items-center pointer-events-auto w-fit max-w-full">
-      <span className={`whitespace-nowrap ${it.inst.hidden ? "text-[#4d4d4d]" : "text-[var(--text)]"}`}>{it.label}</span>
+      <span className={`whitespace-nowrap ${shownOn(it, intervalSeconds) || it.error ? "text-[var(--text)]" : "text-[#4d4d4d]"}`}>
+        {it.inst.style?.inputsInStatusLine === false ? it.def.short : it.label}
+      </span>
       {it.error ? (
         <span className="down truncate">error: {it.error}</span>
       ) : (
-        !it.inst.hidden &&
+        shownOn(it, intervalSeconds) &&
+        it.inst.style?.valuesInStatusLine !== false &&
         it.def.plots
-          .filter((p) => p.display !== "none" && it.plots[p.key])
+          .filter((p) => p.display !== "none" && it.plots[p.key] && it.inst.style?.plots?.[p.key]?.visible !== false)
           .map((p) => {
             const prep = it.plots[p.key];
             const v = prep.values[idx];
+            const color = it.inst.style?.plots?.[p.key]?.color ?? prep.colors?.[idx] ?? p.color;
             return (
-              <span key={p.key} style={{ color: prep.colors?.[idx] ?? p.color }} className="whitespace-nowrap">
-                {formatValue(v, it.def.overlay && !it.def.volumeOverlay ? Math.max(it.def.precision ?? 2, legendPrecision) : it.def.precision ?? 2)}
+              <span key={p.key} style={{ color }} className="whitespace-nowrap">
+                {formatValue(v, valuePrecision(it.def, it.inst.style, legendPrecision))}
               </span>
             );
           })
@@ -521,11 +553,9 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         <button title={it.inst.hidden ? "Show" : "Hide"} className="dim hover:text-[var(--text)]" onClick={() => update(it.inst.uid, { hidden: !it.inst.hidden })}>
           {it.inst.hidden ? "◌" : "◉"}
         </button>
-        {it.def.inputs.length > 0 && (
-          <button title="Settings" className="dim hover:text-[var(--amber)]" onClick={() => setEditing(it.inst.uid)}>
-            ⚙
-          </button>
-        )}
+        <button title="Settings" className="dim hover:text-[var(--amber)]" onClick={() => setEditing(it.inst.uid)}>
+          ⚙
+        </button>
         <button title="Remove" className="dim hover:text-[var(--down)]" onClick={() => remove(it.inst.uid)}>
           ✕
         </button>
@@ -598,7 +628,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
             </div>
           ))}
         {items
-          .filter((it) => it.def.overlay && !it.inst.hidden && !it.error && it.result.table)
+          .filter((it) => it.def.overlay && shownOn(it, intervalSeconds) && it.result.table)
           .map((it) => (
             <IndicatorTableView key={`table-${it.inst.uid}`} table={it.result.table!} inset={axes} paneBottom={paneTops.length > 1 ? paneTops[1] : undefined} />
           ))}
@@ -622,7 +652,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
                 .map((p) => ({ value: `plot:${it.inst.uid}:${p.key}`, label: `${it.label}: ${p.title}` }))
             )}
           onClose={() => setEditing(null)}
-          onApply={(params) => update(editingItem.inst.uid, { params })}
+          result={editingItem.result}
+          onApply={(params, style) => update(editingItem.inst.uid, { params, style })}
         />
       )}
     </div>

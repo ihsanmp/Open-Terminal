@@ -178,11 +178,50 @@ export type IndicatorDef = {
   compute(bars: Bars, p: Params, ext?: ExternalData): IndicatorResult;
 };
 
+export type LineDash = "solid" | "dashed" | "dotted";
+
+/** A user's change to one plot (the Style tab); anything unset keeps the indicator's own. */
+export type PlotStyleOverride = {
+  visible?: boolean;
+  /** Replaces the plot's color on every bar, including per-bar colors. */
+  color?: string;
+  width?: 1 | 2 | 3 | 4;
+  dash?: LineDash;
+};
+
+/** Style tab + Visibility tab settings of one indicator instance. */
+export type IndicatorStyle = {
+  plots?: Record<string, PlotStyleOverride>;
+  /** Fills by index in the result's fills list (TradingView's "Background" rows). */
+  fills?: Record<number, { visible?: boolean; color?: string }>;
+  /** Horizontal levels (hline) as a group. */
+  levels?: { visible?: boolean; color?: string; dash?: LineDash };
+  /** Decimal places for values, or undefined for the indicator's own. */
+  precision?: number;
+  labelsOnPriceScale?: boolean;
+  valuesInStatusLine?: boolean;
+  inputsInStatusLine?: boolean;
+  /** Timeframe kinds the indicator shows on; all when unset. */
+  visibility?: Partial<Record<TimeframeKind, boolean>>;
+};
+
+export type TimeframeKind = "minutes" | "hours" | "days" | "weeks" | "months";
+
+/** Which Visibility checkbox a candle interval falls under. */
+export function timeframeKind(intervalSeconds: number): TimeframeKind {
+  if (intervalSeconds < 3600) return "minutes";
+  if (intervalSeconds < 86_400) return "hours";
+  if (intervalSeconds < 7 * 86_400) return "days";
+  if (intervalSeconds < 28 * 86_400) return "weeks";
+  return "months";
+}
+
 export type IndicatorInstance = {
   uid: string;
   id: string;
   params: Params;
   hidden?: boolean;
+  style?: IndicatorStyle;
 };
 
 // ---- input builders keep the catalog compact ------------------------------
