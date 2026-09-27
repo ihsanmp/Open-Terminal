@@ -160,7 +160,7 @@ export function IndicatorSettings({
             ) : input.type === "text" ? (
               <input type="text" className="w-40" value={String(draft[input.key])} onChange={(e) => set(input.key, e.target.value.toUpperCase())} />
             ) : input.type === "color" ? (
-              <input type="color" className="w-40 h-6 bg-transparent" value={String(draft[input.key])} onChange={(e) => set(input.key, e.target.value)} />
+              <ColorPicker color={String(draft[input.key])} onColor={(c) => set(input.key, c)} />
             ) : input.type === "source" || input.type === "select" ? (
               <select className="w-40" value={String(draft[input.key])} onChange={(e) => set(input.key, e.target.value)}>
                 {(input.type === "source" ? SOURCES : input.options).map((o) => (
@@ -270,7 +270,7 @@ function StyleTab({ def, result, style, setStyle }: { def: IndicatorDef; result?
               onColor={(color) => setPlot(p.key, { color })}
               width={p.style === "histogram" || p.style === "circles" ? undefined : o.width ?? p.width ?? 1}
               onWidth={p.style === "histogram" || p.style === "circles" ? undefined : (width) => setPlot(p.key, { width })}
-              dash={lineLike ? o.dash ?? (p.dashed ? "dashed" : "solid") : undefined}
+              dash={lineLike ? o.dash ?? (p.dotted ? "dotted" : p.dashed ? "dashed" : "solid") : undefined}
               onDash={lineLike ? (dash) => setPlot(p.key, { dash }) : undefined}
             />
           </Row>

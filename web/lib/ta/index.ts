@@ -5,12 +5,16 @@ import { oscillators } from "./indicators/oscillators";
 import { community, volatility, volume } from "./indicators/volume";
 import { luxalgo } from "./indicators/luxalgo";
 import { more } from "./indicators/more";
+import { luxalgo2 } from "./indicators/luxalgo2";
+import { lorentzian } from "./indicators/lorentzian";
+import { community2 } from "./indicators/community2";
+import { pivotHilo } from "./indicators/pivot-hilo";
 import type { Category, ExternalData, IndicatorDef, IndicatorInstance, IndicatorResult, Params } from "./types";
 
 export * from "./types";
 export type { Bars, Series } from "./core";
 
-export const INDICATORS: IndicatorDef[] = [...averages, ...bands, ...oscillators, ...volume, ...volatility, ...community, ...luxalgo, ...more].sort(
+export const INDICATORS: IndicatorDef[] = [...averages, ...bands, ...oscillators, ...volume, ...volatility, ...community, ...luxalgo, ...more, ...luxalgo2, lorentzian, ...community2, pivotHilo].sort(
   (a, b) => a.name.localeCompare(b.name)
 );
 

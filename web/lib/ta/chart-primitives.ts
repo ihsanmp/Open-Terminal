@@ -3,6 +3,7 @@
 // label.new() / plotshape(shape.xcross) drawings.
 // Modeled on the official bands-indicator / session-highlighting plugin examples.
 import type { CanvasRenderingTarget2D } from "fancy-canvas";
+import type { Box, Label, Line, LineDash } from "./types";
 import type {
   IChartApi,
   ISeriesPrimitiveAxisView,
@@ -176,29 +177,50 @@ export class BackgroundPrimitive extends PrimitiveBase {
 }
 
 export type DrawingsSpec = {
-  lines: Array<{ x1: number; y1: number; x2: number; y2: number; color: string; dashed?: boolean; width?: number }>;
-  labels: Array<{
-    index: number;
-    price: number;
-    text: string;
-    style: "left" | "right" | "center" | "circle";
-    textColor?: string;
-    bg?: string;
-    size: "tiny" | "small" | "normal" | "large" | "huge";
-  }>;
+  lines: Line[];
+  labels: Label[];
   /** plotshape(shape.xcross) above the bar's high or below its low. */
   crosses: Array<{ index: number; price: number; position: "above" | "below"; color: string }>;
-  boxes: Array<{ x1: number; x2: number; top: number; bottom: number; bg: string; border?: string; dashed?: boolean; text?: string; textColor?: string }>;
+  boxes: Box[];
 };
 
 // Pine's size.* for label text and for a text-less style_circle dot, in CSS pixels.
 const FONT_PX = { tiny: 9, small: 11, normal: 13, large: 16, huge: 22 } as const;
 const DOT_PX = { tiny: 8, small: 12, normal: 16, large: 22, huge: 30 } as const;
 const FONT = "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif";
+const DASH: Record<LineDash, number[]> = { solid: [], dashed: [4, 3], dotted: [1, 3] };
 
-type PlacedLine = DrawingsSpec["lines"][number] & { ax: number; ay: number; bx: number; by: number };
-type PlacedLabel = DrawingsSpec["labels"][number] & { x: number; y: number };
+const lineDash = (l: { style?: LineDash; dashed?: boolean }) => DASH[l.style ?? (l.dashed ? "dashed" : "solid")];
+
+type PlacedLine = Line & { ax: number; ay: number; bx: number; by: number };
+type PlacedLabel = Label & { x: number; y: number };
 type PlacedCross = { x: number; y: number; color: string };
+
+/** Endpoints of a line extended to the pane's edges (Pine's extend.right / left / both). */
+function extendLine(l: PlacedLine, width: number, height: number): [number, number, number, number] {
+  let { ax, ay, bx, by } = l;
+  if (!l.extend) return [ax, ay, bx, by];
+  const dx = bx - ax;
+  const dy = by - ay;
+  if (Math.abs(dx) < 1e-9) {
+    // Vertical: extend to the top and bottom.
+    const up = Math.min(ay, by);
+    const down = Math.max(ay, by);
+    return [ax, l.extend === "left" || l.extend === "both" ? -height : up, bx, l.extend === "right" || l.extend === "both" ? 2 * height : down];
+  }
+  const slope = dy / dx;
+  const left = Math.min(ax, bx) === ax ? { x: ax, y: ay } : { x: bx, y: by };
+  const right = left.x === ax ? { x: bx, y: by } : { x: ax, y: ay };
+  if (l.extend === "right" || l.extend === "both") {
+    right.y += slope * (width + 50 - right.x);
+    right.x = width + 50;
+  }
+  if (l.extend === "left" || l.extend === "both") {
+    left.y += slope * (-50 - left.x);
+    left.x = -50;
+  }
+  return [left.x, left.y, right.x, right.y];
+}
 
 class DrawingsRenderer implements IPrimitivePaneRenderer {
   constructor(private lines: PlacedLine[], private labels: PlacedLabel[], private crosses: PlacedCross[]) {}
@@ -206,16 +228,19 @@ class DrawingsRenderer implements IPrimitivePaneRenderer {
   draw(target: CanvasRenderingTarget2D) {
     target.useBitmapCoordinateSpace((scope) => {
       const ctx = scope.context;
+      const width = scope.mediaSize.width;
+      const height = scope.mediaSize.height;
       ctx.save();
       ctx.scale(scope.horizontalPixelRatio, scope.verticalPixelRatio);
 
       for (const l of this.lines) {
+        const [x1, y1, x2, y2] = extendLine(l, width, height);
         ctx.strokeStyle = l.color;
         ctx.lineWidth = l.width ?? 1;
-        ctx.setLineDash(l.dashed ? [4, 3] : []);
+        ctx.setLineDash(lineDash(l));
         ctx.beginPath();
-        ctx.moveTo(l.ax, l.ay);
-        ctx.lineTo(l.bx, l.by);
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
         ctx.stroke();
       }
       ctx.setLineDash([]);
@@ -232,51 +257,93 @@ class DrawingsRenderer implements IPrimitivePaneRenderer {
         ctx.stroke();
       }
 
-      ctx.textBaseline = "middle";
-      for (const lb of this.labels) {
-        if (lb.style === "circle") {
-          ctx.fillStyle = lb.bg ?? "#2962FF";
-          ctx.beginPath();
-          ctx.arc(lb.x, lb.y, DOT_PX[lb.size] / 2, 0, Math.PI * 2);
-          ctx.fill();
-          continue;
-        }
-        const px = FONT_PX[lb.size];
-        ctx.font = `${px}px ${FONT}`;
-        const w = ctx.measureText(lb.text).width;
-        if (lb.style === "center") {
-          const padX = px * 0.5;
-          const padY = px * 0.35;
-          ctx.fillStyle = lb.bg ?? "#363a45";
-          ctx.beginPath();
-          ctx.roundRect(lb.x - w / 2 - padX, lb.y - px / 2 - padY, w + padX * 2, px + padY * 2, 3);
-          ctx.fill();
-          ctx.fillStyle = lb.textColor ?? "#ffffff";
-          ctx.textAlign = "center";
-          ctx.fillText(lb.text, lb.x, lb.y);
-        } else if (lb.style === "right") {
-          // style_label_right: the point sits at the label's right edge.
-          ctx.fillStyle = lb.textColor ?? "#ffffff";
-          ctx.textAlign = "right";
-          ctx.fillText(lb.text, lb.x - 4, lb.y);
-        } else {
-          // style_label_left: the point sits at the label's left edge.
-          const x = lb.x + 4;
-          if (lb.bg) {
-            ctx.fillStyle = lb.bg;
-            ctx.fillRect(x - 2, lb.y - px / 2 - 2, w + 4, px + 4);
-          }
-          ctx.fillStyle = lb.textColor ?? "#ffffff";
-          ctx.textAlign = "left";
-          ctx.fillText(lb.text, x, lb.y);
-        }
-      }
+      for (const lb of this.labels) drawLabel(ctx, lb);
       ctx.restore();
     });
   }
 }
 
-type PlacedBox = DrawingsSpec["boxes"][number] & { ax: number; bx: number; ay: number; by: number };
+/** One label, in any of Pine's styles; text may span several lines. */
+function drawLabel(ctx: CanvasRenderingContext2D, lb: PlacedLabel) {
+  if (lb.style === "circle") {
+    ctx.fillStyle = lb.bg ?? "#2962FF";
+    ctx.beginPath();
+    ctx.arc(lb.x, lb.y, DOT_PX[lb.size] / 2, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+  if (lb.style === "cross") {
+    const r = DOT_PX[lb.size] / 2;
+    ctx.strokeStyle = lb.bg ?? lb.textColor ?? "#2962FF";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(lb.x - r, lb.y);
+    ctx.lineTo(lb.x + r, lb.y);
+    ctx.moveTo(lb.x, lb.y - r);
+    ctx.lineTo(lb.x, lb.y + r);
+    ctx.stroke();
+    return;
+  }
+  const px = FONT_PX[lb.size];
+  const lineH = px * 1.2;
+  ctx.font = `${px}px ${FONT}`;
+  const rows = lb.text.split("\n");
+  const w = Math.max(0, ...rows.map((r) => ctx.measureText(r).width));
+  const h = rows.length * lineH;
+  const padX = lb.text ? px * 0.5 : 0;
+  const padY = lb.text ? px * 0.3 : 0;
+  const boxW = w + padX * 2;
+  const boxH = h + padY * 2;
+  const pointer = 5;
+  // Top-left corner of the text box for each style.
+  let bx: number;
+  let by: number;
+  switch (lb.style) {
+    case "up": // box below the point, pointing up at it
+      bx = lb.x - boxW / 2;
+      by = lb.y + pointer;
+      break;
+    case "down": // box above the point, pointing down at it
+      bx = lb.x - boxW / 2;
+      by = lb.y - pointer - boxH;
+      break;
+    case "right":
+      bx = lb.x - 4 - boxW;
+      by = lb.y - boxH / 2;
+      break;
+    case "left":
+      bx = lb.x + 4;
+      by = lb.valign === "above" ? lb.y - boxH : lb.valign === "below" ? lb.y : lb.y - boxH / 2;
+      break;
+    default: // center, none
+      bx = lb.x - boxW / 2;
+      by = lb.y - boxH / 2;
+  }
+  const filled = lb.bg && lb.style !== "none";
+  if (filled) {
+    ctx.fillStyle = lb.bg!;
+    ctx.beginPath();
+    ctx.roundRect(bx, by, boxW, boxH, 3);
+    if (lb.style === "up") {
+      ctx.moveTo(lb.x - pointer, by);
+      ctx.lineTo(lb.x, lb.y);
+      ctx.lineTo(lb.x + pointer, by);
+    } else if (lb.style === "down") {
+      ctx.moveTo(lb.x - pointer, by + boxH);
+      ctx.lineTo(lb.x, lb.y);
+      ctx.lineTo(lb.x + pointer, by + boxH);
+    }
+    ctx.fill();
+  }
+  ctx.fillStyle = lb.textColor ?? "#ffffff";
+  ctx.textBaseline = "middle";
+  const align = lb.style === "left" ? "left" : lb.style === "right" ? "right" : "center";
+  ctx.textAlign = align;
+  const tx = align === "left" ? bx + padX : align === "right" ? bx + boxW - padX : bx + boxW / 2;
+  rows.forEach((row, k) => ctx.fillText(row, tx, by + padY + lineH * (k + 0.5)));
+}
+
+type PlacedBox = Box & { ax: number; bx: number; ay: number; by: number };
 
 /** box.new(): drawn behind the series like TradingView's boxes. */
 class BoxRenderer implements IPrimitivePaneRenderer {
@@ -287,28 +354,37 @@ class BoxRenderer implements IPrimitivePaneRenderer {
   drawBackground(target: CanvasRenderingTarget2D) {
     target.useBitmapCoordinateSpace((scope) => {
       const ctx = scope.context;
+      const width = scope.mediaSize.width;
       ctx.save();
       ctx.scale(scope.horizontalPixelRatio, scope.verticalPixelRatio);
       for (const b of this.boxes) {
         const x = Math.min(b.ax, b.bx);
+        const right = b.extendRight ? width + 10 : Math.max(b.ax, b.bx);
         const y = Math.min(b.ay, b.by);
-        const w = Math.abs(b.bx - b.ax);
+        const w = right - x;
         const h = Math.max(1, Math.abs(b.by - b.ay));
-        ctx.fillStyle = b.bg;
-        ctx.fillRect(x, y, w, h);
+        if (b.bg) {
+          ctx.fillStyle = b.bg;
+          ctx.fillRect(x, y, w, h);
+        }
         if (b.border) {
           ctx.strokeStyle = b.border;
-          ctx.lineWidth = 1;
-          ctx.setLineDash(b.dashed ? [4, 3] : []);
+          ctx.lineWidth = b.borderWidth ?? 1;
+          ctx.setLineDash(DASH[b.borderStyle ?? (b.dashed ? "dashed" : "solid")]);
           ctx.strokeRect(x + 0.5, y + 0.5, w, h);
         }
         if (b.text) {
           ctx.setLineDash([]);
-          ctx.font = `10px ${FONT}`;
-          ctx.textBaseline = "top";
-          ctx.textAlign = "left";
+          const px = FONT_PX[b.textSize ?? "tiny"];
+          ctx.font = `${px}px ${FONT}`;
+          const halign = b.textHAlign ?? "left";
+          const valign = b.textVAlign ?? "top";
+          ctx.textAlign = halign;
+          ctx.textBaseline = valign === "top" ? "top" : valign === "bottom" ? "bottom" : "middle";
           ctx.fillStyle = b.textColor ?? "#ffffff";
-          ctx.fillText(b.text, x + 3, y + 3);
+          const tx = halign === "left" ? x + 3 : halign === "right" ? x + w - 3 : x + w / 2;
+          const ty = valign === "top" ? y + 2 : valign === "bottom" ? y + h - 2 : y + h / 2;
+          ctx.fillText(b.text, tx, ty);
         }
       }
       ctx.restore();
@@ -340,7 +416,7 @@ export class DrawingsPrimitive extends PrimitiveBase {
     const to = r ? r.to + 2 : Infinity;
     const placed: PlacedBox[] = [];
     for (const b of this.spec.boxes) {
-      if (Math.max(b.x1, b.x2) < from || Math.min(b.x1, b.x2) > to) continue;
+      if ((!b.extendRight && Math.max(b.x1, b.x2) < from) || Math.min(b.x1, b.x2) > to) continue;
       const ax = ts.logicalToCoordinate(b.x1 as Logical);
       const bx = ts.logicalToCoordinate(b.x2 as Logical);
       const ay = at.series.priceToCoordinate(b.top);
@@ -363,7 +439,11 @@ export class DrawingsPrimitive extends PrimitiveBase {
 
     const lines: PlacedLine[] = [];
     for (const l of this.spec.lines) {
-      if (Math.max(l.x1, l.x2) < from || Math.min(l.x1, l.x2) > to) continue;
+      const lo = Math.min(l.x1, l.x2);
+      const hi = Math.max(l.x1, l.x2);
+      const reachesRight = l.extend === "right" || l.extend === "both";
+      const reachesLeft = l.extend === "left" || l.extend === "both";
+      if ((!reachesRight && hi < from) || (!reachesLeft && lo > to)) continue;
       const ax = x(l.x1);
       const bx = x(l.x2);
       const ay = y(l.y1);

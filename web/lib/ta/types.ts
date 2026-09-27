@@ -36,6 +36,7 @@ export type PlotDef = {
   /** Connect the non-na points directly instead of breaking at na (ZigZag). */
   connectGaps?: boolean;
   dashed?: boolean;
+  dotted?: boolean;
 };
 
 export type Color = string | undefined;
@@ -50,18 +51,34 @@ export type Marker = {
 };
 
 /** Pine line.new(): bar indices and prices. */
-export type Line = { x1: number; y1: number; x2: number; y2: number; color: string; dashed?: boolean; width?: number };
+export type Line = {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  color: string;
+  dashed?: boolean;
+  /** Pine's line.style_*; takes precedence over `dashed`. */
+  style?: LineDash;
+  width?: number;
+  /** Pine's extend.right / left / both: the line runs on to the pane's edge. */
+  extend?: "left" | "right" | "both";
+};
 
 export type DrawSize = "tiny" | "small" | "normal" | "large" | "huge";
 
 /** Pine label.new(). "left": text starts at the point (style_label_left); "right": text ends
- *  at it (style_label_right); "center": boxed text centered on it; "circle": a filled dot
- *  (style_circle with no text). */
+ *  at it (style_label_right); "center": boxed text centered on it; "up"/"down": a balloon below
+ *  or above the point pointing at it (style_label_up/down); "none": bare text centered on it;
+ *  "circle"/"cross": a dot or a plus mark. Text may span lines with "
+". */
 export type Label = {
   index: number;
   price: number;
   text: string;
-  style: "left" | "right" | "center" | "circle";
+  style: "left" | "right" | "center" | "up" | "down" | "none" | "circle" | "cross";
+  /** For "left" labels: text sitting above or below the point instead of centered on it. */
+  valign?: "above" | "below";
   textColor?: string;
   bg?: string;
   size: DrawSize;
@@ -76,8 +93,15 @@ export type Box = {
   bg: string;
   border?: string;
   dashed?: boolean;
+  borderStyle?: LineDash;
+  borderWidth?: number;
+  /** extend.right: the box runs on to the pane's right edge. */
+  extendRight?: boolean;
   text?: string;
   textColor?: string;
+  textSize?: DrawSize;
+  textHAlign?: "left" | "center" | "right";
+  textVAlign?: "top" | "center" | "bottom";
 };
 
 export type TableCell = {
