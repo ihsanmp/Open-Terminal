@@ -40,6 +40,7 @@ import {
   type Params,
 } from "../../lib/ta";
 import { barSpacing } from "../../lib/ta/core";
+import { styleResult } from "../../lib/ta/style";
 import { BackgroundPrimitive, CountdownPrimitive, DrawingsPrimitive, FillPrimitive, type DrawingsSpec } from "../../lib/ta/chart-primitives";
 import { IndicatorTableView } from "../chart/IndicatorTableView";
 import { chartContext } from "../../lib/chart-context";
@@ -68,6 +69,8 @@ type Prepared = {
   params: Params;
   label: string;
   result: IndicatorResult;
+  /** The output before the Style tab's drawing and color edits (the colors it lists are these). */
+  raw: IndicatorResult;
   /** Plot values re-indexed onto the chart timeline (offsets applied). */
   plots: Record<string, PreparedPlot>;
   error?: string;
@@ -257,7 +260,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         }
       }
       for (const [key, values] of Object.entries(result.plots)) plots[`plot:${inst.uid}:${key}`] = values;
-      done.set(inst.uid, { inst, def, params, label: instanceLabel(def, params), result, error: err });
+      done.set(inst.uid, { inst, def, params, label: instanceLabel(def, params), result: styleResult(result, inst.style), raw: result, error: err });
     };
     let pending = list;
     while (pending.length) {
@@ -657,7 +660,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
                 .map((p) => ({ value: `plot:${it.inst.uid}:${p.key}`, label: `${it.label}: ${p.title}` }))
             )}
           onClose={() => setEditing(null)}
-          result={editingItem.result}
+          result={editingItem.raw}
           onApply={(params, style) => update(editingItem.inst.uid, { params, style })}
         />
       )}
