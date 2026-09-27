@@ -17,7 +17,8 @@ import * as tvchart from "../providers/tvchart.js";
 import * as newsfeeds from "../providers/newsfeeds.js";
 import { cryptoBase, cryptoTicker, isIndex, isYahooOnly } from "../symbols.js";
 import { INDEX_TV_TICKER, WORLD_INDICES, searchIndices } from "../indices.js";
-import { BINANCE_INTERVAL, INTERVAL_SECONDS, MAX_BARS, aggregateByPeriod, clip, groupCandles, isInterval, loadStart, yahooPlan, type Interval } from "../intervals.js";
+import { tvHistory } from "../tvhistory.js";
+import { BINANCE_INTERVAL, INTERVAL_SECONDS, aggregateByPeriod, clip, groupCandles, isInterval, loadStart, yahooPlan, type Interval } from "../intervals.js";
 import { cryptoTerm, matchCoins, rankResults, type Coin, type SearchResult } from "../search.js";
 
 export const marketRouter = Router();
@@ -292,10 +293,12 @@ async function historyAtInterval(symbol: string, rangeKey: string, interval: Int
     const candles = await yahoo.historyBetween(yahooSymbol, plan.from, plan.to, plan.interval);
     return plan.group ? groupCandles(candles, plan.group, 3600) : candles;
   };
-  const attempts: Array<[string, () => Promise<yahoo.Candle[]>]> = [];
+  // TradingView's chart feed first: the same depth of history TradingView shows, for
+  // stocks, indices, FX, futures and coins alike. The others take over if it's unreachable.
+  const attempts: Array<[string, () => Promise<yahoo.Candle[]>]> = [["tradingview", () => tvHistory(symbol, interval)]];
   const nasdaqOk = !base && !isVix(symbol) && !isYahooOnly(symbol);
   if (base) {
-    if (await onBinance(base)) attempts.push(["binance", () => binance.historyInterval(base, BINANCE_INTERVAL[interval], from, MAX_BARS)]);
+    if (await onBinance(base)) attempts.push(["binance", () => binance.historyInterval(base, BINANCE_INTERVAL[interval], from, 5000)]);
     attempts.push(["yahoo", yahooAt], ["coingecko", () => coingecko.history(base, rangeKey)]);
   } else if (interval === "1D") {
     // Daily stock charts stay on Nasdaq first, which Yahoo's per-client throttling can't touch.

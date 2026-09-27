@@ -19,8 +19,9 @@ export const INTERVAL_SECONDS: Record<Interval, number> = {
   "1M": 2_592_000,
 };
 
-/** Most bars one chart loads, as TradingView does; long ranges at fine intervals keep the newest. */
-export const MAX_BARS = 5000;
+/** Most bars one chart keeps: all of TradingView's daily history for the oldest listings
+ *  (AAPL since 1980 is ~11 500 days); long ranges at fine intervals keep the newest. */
+export const MAX_BARS = 20000;
 /** Fewest bars a chart loads whatever its range: the range only sets what's in view, as on
  *  TradingView, so a 5D range at 1D still has history to scroll back into and indicators
  *  (SMA 200…) have bars to warm up on. */
