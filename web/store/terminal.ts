@@ -23,6 +23,8 @@ export type WidgetType =
   | "indices"
   | "research";
 
+export type ChartScaleMode = "normal" | "log" | "percent" | "indexed";
+
 export type WidgetInstance = {
   id: string;
   type: WidgetType;
@@ -31,6 +33,8 @@ export type WidgetInstance = {
   indicators?: IndicatorInstance[]; // chart widgets only; undefined = defaults
   chartRange?: string; // chart widgets: date range button (default 6M)
   chartInterval?: string; // chart widgets: candle interval, "auto" = the range's own
+  chartScale?: ChartScaleMode; // chart widgets: price scale mode (TradingView's Regular / Percent / Indexed to 100 / Logarithmic)
+  chartInvert?: boolean; // chart widgets: inverted price scale
 };
 
 export const DEFAULT_CHART_INDICATORS: IndicatorInstance[] = [
@@ -53,7 +57,7 @@ type TerminalState = {
   setWidgetSymbol: (id: string, symbol: string) => void;
   toggleLinked: (id: string) => void;
   setWidgetIndicators: (id: string, indicators: IndicatorInstance[]) => void;
-  setWidgetChart: (id: string, patch: { chartRange?: string; chartInterval?: string }) => void;
+  setWidgetChart: (id: string, patch: { chartRange?: string; chartInterval?: string; chartScale?: ChartScaleMode; chartInvert?: boolean }) => void;
   setLayout: (layout: LayoutItem[]) => void;
   addToWatchlist: (s: string) => void;
   removeFromWatchlist: (s: string) => void;

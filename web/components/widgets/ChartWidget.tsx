@@ -12,6 +12,7 @@ import {
   LineSeries,
   LineStyle,
   LineType,
+  PriceScaleMode,
   type IChartApi,
   type ISeriesApi,
   type LogicalRange,
@@ -45,8 +46,10 @@ import { BackgroundPrimitive, CountdownPrimitive, DrawingsPrimitive, FillPrimiti
 import { IndicatorTableView } from "../chart/IndicatorTableView";
 import { chartContext } from "../../lib/chart-context";
 import { INTERVALS, INTERVAL_SECONDS, RANGES, defaultInterval, initialVisibleRange, resolveChartView, type ChartInterval, type Range } from "../../lib/chart-intervals";
-import { DEFAULT_CHART_INDICATORS, useTerminal, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
+import { DEFAULT_CHART_INDICATORS, useTerminal, useWidgetSymbol, type ChartScaleMode, type WidgetInstance } from "../../store/terminal";
+import { isPinch, keyAction, panPrice, scalePrice, shiftSpan, wheelPixels, zoomFactor, zoomSpan, type Span } from "../../lib/chart-nav";
 import { IndicatorPicker, IndicatorSettings } from "../chart/IndicatorDialogs";
+import { PriceScaleMenu } from "../chart/PriceScaleMenu";
 import { isCryptoSymbol, usePoll, usSessionActive } from "../../lib/refresh";
 import { formatAxisCountdown, formatBarTime, formatCountdown, intervalLabel, isIntradayInterval, secondsUntilClose, type Market } from "../../lib/candle-time";
 
@@ -74,6 +77,24 @@ type Prepared = {
   /** Plot values re-indexed onto the chart timeline (offsets applied). */
   plots: Record<string, PreparedPlot>;
   error?: string;
+};
+
+const PRICE_SCALE_MODE = {
+  normal: PriceScaleMode.Normal,
+  log: PriceScaleMode.Logarithmic,
+  percent: PriceScaleMode.Percentage,
+  indexed: PriceScaleMode.IndexedTo100,
+} as const;
+
+/** Chart actions for the navigation buttons, hotkeys and the price scale menu. */
+type ChartNav = {
+  zoomBy: (factor: number) => void;
+  scrollBy: (bars: number) => void;
+  first: () => void;
+  last: () => void;
+  reset: () => void;
+  auto: () => void;
+  overPriceAxis: (clientX: number, clientY: number) => boolean;
 };
 
 const LINE_STYLE: Record<LineDash, LineStyle> = { solid: LineStyle.Solid, dashed: LineStyle.Dashed, dotted: LineStyle.Dotted };
@@ -159,6 +180,20 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const { range, interval } = resolveChartView(widget.chartRange, widget.chartInterval, symbol);
   const setRange = (r: Range) => setWidgetChart(widget.id, { chartRange: r, chartInterval: defaultInterval(r, symbol) });
   const setInterval_ = (i: ChartInterval) => setWidgetChart(widget.id, { chartInterval: i });
+  // Price scale like TradingView's corner buttons: auto-fit (A), logarithmic (L), percentage (%).
+  const scaleMode = widget.chartScale ?? "normal";
+  const setScaleMode = (m: ChartScaleMode) => setWidgetChart(widget.id, { chartScale: m });
+  const invert = Boolean(widget.chartInvert);
+  const setInvert = (on: boolean) => setWidgetChart(widget.id, { chartInvert: on });
+  const navRef = useRef<ChartNav | null>(null);
+  const [awayFromLatest, setAwayFromLatest] = useState(false);
+  const [scaleMenu, setScaleMenu] = useState<{ x: number; y: number } | null>(null);
+  /** TradingView shows its navigation buttons while the pointer is near the bottom of the chart. */
+  const [navVisible, setNavVisible] = useState(false);
+  const [autoScale, setAutoScale] = useState(true);
+  const chartRef = useRef<IChartApi | null>(null);
+  /** A price range the user set by hand (dragging or wheeling the price axis), kept across data refreshes. */
+  const savedPrice = useRef<{ key: string; range: { from: number; to: number } } | null>(null);
   const [chartType, setChartType] = useState<ChartType>("candles");
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [paneTops, setPaneTops] = useState<number[]>([0]);
@@ -311,6 +346,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     if (!el || !candles || candles.length === 0 || !prepared) return;
     const { times, total, items } = prepared;
     const viewKey = `${symbol}:${range}:${interval}`;
+    const priceKey = `${viewKey}:${scaleMode}:${invert}`;
     const pxPrecision = pricePrecision(candles);
     const mainFormat = { type: "price" as const, precision: pxPrecision, minMove: 1 / 10 ** pxPrecision };
 
@@ -320,11 +356,12 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       crosshair: { mode: 0 },
       // A low minimum bar spacing lets decades of daily bars fit on screen when zoomed out, as on TradingView.
       timeScale: { borderColor: "#262626", timeVisible: isIntradayInterval(intervalSeconds), minBarSpacing: 0.01 },
-      rightPriceScale: { borderColor: "#262626" },
+      rightPriceScale: { borderColor: "#262626", mode: PRICE_SCALE_MODE[scaleMode], invertScale: invert },
       autoSize: true,
-      // Mouse-wheel is left free for page scrolling — zoom via drag, pinch, or the range buttons instead.
+      // Dragging pans, dragging an axis stretches it and double-clicking it resets it; the wheel is
+      // handled below, the way TradingView does it.
       handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
-      handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: true },
+      handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true } },
     });
 
     // ---- main price series (with optional barcolor from an indicator) ----
@@ -512,15 +549,150 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     // The range sets what's in view; the rest of the loaded history sits to the left.
     else chart.timeScale().setVisibleLogicalRange(initialVisibleRange(candles.map((c) => c.time), range, Date.now() / 1000, ctx.type === "crypto"));
 
+    // ---- navigation and price scale, as on TradingView (lib/chart-nav.ts) ----
+    const priceScale = chart.priceScale("right");
+    const ts = chart.timeScale();
+    if (savedPrice.current?.key === priceKey) {
+      priceScale.setAutoScale(false);
+      priceScale.setVisibleRange(savedPrice.current.range);
+    } else savedPrice.current = null;
+    chartRef.current = chart;
+    const syncAuto = () => setAutoScale(priceScale.options().autoScale);
+    syncAuto();
+    const isLog = scaleMode === "log";
+    const maxBars = Math.max(200, total * 1.2 + 50);
+    const visible = () => ts.getVisibleLogicalRange();
+    const zoomBy = (factor: number, anchor?: number) => {
+      const r = visible();
+      if (r) ts.setVisibleLogicalRange(zoomSpan(r, factor, anchor ?? r.to, 10, maxBars));
+    };
+    const scrollBy = (bars: number) => {
+      const r = visible();
+      if (r) ts.setVisibleLogicalRange(shiftSpan(r, bars));
+    };
+    const autoOn = () => {
+      savedPrice.current = null;
+      priceScale.setAutoScale(true);
+      setAutoScale(true);
+    };
+    const geometry = () => {
+      const rect = el.getBoundingClientRect();
+      const pane = chart.panes()[0]?.getHTMLElement()?.getBoundingClientRect();
+      return { rect, axisWidth: priceScale.width(), paneTop: pane?.top ?? rect.top, paneBottom: pane?.bottom ?? rect.bottom };
+    };
+    const overPriceAxis = (x: number, y: number) => {
+      const g = geometry();
+      return x >= g.rect.right - g.axisWidth && x <= g.rect.right && y >= g.paneTop && y <= g.paneBottom;
+    };
+    navRef.current = {
+      zoomBy,
+      scrollBy,
+      first: () => {
+        const r = visible();
+        if (r) ts.setVisibleLogicalRange({ from: -0.5, to: -0.5 + (r.to - r.from) });
+      },
+      last: () => {
+        // The newest bar at the right edge with the margin the chart opens with.
+        const r = visible();
+        const to = candles.length + 1;
+        if (r) ts.setVisibleLogicalRange({ from: to - (r.to - r.from), to });
+      },
+      reset: () => {
+        autoOn();
+        ts.setVisibleLogicalRange(initialVisibleRange(candles.map((c) => c.time), range, Date.now() / 1000, ctx.type === "crypto"));
+      },
+      auto: autoOn,
+      overPriceAxis,
+    };
+    const onRange = (r: LogicalRange | null) => setAwayFromLatest(Boolean(r && r.to < candles.length - 2));
+    ts.subscribeVisibleLogicalRangeChange(onRange);
+    onRange(visible());
+
+    // The wheel: over the price axis it stretches the price range around the cursor; elsewhere
+    // it zooms time with the newest bar held in place, Ctrl + wheel (or a trackpad pinch) zooms at
+    // the cursor, and Shift + wheel or a sideways two-finger swipe scrolls.
+    const onWheel = (e: WheelEvent) => {
+      const g = geometry();
+      const dxPx = wheelPixels(e.deltaX, e.deltaMode, g.rect.height);
+      const dyPx = wheelPixels(e.deltaY, e.deltaMode, g.rect.height);
+      e.preventDefault();
+      e.stopPropagation();
+      if (overPriceAxis(e.clientX, e.clientY)) {
+        const vr = priceScale.getVisibleRange();
+        const at = main.coordinateToPrice(e.clientY - g.paneTop);
+        if (!vr || at === null || dyPx === 0) return;
+        priceScale.setAutoScale(false);
+        priceScale.setVisibleRange(scalePrice(vr, zoomFactor(dyPx), at, isLog));
+        setAutoScale(false);
+        return;
+      }
+      let dx = dxPx;
+      let dy = dyPx;
+      if (e.shiftKey && dx === 0) [dx, dy] = [dy, 0];
+      const r = visible();
+      if (!r) return;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        scrollBy((dx * (r.to - r.from)) / Math.max(1, g.rect.width - g.axisWidth));
+      } else if (dy !== 0) {
+        const anchor = e.ctrlKey ? ts.coordinateToLogical(e.clientX - g.rect.left) ?? r.to : r.to;
+        zoomBy(zoomFactor(dy, isPinch(e.ctrlKey, dy)), anchor);
+      }
+    };
+
+    // Dragging the chart up or down moves the price range and turns auto-scale off, as on
+    // TradingView. With auto-scale already off the library pans the price itself.
+    let drag: { y: number; range: Span; height: number; taken: boolean } | null = null;
+    const onPointerDown = (e: PointerEvent) => {
+      el.focus({ preventScroll: true });
+      setScaleMenu(null);
+      if (e.button !== 0 || !priceScale.options().autoScale) return;
+      const g = geometry();
+      if (e.clientX >= g.rect.right - g.axisWidth || e.clientY < g.paneTop || e.clientY > g.paneBottom) return;
+      const vr = priceScale.getVisibleRange();
+      drag = vr ? { y: e.clientY, range: vr, height: g.paneBottom - g.paneTop, taken: false } : null;
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (!drag || !(e.buttons & 1)) return;
+      const dy = e.clientY - drag.y;
+      if (!drag.taken) {
+        if (Math.abs(dy) < 6) return;
+        drag.taken = true;
+        priceScale.setAutoScale(false);
+        setAutoScale(false);
+      }
+      priceScale.setVisibleRange(panPrice(drag.range, dy, drag.height, { log: isLog, inverted: invert }));
+    };
+    // The library switches auto-scale off when the price axis is dragged and back on when it's
+    // double-clicked; the A button follows.
+    const onPointerUp = () => {
+      drag = null;
+      setTimeout(syncAuto, 0);
+    };
+    el.addEventListener("pointerdown", onPointerDown, { capture: true });
+    el.addEventListener("pointermove", onPointerMove, { capture: true });
+    window.addEventListener("pointerup", onPointerUp);
+    el.addEventListener("dblclick", onPointerUp);
+    el.addEventListener("wheel", onWheel, { capture: true, passive: false });
+
     return () => {
       const r = chart.timeScale().getVisibleLogicalRange();
       if (r) savedRange.current = { key: viewKey, range: r };
+      const pr = priceScale.options().autoScale ? null : priceScale.getVisibleRange();
+      savedPrice.current = pr ? { key: priceKey, range: pr } : null;
+      chartRef.current = null;
+      navRef.current = null;
+      ts.unsubscribeVisibleLogicalRangeChange(onRange);
+      el.removeEventListener("pointerdown", onPointerDown, { capture: true });
+      el.removeEventListener("pointermove", onPointerMove, { capture: true });
+      window.removeEventListener("pointerup", onPointerUp);
+      el.removeEventListener("dblclick", onPointerUp);
+      el.removeEventListener("wheel", onWheel, { capture: true });
       cancelAnimationFrame(raf);
       clearInterval(countdownTimer);
       ro.disconnect();
       chart.remove();
     };
-  }, [candles, chartType, prepared, paneOf, range, interval, intervalSeconds, symbol, ctx]);
+  }, [candles, chartType, prepared, paneOf, range, interval, intervalSeconds, symbol, ctx, scaleMode, invert]);
 
   // ---- legend ----
   const n = candles?.length ?? 0;
@@ -572,6 +744,25 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     </div>
   );
 
+  // The chart's own buttons don't take focus, so its hotkeys keep working after a click.
+  const keepChartFocus = (e: React.MouseEvent) => e.preventDefault();
+
+  // TradingView's chart hotkeys while the chart has focus (it takes focus when clicked).
+  const onChartKey = (e: React.KeyboardEvent) => {
+    const r = chartRef.current?.timeScale().getVisibleLogicalRange();
+    const action = keyAction(e, r ? r.to - r.from : 100);
+    const nav = navRef.current;
+    if (!action || !nav) return;
+    e.preventDefault();
+    if (action.kind === "scroll") nav.scrollBy(action.bars);
+    else if (action.kind === "zoom") nav.zoomBy(action.factor);
+    else if (action.kind === "first") nav.first();
+    else if (action.kind === "last") nav.last();
+    else if (action.kind === "reset") nav.reset();
+    else if (action.what === "invert") setInvert(!invert);
+    else setScaleMode(scaleMode === action.what ? "normal" : action.what);
+  };
+
   const items = prepared?.items ?? [];
   const mainLegend = items.filter((it) => it.def.overlay || !paneOf.has(it.inst.uid));
   const editingItem = items.find((it) => it.inst.uid === editing);
@@ -608,7 +799,16 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         </button>
       </div>
       {error && <div className="p-2 down">Error: {(error as Error).message}</div>}
-      <div className="relative flex-1 min-h-0">
+      <div
+        className="relative flex-1 min-h-0"
+        onPointerMove={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const fromBottom = rect.bottom - axes.bottom - e.clientY;
+          setNavVisible(fromBottom >= -4 && fromBottom < 90 && e.clientX < rect.right - axes.right);
+        }}
+        onPointerLeave={() => setNavVisible(false)}
+        onKeyDown={onChartKey}
+      >
         {candle && (
           <div className="absolute top-1 left-2 z-10 flex flex-col gap-0.5 text-[11px] pointer-events-none max-w-[85%]">
             <div className="flex gap-3 bg-[rgba(10,10,10,0.7)] w-fit px-1">
@@ -641,7 +841,89 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           .map((it) => (
             <IndicatorTableView key={`table-${it.inst.uid}`} table={it.result.table!} inset={axes} paneBottom={paneTops.length > 1 ? paneTops[1] : undefined} />
           ))}
-        <div ref={containerRef} className="w-full h-full" />
+        <div
+          ref={containerRef}
+          tabIndex={0}
+          className="w-full h-full outline-none"
+          onContextMenu={(e) => {
+            if (!navRef.current?.overPriceAxis(e.clientX, e.clientY)) return;
+            e.preventDefault();
+            setScaleMenu({ x: e.clientX, y: e.clientY });
+          }}
+        />
+        {scaleMenu && (
+          <PriceScaleMenu
+            at={scaleMenu}
+            autoScale={autoScale}
+            mode={scaleMode}
+            invert={invert}
+            onAuto={() => navRef.current?.auto()}
+            onInvert={() => setInvert(!invert)}
+            onMode={setScaleMode}
+            onClose={() => setScaleMenu(null)}
+          />
+        )}
+        {candle && (
+          // TradingView's navigation buttons, shown while the pointer is near the bottom of the chart.
+          <div
+            className={`absolute left-1/2 -translate-x-1/2 z-10 flex gap-1 transition-opacity ${navVisible ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+            style={{ bottom: axes.bottom + 10 }}
+          >
+            {(
+              [
+                ["−", "Zoom out", () => navRef.current?.zoomBy(1.25)],
+                ["+", "Zoom in", () => navRef.current?.zoomBy(0.8)],
+                ["‹", "Scroll left", () => navRef.current?.scrollBy(-10)],
+                ["›", "Scroll right", () => navRef.current?.scrollBy(10)],
+                ["⟲", "Reset chart view (Alt+R)", () => navRef.current?.reset()],
+              ] as const
+            ).map(([label, title, act]) => (
+              <button key={title} title={title} onClick={act} onMouseDown={keepChartFocus} className="w-7 h-7 rounded bg-[#1a1a1a] border border-[var(--border)] text-[var(--text)] hover:border-[var(--amber-dim)]">
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        {candle && awayFromLatest && (
+          <button
+            title="Scroll to the most recent bar"
+            onMouseDown={keepChartFocus}
+            onClick={() => navRef.current?.last()}
+            className="absolute z-10 w-7 h-7 rounded bg-[#1a1a1a] border border-[var(--border)] text-[var(--text)] hover:border-[var(--amber-dim)]"
+            style={{ right: axes.right + 8, bottom: axes.bottom + 10 }}
+          >
+            »
+          </button>
+        )}
+        {candle && (
+          // TradingView's price scale buttons, in the corner under the price axis.
+          <div className="absolute right-0 bottom-0 z-10 flex items-center justify-center gap-0.5 text-[10px]" style={{ width: axes.right, height: axes.bottom }}>
+            <button
+              title="Auto (fits data to screen)"
+              onMouseDown={keepChartFocus}
+              className={`px-1 leading-4 ${autoScale ? "amber" : "dim hover:text-[var(--text)]"}`}
+              onClick={() => navRef.current?.auto()}
+            >
+              A
+            </button>
+            <button
+              title="Logarithmic scale"
+              onMouseDown={keepChartFocus}
+              className={`px-1 leading-4 ${scaleMode === "log" ? "amber" : "dim hover:text-[var(--text)]"}`}
+              onClick={() => setScaleMode(scaleMode === "log" ? "normal" : "log")}
+            >
+              L
+            </button>
+            <button
+              title="Percentage scale"
+              onMouseDown={keepChartFocus}
+              className={`px-1 leading-4 ${scaleMode === "percent" ? "amber" : "dim hover:text-[var(--text)]"}`}
+              onClick={() => setScaleMode(scaleMode === "percent" ? "normal" : "percent")}
+            >
+              %
+            </button>
+          </div>
+        )}
       </div>
       {pickerOpen && (
         <IndicatorPicker
