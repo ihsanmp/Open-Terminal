@@ -19,10 +19,10 @@ function parseColor(c: string): Rgba {
 
 const rgba = ([r, g, b, a]: Rgba) => `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${+a.toFixed(3)})`;
 
-/** color.new(color, transp): transparency 0 (opaque) … 100 (invisible). */
+/** color.new(color, transp): sets the transparency, 0 (opaque) … 100 (invisible), replacing the color's own. */
 export function colorNew(color: string, transp: number): string {
-  const [r, g, b, a] = parseColor(color);
-  return rgba([r, g, b, a * (1 - transp / 100)]);
+  const [r, g, b] = parseColor(color);
+  return rgba([r, g, b, 1 - transp / 100]);
 }
 
 /** color.from_gradient: clamps outside [bottom, top]; na in, na out. */

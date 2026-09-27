@@ -15,7 +15,8 @@ export type Bars = {
 };
 
 export const isNa = (v: number) => v !== v; // faster Number.isNaN for hot loops
-export const nz = (v: number, replacement = 0) => (isNa(v) ? replacement : v);
+/** Pine nz(): na, and history before the first bar (an out-of-range index), become the replacement. */
+export const nz = (v: number | undefined, replacement = 0) => (v === undefined || isNa(v) ? replacement : v);
 
 export function fill(n: number, v = NaN): Series {
   return new Array<number>(n).fill(v);

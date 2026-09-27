@@ -374,7 +374,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         const baseColor = o.color ?? plot.color;
         const barColors = o.color ? undefined : prep.colors;
         const lineWidth = (o.width ?? plot.width ?? 1) as 1 | 2 | 3 | 4;
-        const lineStyle = LINE_STYLE[o.dash ?? (plot.dashed ? "dashed" : "solid")];
+        const lineStyle = LINE_STYLE[o.dash ?? (plot.dotted ? "dotted" : plot.dashed ? "dashed" : "solid")];
         const common = {
           priceLineVisible: false,
           lastValueVisible: !it.def.volumeOverlay && style.labelsOnPriceScale !== false,
@@ -450,7 +450,12 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           drawings.crosses.push({ index: m.index, price: above ? candles[m.index].high : candles[m.index].low, position: above ? "above" : "below", color: m.color });
         }
       }
-      else if (it.result.markers?.length) createSeriesMarkers(anchor, toMarkers(it).sort((x, y) => (x.time as number) - (y.time as number)));
+      else {
+        if (it.result.markers?.length) createSeriesMarkers(anchor, toMarkers(it).sort((x, y) => (x.time as number) - (y.time as number)));
+        // Lines, labels and boxes of an indicator in its own pane (divergence lines on an RSI).
+        const { lines = [], labels = [], boxes = [] } = it.result;
+        if (lines.length || labels.length || boxes.length) anchor.attachPrimitive(new DrawingsPrimitive({ lines, labels, boxes, crosses: [] }));
+      }
     }
     if (overlayMarkers.length) createSeriesMarkers(main, overlayMarkers.sort((x, y) => (x.time as number) - (y.time as number)));
     if (drawings.lines.length || drawings.labels.length || drawings.crosses.length || drawings.boxes.length) main.attachPrimitive(new DrawingsPrimitive(drawings));
