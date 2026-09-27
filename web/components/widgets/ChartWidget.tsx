@@ -318,7 +318,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       layout: { background: { color: "#0a0a0a" }, textColor: "#808080", fontSize: AXIS_FONT_SIZE, attributionLogo: false, panes: { separatorColor: "#262626" } },
       grid: { vertLines: { color: "#1a1a1a" }, horzLines: { color: "#1a1a1a" } },
       crosshair: { mode: 0 },
-      timeScale: { borderColor: "#262626", timeVisible: isIntradayInterval(intervalSeconds) },
+      // A low minimum bar spacing lets decades of daily bars fit on screen when zoomed out, as on TradingView.
+      timeScale: { borderColor: "#262626", timeVisible: isIntradayInterval(intervalSeconds), minBarSpacing: 0.01 },
       rightPriceScale: { borderColor: "#262626" },
       autoSize: true,
       // Mouse-wheel is left free for page scrolling — zoom via drag, pinch, or the range buttons instead.
