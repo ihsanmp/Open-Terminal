@@ -18,6 +18,7 @@ import {
   type TimeframeKind,
 } from "../../lib/ta";
 import { ColorPicker } from "./ColorPicker";
+import { DRAWING_KINDS, drawingKinds, usedColors } from "../../lib/ta/style";
 
 function Modal({ title, onClose, width, children }: { title: string; onClose: () => void; width: number; children: React.ReactNode }) {
   useEffect(() => {
@@ -254,10 +255,21 @@ function StyleTab({ def, result, style, setStyle }: { def: IndicatorDef; result?
   const title = (ref: string | number) => (typeof ref === "number" ? String(ref) : def.plots.find((p) => p.key === ref)?.title ?? ref);
   const fills = result?.fills ?? [];
   const hasLevels = (result?.hlines?.length ?? 0) > 0;
+  const kinds = drawingKinds(result);
+  const colors = usedColors(result).slice(0, 24);
+  const setColor = (key: string, color: string | undefined) =>
+    setStyle((s) => {
+      const next = { ...s.colors };
+      if (color === undefined) delete next[key];
+      else next[key] = color;
+      return { ...s, colors: next };
+    });
 
   return (
     <div className="overflow-auto px-3 py-2 flex flex-col">
-      {plots.length === 0 && fills.length === 0 && !hasLevels && <div className="dim py-2">This indicator draws nothing that can be restyled.</div>}
+      {plots.length === 0 && fills.length === 0 && !hasLevels && kinds.length === 0 && colors.length === 0 && (
+        <div className="dim py-2">This indicator draws nothing that can be restyled.</div>
+      )}
       {plots.map((p) => {
         const o = style.plots?.[p.key] ?? {};
         const lineLike = !p.style || p.style === "line" || p.style === "step";
@@ -304,6 +316,42 @@ function StyleTab({ def, result, style, setStyle }: { def: IndicatorDef; result?
             onDash={(dash) => setStyle((s) => ({ ...s, levels: { ...s.levels, dash } }))}
           />
         </Row>
+      )}
+      {kinds.length > 0 && (
+        <>
+          <div className="dim text-[10px] tracking-wider mt-3 mb-1">DRAWINGS</div>
+          {DRAWING_KINDS.filter(([k]) => kinds.includes(k)).map(([k, label]) => (
+            <Row key={k}>
+              <input
+                type="checkbox"
+                checked={style.drawings?.[k] ?? true}
+                onChange={(e) => setStyle((s) => ({ ...s, drawings: { ...s.drawings, [k]: e.target.checked } }))}
+              />
+              <span className="dim">{label}</span>
+            </Row>
+          ))}
+        </>
+      )}
+      {colors.length > 0 && (
+        <>
+          <div className="dim text-[10px] tracking-wider mt-3 mb-1">COLORS</div>
+          {colors.map(({ key, uses }) => {
+            const chosen = style.colors?.[key];
+            return (
+              <Row key={key}>
+                <ColorPicker color={chosen ?? key} onColor={(color) => setColor(key, color)} />
+                <span className="flex-1 dim truncate" title={uses.join(", ")}>
+                  {uses.join(", ")}
+                </span>
+                {chosen && (
+                  <button className="dim hover:text-[var(--text)]" title={`Back to ${key}`} onClick={() => setColor(key, undefined)}>
+                    ↺
+                  </button>
+                )}
+              </Row>
+            );
+          })}
+        </>
       )}
       <div className="dim text-[10px] tracking-wider mt-3 mb-1">OUTPUT VALUES</div>
       <Row>

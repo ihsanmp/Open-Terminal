@@ -227,7 +227,13 @@ export type IndicatorStyle = {
   inputsInStatusLine?: boolean;
   /** Timeframe kinds the indicator shows on; all when unset. */
   visibility?: Partial<Record<TimeframeKind, boolean>>;
+  /** Kinds of drawing (lines, labels, boxes…) switched off; all shown when unset. */
+  drawings?: Partial<Record<DrawingKind, boolean>>;
+  /** Colors the indicator uses ("#RRGGBB") replaced by others, everywhere it draws them. */
+  colors?: Record<string, string>;
 };
+
+export type DrawingKind = "lines" | "labels" | "boxes" | "markers" | "barColors" | "background" | "table";
 
 export type TimeframeKind = "minutes" | "hours" | "days" | "weeks" | "months";
 
