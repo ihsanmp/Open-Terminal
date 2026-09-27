@@ -45,7 +45,8 @@ import { styleResult } from "../../lib/ta/style";
 import { BackgroundPrimitive, CountdownPrimitive, DrawingsPrimitive, FillPrimitive, type DrawingsSpec } from "../../lib/ta/chart-primitives";
 import { IndicatorTableView } from "../chart/IndicatorTableView";
 import { chartContext } from "../../lib/chart-context";
-import { INTERVALS, INTERVAL_SECONDS, RANGES, defaultInterval, initialVisibleRange, resolveChartView, type ChartInterval, type Range } from "../../lib/chart-intervals";
+import { INTERVAL_LABEL, INTERVAL_SECONDS, latestBarsView, loadRange, orderedFavorites, resolveInterval, type ChartInterval } from "../../lib/chart-intervals";
+import { IntervalMenu } from "../chart/IntervalMenu";
 import { DEFAULT_CHART_INDICATORS, useTerminal, useWidgetSymbol, type ChartScaleMode, type WidgetInstance } from "../../store/terminal";
 import { isPinch, keyAction, panPrice, scalePrice, shiftSpan, wheelPixels, zoomFactor, zoomSpan, type Span } from "../../lib/chart-nav";
 import { IndicatorPicker, IndicatorSettings } from "../chart/IndicatorDialogs";
@@ -175,10 +176,12 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const symbol = useWidgetSymbol(widget);
   const setWidgetIndicators = useTerminal((s) => s.setWidgetIndicators);
   const setWidgetChart = useTerminal((s) => s.setWidgetChart);
-  // Range and interval are saved with the widget, so they survive a restart. Picking a range
-  // also picks its usual interval, which the interval menu shows and can override.
-  const { range, interval } = resolveChartView(widget.chartRange, widget.chartInterval, symbol);
-  const setRange = (r: Range) => setWidgetChart(widget.id, { chartRange: r, chartInterval: defaultInterval(r, symbol) });
+  // The interval is saved with the widget; starred intervals sit on every chart's toolbar, as on
+  // TradingView. The chart loads history for the interval and opens on the latest bars.
+  const interval = resolveInterval(widget.chartInterval);
+  const range = loadRange(interval);
+  const favoriteIntervals = useTerminal((s) => s.favoriteIntervals);
+  const toggleFavoriteInterval = useTerminal((s) => s.toggleFavoriteInterval);
   const setInterval_ = (i: ChartInterval) => setWidgetChart(widget.id, { chartInterval: i });
   // Price scale like TradingView's corner buttons: auto-fit (A), logarithmic (L), percentage (%).
   const scaleMode = widget.chartScale ?? "normal";
@@ -546,8 +549,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     });
 
     if (savedRange.current?.key === viewKey) chart.timeScale().setVisibleLogicalRange(savedRange.current.range);
-    // The range sets what's in view; the rest of the loaded history sits to the left.
-    else chart.timeScale().setVisibleLogicalRange(initialVisibleRange(candles.map((c) => c.time), range, Date.now() / 1000, ctx.type === "crypto"));
+    // The latest bars in view; the rest of the loaded history sits to the left.
+    else chart.timeScale().setVisibleLogicalRange(latestBarsView(candles.length, el.clientWidth * 0.94));
 
     // ---- navigation and price scale, as on TradingView (lib/chart-nav.ts) ----
     const priceScale = chart.priceScale("right");
@@ -599,7 +602,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       },
       reset: () => {
         autoOn();
-        ts.setVisibleLogicalRange(initialVisibleRange(candles.map((c) => c.time), range, Date.now() / 1000, ctx.type === "crypto"));
+        ts.setVisibleLogicalRange(latestBarsView(candles.length, el.clientWidth * 0.94));
       },
       auto: autoOn,
       overPriceAxis,
@@ -770,23 +773,13 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   return (
     <div className="flex flex-col h-full">
       <div className="flex gap-1 p-1 flex-wrap shrink-0">
-        {RANGES.map((r) => (
-          <button key={r} className={`term-btn ${range === r ? "active" : ""}`} onClick={() => setRange(r)}>
-            {r}
+        {/* Starred intervals, plus the current one when it isn't starred, then the interval menu. */}
+        {(orderedFavorites(favoriteIntervals).includes(interval) ? orderedFavorites(favoriteIntervals) : [...orderedFavorites(favoriteIntervals), interval]).map((i) => (
+          <button key={i} className={`term-btn ${interval === i ? "active" : ""}`} onClick={() => setInterval_(i)}>
+            {INTERVAL_LABEL[i]}
           </button>
         ))}
-        <select
-          className="term-btn"
-          value={interval}
-          onChange={(e) => setInterval_(e.target.value as ChartInterval)}
-          title="Candle interval — each range opens at its usual one"
-        >
-          {INTERVALS.map((i) => (
-            <option key={i} value={i}>
-              {i}
-            </option>
-          ))}
-        </select>
+        <IntervalMenu interval={interval} favorites={favoriteIntervals} onSelect={setInterval_} onToggleFavorite={toggleFavoriteInterval} />
         <span className="w-2" />
         {CHART_TYPES.map((t) => (
           <button key={t} className={`term-btn ${chartType === t ? "active" : ""}`} onClick={() => setChartType(t)}>

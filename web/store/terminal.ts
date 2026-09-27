@@ -31,8 +31,7 @@ export type WidgetInstance = {
   symbol?: string;
   linked: boolean; // follows the globally active symbol
   indicators?: IndicatorInstance[]; // chart widgets only; undefined = defaults
-  chartRange?: string; // chart widgets: date range button (default 6M)
-  chartInterval?: string; // chart widgets: candle interval, "auto" = the range's own
+  chartInterval?: string; // chart widgets: candle interval (default 1D)
   chartScale?: ChartScaleMode; // chart widgets: price scale mode (TradingView's Regular / Percent / Indexed to 100 / Logarithmic)
   chartInvert?: boolean; // chart widgets: inverted price scale
 };
@@ -49,6 +48,8 @@ type TerminalState = {
   widgets: WidgetInstance[];
   layout: LayoutItem[];
   watchlist: string[];
+  /** Starred chart intervals, shown on every chart's toolbar (TradingView's favorites). */
+  favoriteIntervals: string[];
   commandOpen: boolean;
   setActiveSymbol: (s: string) => void;
   setCommandOpen: (open: boolean) => void;
@@ -57,7 +58,8 @@ type TerminalState = {
   setWidgetSymbol: (id: string, symbol: string) => void;
   toggleLinked: (id: string) => void;
   setWidgetIndicators: (id: string, indicators: IndicatorInstance[]) => void;
-  setWidgetChart: (id: string, patch: { chartRange?: string; chartInterval?: string; chartScale?: ChartScaleMode; chartInvert?: boolean }) => void;
+  setWidgetChart: (id: string, patch: { chartInterval?: string; chartScale?: ChartScaleMode; chartInvert?: boolean }) => void;
+  toggleFavoriteInterval: (interval: string) => void;
   setLayout: (layout: LayoutItem[]) => void;
   addToWatchlist: (s: string) => void;
   removeFromWatchlist: (s: string) => void;
@@ -107,6 +109,7 @@ export const useTerminal = create<TerminalState>()(
       widgets: DEFAULT_WIDGETS,
       layout: DEFAULT_LAYOUT,
       watchlist: ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL", "META", "SPY"],
+      favoriteIntervals: [],
       commandOpen: false,
       setActiveSymbol: (s) => set({ activeSymbol: s.toUpperCase() }),
       setCommandOpen: (open) => set({ commandOpen: open }),
@@ -147,6 +150,12 @@ export const useTerminal = create<TerminalState>()(
           watchlist: st.watchlist.includes(s.toUpperCase()) ? st.watchlist : [...st.watchlist, s.toUpperCase()],
         })),
       removeFromWatchlist: (s) => set((st) => ({ watchlist: st.watchlist.filter((x) => x !== s) })),
+      toggleFavoriteInterval: (interval) =>
+        set((st) => ({
+          favoriteIntervals: st.favoriteIntervals.includes(interval)
+            ? st.favoriteIntervals.filter((i) => i !== interval)
+            : [...st.favoriteIntervals, interval],
+        })),
       resetWorkspace: () => set({ widgets: DEFAULT_WIDGETS, layout: DEFAULT_LAYOUT }),
     }),
     { name: "openterminal-workspace" }

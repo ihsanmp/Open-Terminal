@@ -1,10 +1,6 @@
-import { isCryptoSymbol } from "./refresh";
-
-// Chart ranges and candle intervals. As on TradingView, picking a range also picks its usual
-// interval (shown in the interval menu), which can then be changed freely.
-
-export const RANGES = ["1D", "5D", "1M", "6M", "YTD", "1Y", "5Y", "MAX"] as const;
-export type Range = (typeof RANGES)[number];
+// Candle intervals, as TradingView's interval menu has them: grouped, each with a star to put
+// it on the toolbar as a favorite. There are no date-range buttons: a chart loads the symbol's
+// history at the interval and opens on the latest bars, with the rest to scroll back into.
 
 export const INTERVALS = ["1m", "5m", "15m", "1h", "4h", "1D", "1W", "1M"] as const;
 export type ChartInterval = (typeof INTERVALS)[number];
@@ -20,74 +16,61 @@ export const INTERVAL_SECONDS: Record<ChartInterval, number> = {
   "1M": 2_592_000,
 };
 
-/** The interval a range opens with. Crypto trades around the clock, so its 6M uses 4h candles. */
-export function defaultInterval(range: Range, symbol: string): ChartInterval {
-  switch (range) {
-    case "1D":
-      return "5m";
-    case "5D":
-      return "15m";
-    case "1M":
-      return "1h";
-    case "6M":
-      return isCryptoSymbol(symbol) ? "4h" : "1D";
-    case "5Y":
-      return "1W";
-    case "MAX":
-      return "1M";
-    default:
-      return "1D";
-  }
+/** Toolbar labels, as TradingView writes them. */
+export const INTERVAL_LABEL: Record<ChartInterval, string> = {
+  "1m": "1m",
+  "5m": "5m",
+  "15m": "15m",
+  "1h": "1h",
+  "4h": "4h",
+  "1D": "D",
+  "1W": "W",
+  "1M": "M",
+};
+
+/** Names in the interval menu. */
+export const INTERVAL_NAME: Record<ChartInterval, string> = {
+  "1m": "1 minute",
+  "5m": "5 minutes",
+  "15m": "15 minutes",
+  "1h": "1 hour",
+  "4h": "4 hours",
+  "1D": "1 day",
+  "1W": "1 week",
+  "1M": "1 month",
+};
+
+export const INTERVAL_GROUPS: Array<[string, ChartInterval[]]> = [
+  ["MINUTES", ["1m", "5m", "15m"]],
+  ["HOURS", ["1h", "4h"]],
+  ["DAYS", ["1D", "1W", "1M"]],
+];
+
+export const isChartInterval = (v: unknown): v is ChartInterval => (INTERVALS as readonly unknown[]).includes(v);
+
+/** A saved interval, or daily candles. */
+export const resolveInterval = (saved: string | undefined): ChartInterval => (isChartInterval(saved) ? saved : "1D");
+
+/** Favorites in menu order, whatever order they were starred in. */
+export const orderedFavorites = (favorites: readonly string[]): ChartInterval[] => INTERVALS.filter((i) => favorites.includes(i));
+
+/** The history span the server is asked for (it loads at least 1000 bars, and TradingView's
+ *  feed gives all of it at daily and longer intervals). */
+export type LoadRange = "5D" | "1Y" | "5Y" | "MAX";
+export function loadRange(interval: ChartInterval): LoadRange {
+  const s = INTERVAL_SECONDS[interval];
+  return s < 3600 ? "5D" : s < 86_400 ? "1Y" : s < 604_800 ? "5Y" : "MAX";
 }
 
-/** Fewest bars in view when a range opens, so a short range at a long interval (5D at 1D)
- *  still draws candles at a readable width. */
+/** Fewest bars in view when a chart opens. */
 export const MIN_VISIBLE_BARS = 40;
+/** Candle spacing a chart opens at, in pixels (TradingView's default zoom is about this). */
+export const OPEN_BAR_SPACING = 7;
 
-const DAY = 86_400;
-
-/** Index of the first bar inside a range: for 1D/5D the last 24 hours or five days on
- *  around-the-clock markets, else the last one or five sessions with data (a stock on a Sunday
- *  still shows Friday); the calendar window for longer ranges. */
-export function rangeStartIndex(times: number[], range: Range, now = Date.now() / 1000, continuous = false): number {
-  if (times.length === 0) return 0;
-  if (range === "MAX") return 0;
-  if (continuous && (range === "1D" || range === "5D")) {
-    const since = times[times.length - 1] - (range === "1D" ? 1 : 5) * DAY;
-    const i = times.findIndex((t) => t > since);
-    return i < 0 ? 0 : i;
-  }
-  if (range === "1D" || range === "5D") {
-    const days = [...new Set(times.map((t) => Math.floor(t / DAY)))].slice(range === "1D" ? -1 : -5);
-    const first = days[0] * DAY;
-    const i = times.findIndex((t) => t >= first);
-    return i < 0 ? 0 : i;
-  }
-  const d = new Date(now * 1000);
-  const y = d.getUTCFullYear(), m = d.getUTCMonth(), day = d.getUTCDate();
-  const start =
-    range === "1M" ? Date.UTC(y, m - 1, day)
-    : range === "6M" ? Date.UTC(y, m - 6, day)
-    : range === "YTD" ? Date.UTC(y, 0, 1)
-    : range === "1Y" ? Date.UTC(y - 1, m, day)
-    : Date.UTC(y - 5, m, day);
-  const i = times.findIndex((t) => t >= start / 1000);
-  return i < 0 ? times.length - 1 : i;
-}
-
-/** Logical range to open a chart on: the range's window (at least MIN_VISIBLE_BARS wide), with
- *  the rest of the history loaded to the left. */
-export function initialVisibleRange(times: number[], range: Range, now = Date.now() / 1000, continuous = false): { from: number; to: number } {
-  const last = times.length - 1;
-  const from = Math.max(0, Math.min(rangeStartIndex(times, range, now, continuous), last - MIN_VISIBLE_BARS + 1));
-  return { from: from - 0.5, to: last + 2 };
-}
-
-/** A saved range/interval pair, falling back to 6M and the range's own interval. */
-export function resolveChartView(savedRange: string | undefined, savedInterval: string | undefined, symbol: string) {
-  const range: Range = (RANGES as readonly string[]).includes(savedRange ?? "") ? (savedRange as Range) : "6M";
-  const interval: ChartInterval = (INTERVALS as readonly string[]).includes(savedInterval ?? "")
-    ? (savedInterval as ChartInterval)
-    : defaultInterval(range, symbol);
-  return { range, interval };
+/** Logical range a chart opens on: the latest bars at a readable width, a small margin on the
+ *  right, the rest of the history to the left. */
+export function latestBarsView(count: number, plotWidthPx: number): { from: number; to: number } {
+  const last = count - 1;
+  const shown = Math.max(MIN_VISIBLE_BARS, Math.round(plotWidthPx / OPEN_BAR_SPACING));
+  return { from: last - shown + 1.5, to: last + 2 };
 }
