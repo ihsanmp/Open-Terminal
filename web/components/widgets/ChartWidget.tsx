@@ -47,12 +47,14 @@ import { IndicatorTableView } from "../chart/IndicatorTableView";
 import { chartContext } from "../../lib/chart-context";
 import { INTERVAL_LABEL, INTERVAL_SECONDS, latestBarsView, loadRange, orderedFavorites, resolveInterval, type ChartInterval } from "../../lib/chart-intervals";
 import { IntervalMenu } from "../chart/IntervalMenu";
+import { ChartSettings } from "../chart/ChartSettings";
+import { candleOptions, formatChartTime, formatTick, prevCloseColors, resolveChartStyle, resolveTimezone, risingBars } from "../../lib/chart-style";
 import { DEFAULT_CHART_INDICATORS, useTerminal, useWidgetSymbol, type ChartScaleMode, type WidgetInstance } from "../../store/terminal";
 import { isPinch, keyAction, panPrice, scalePrice, shiftSpan, wheelPixels, zoomFactor, zoomSpan, type Span } from "../../lib/chart-nav";
 import { IndicatorPicker, IndicatorSettings } from "../chart/IndicatorDialogs";
 import { PriceScaleMenu } from "../chart/PriceScaleMenu";
 import { isCryptoSymbol, usePoll, usSessionActive } from "../../lib/refresh";
-import { formatAxisCountdown, formatBarTime, formatCountdown, intervalLabel, isIntradayInterval, secondsUntilClose, type Market } from "../../lib/candle-time";
+import { formatAxisCountdown, formatCountdown, intervalLabel, isIntradayInterval, secondsUntilClose, type Market } from "../../lib/candle-time";
 
 
 const CHART_TYPES = ["candles", "bars", "line", "area"] as const;
@@ -60,10 +62,8 @@ const CHART_TYPES = ["candles", "bars", "line", "area"] as const;
 
 type ChartType = (typeof CHART_TYPES)[number];
 
-const UP = "#00c853";
 /** Axis font size; the countdown label is stacked by the height it gives the price label. */
 const AXIS_FONT_SIZE = 10;
-const DOWN = "#ff3d3d";
 
 type PreparedPlot = { values: number[]; colors?: Color[] };
 
@@ -203,6 +203,10 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   // Price-scale width and time-scale height, so tables sit inside the plotting area like Pine's.
   const [axes, setAxes] = useState({ right: 60, bottom: 26 });
   const [pickerOpen, setPickerOpen] = useState(false);
+  // TradingView's chart Settings: candle colors, precision, timezone, canvas.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const styleKey = JSON.stringify(widget.chartStyle ?? {});
+  const chartStyle = useMemo(() => resolveChartStyle(JSON.parse(styleKey)), [styleKey]);
   const [editing, setEditing] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const savedRange = useRef<{ key: string; range: LogicalRange } | null>(null);
@@ -245,6 +249,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     () => chartContext(symbol, intervalSeconds, range, interval),
     [symbol, intervalSeconds, range, interval]
   );
+  const timezone = resolveTimezone(chartStyle, ctx.timezone);
   const instancesJson = JSON.stringify(instances);
   const fetchPaths = useMemo(() => {
     const paths = new Set<string>();
@@ -350,15 +355,26 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     const { times, total, items } = prepared;
     const viewKey = `${symbol}:${range}:${interval}`;
     const priceKey = `${viewKey}:${scaleMode}:${invert}`;
-    const pxPrecision = pricePrecision(candles);
+    const pxPrecision = chartStyle.precision === "default" ? pricePrecision(candles) : chartStyle.precision;
     const mainFormat = { type: "price" as const, precision: pxPrecision, minMove: 1 / 10 ** pxPrecision };
+    const intraday = isIntradayInterval(intervalSeconds);
 
     const chart: IChartApi = createChart(el, {
-      layout: { background: { color: "#0a0a0a" }, textColor: "#808080", fontSize: AXIS_FONT_SIZE, attributionLogo: false, panes: { separatorColor: "#262626" } },
-      grid: { vertLines: { color: "#1a1a1a" }, horzLines: { color: "#1a1a1a" } },
+      layout: { background: { color: chartStyle.background }, textColor: "#808080", fontSize: AXIS_FONT_SIZE, attributionLogo: false, panes: { separatorColor: "#262626" } },
+      grid: {
+        vertLines: { color: chartStyle.vertGrid.color, visible: chartStyle.vertGrid.visible },
+        horzLines: { color: chartStyle.horzGrid.color, visible: chartStyle.horzGrid.visible },
+      },
+      // Times in the chosen timezone (the settings' Timezone); daily and longer bars are dates.
+      localization: { timeFormatter: (t: Time) => formatChartTime(t as number, intraday, timezone) },
       crosshair: { mode: 0 },
       // A low minimum bar spacing lets decades of daily bars fit on screen when zoomed out, as on TradingView.
-      timeScale: { borderColor: "#262626", timeVisible: isIntradayInterval(intervalSeconds), minBarSpacing: 0.01 },
+      timeScale: {
+        borderColor: "#262626",
+        timeVisible: intraday,
+        minBarSpacing: 0.01,
+        tickMarkFormatter: (t: Time, kind: number) => formatTick(t as number, kind, intraday, timezone),
+      },
       rightPriceScale: { borderColor: "#262626", mode: PRICE_SCALE_MODE[scaleMode], invertScale: invert },
       autoSize: true,
       // Dragging pans, dragging an axis stretches it and double-clicking it resets it; the wheel is
@@ -372,15 +388,19 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     const future = times.slice(candles.length).map((time) => ({ time }));
     let main: ISeriesApi<SeriesType>;
     if (chartType === "candles" || chartType === "bars") {
+      // An indicator's barcolor wins; otherwise "Color bars based on previous close" when it's on.
+      const byPrevClose = prevCloseColors(candles, chartStyle);
       const data = candles.map((c, i) => {
         const color = barColors?.[i];
         const base = { time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close };
-        return color ? { ...base, color, borderColor: color, wickColor: color } : base;
+        if (color) return { ...base, color, borderColor: color, wickColor: color };
+        if (!byPrevClose) return base;
+        return chartType === "candles" ? { ...base, ...byPrevClose[i] } : { ...base, color: byPrevClose[i].borderColor };
       });
       main =
         chartType === "candles"
-          ? chart.addSeries(CandlestickSeries, { upColor: UP, downColor: DOWN, borderUpColor: UP, borderDownColor: DOWN, wickUpColor: UP, wickDownColor: DOWN, priceFormat: mainFormat })
-          : chart.addSeries(BarSeries, { upColor: UP, downColor: DOWN, priceFormat: mainFormat });
+          ? chart.addSeries(CandlestickSeries, { ...candleOptions(chartStyle), priceFormat: mainFormat })
+          : chart.addSeries(BarSeries, { upColor: chartStyle.borders.up, downColor: chartStyle.borders.down, priceFormat: mainFormat });
       main.setData([...data, ...future]);
     } else {
       main =
@@ -507,7 +527,9 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     // Time left on the open candle, under the last-price label on the price axis.
     const last = candles[candles.length - 1];
     const lastColor =
-      chartType === "line" || chartType === "area" ? "#ff9900" : barColors?.[candles.length - 1] ?? (last.close >= last.open ? UP : DOWN);
+      chartType === "line" || chartType === "area"
+        ? "#ff9900"
+        : barColors?.[candles.length - 1] ?? (risingBars(candles.slice(-2), chartStyle.colorByPrevClose).at(-1) ? chartStyle.body.up : chartStyle.body.down);
     const market: Market = { type: ctx.type, timezone: ctx.timezone };
     const countdown = new CountdownPrimitive(() => {
       const left = secondsUntilClose(last.time, intervalSeconds, market);
@@ -695,7 +717,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       ro.disconnect();
       chart.remove();
     };
-  }, [candles, chartType, prepared, paneOf, range, interval, intervalSeconds, symbol, ctx, scaleMode, invert]);
+  }, [candles, chartType, prepared, paneOf, range, interval, intervalSeconds, symbol, ctx, scaleMode, invert, chartStyle, timezone]);
 
   // ---- legend ----
   const n = candles?.length ?? 0;
@@ -706,7 +728,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     saveInstances(latestIndicators(widget.id).map((i) => (i.uid === uid ? { ...i, ...patch } : i)));
   const remove = (uid: string) => saveInstances(latestIndicators(widget.id).filter((i) => i.uid !== uid));
 
-  const legendPrecision = candles && n > 0 ? pricePrecision(candles) : 2;
+  const legendPrecision = chartStyle.precision !== "default" ? chartStyle.precision : candles && n > 0 ? pricePrecision(candles) : 2;
+  const px = (v: number) => (chartStyle.precision === "default" ? fmtPrice(v) : fmt(v, chartStyle.precision));
   const legendMarket = useMemo<Market>(() => ({ type: ctx.type, timezone: ctx.timezone }), [ctx.type, ctx.timezone]);
   const hoveringLastBar = hoverIndex === null || hoverIndex >= n - 1;
 
@@ -790,6 +813,9 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         <button className="term-btn" onClick={() => setPickerOpen(true)} title="Add indicators">
           ƒx INDICATORS
         </button>
+        <button className="term-btn" onClick={() => setSettingsOpen(true)} title="Chart settings">
+          ⚙
+        </button>
       </div>
       {error && <div className="p-2 down">Error: {(error as Error).message}</div>}
       <div
@@ -806,13 +832,13 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           <div className="absolute top-1 left-2 z-10 flex flex-col gap-0.5 text-[11px] pointer-events-none max-w-[85%]">
             <div className="flex gap-3 bg-[rgba(10,10,10,0.7)] w-fit px-1">
               <span className="dim">
-                <span className="amber">{intervalLabel(intervalSeconds)}</span> {formatBarTime(candle.time, intervalSeconds)}
+                <span className="amber">{intervalLabel(intervalSeconds)}</span> {formatChartTime(candle.time, isIntradayInterval(intervalSeconds), timezone)}
               </span>
               {hoveringLastBar && <BarCountdown barTime={candle.time} intervalSeconds={intervalSeconds} market={legendMarket} />}
-              <span className="dim">O <span className="text-[var(--text)]">{fmtPrice(candle.open)}</span></span>
-              <span className="dim">H <span className="up">{fmtPrice(candle.high)}</span></span>
-              <span className="dim">L <span className="down">{fmtPrice(candle.low)}</span></span>
-              <span className="dim">C <span className={candle.close >= candle.open ? "up" : "down"}>{fmtPrice(candle.close)}</span></span>
+              <span className="dim">O <span className="text-[var(--text)]">{px(candle.open)}</span></span>
+              <span className="dim">H <span className="up">{px(candle.high)}</span></span>
+              <span className="dim">L <span className="down">{px(candle.low)}</span></span>
+              <span className="dim">C <span className={candle.close >= candle.open ? "up" : "down"}>{px(candle.close)}</span></span>
               <span className="dim">Vol <span className="text-[var(--text)]">{fmtBig(candle.volume)}</span></span>
             </div>
             {mainLegend.map(legendRow)}
@@ -918,6 +944,14 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           </div>
         )}
       </div>
+      {settingsOpen && (
+        <ChartSettings
+          style={chartStyle}
+          exchangeZone={ctx.timezone}
+          onApply={(s) => setWidgetChart(widget.id, { chartStyle: s })}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
       {pickerOpen && (
         <IndicatorPicker
           onClose={() => setPickerOpen(false)}

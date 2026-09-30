@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { IndicatorInstance } from "../lib/ta/types";
+import type { ChartStyle } from "../lib/chart-style";
 
 export type WidgetType =
   | "quote"
@@ -34,6 +35,7 @@ export type WidgetInstance = {
   chartInterval?: string; // chart widgets: candle interval (default 1D)
   chartScale?: ChartScaleMode; // chart widgets: price scale mode (TradingView's Regular / Percent / Indexed to 100 / Logarithmic)
   chartInvert?: boolean; // chart widgets: inverted price scale
+  chartStyle?: Partial<ChartStyle>; // chart widgets: the Settings dialog (candles, precision, timezone, canvas)
 };
 
 export const DEFAULT_CHART_INDICATORS: IndicatorInstance[] = [
@@ -58,7 +60,7 @@ type TerminalState = {
   setWidgetSymbol: (id: string, symbol: string) => void;
   toggleLinked: (id: string) => void;
   setWidgetIndicators: (id: string, indicators: IndicatorInstance[]) => void;
-  setWidgetChart: (id: string, patch: { chartInterval?: string; chartScale?: ChartScaleMode; chartInvert?: boolean }) => void;
+  setWidgetChart: (id: string, patch: { chartInterval?: string; chartScale?: ChartScaleMode; chartInvert?: boolean; chartStyle?: Partial<ChartStyle> }) => void;
   toggleFavoriteInterval: (interval: string) => void;
   setLayout: (layout: LayoutItem[]) => void;
   addToWatchlist: (s: string) => void;
