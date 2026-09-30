@@ -1,8 +1,9 @@
 "use client";
 
-import { useTerminal, type WidgetType } from "../store/terminal";
+import { useTerminal, type View, type WidgetType } from "../store/terminal";
 
-const ITEMS: Array<{ type: WidgetType; label: string; key: string }> = [
+/** The menu: each item opens its feature full-page; ⌥ + number jumps to the first nine. */
+export const MENU: Array<{ type: WidgetType; label: string; key: string }> = [
   { type: "chart", label: "CHART", key: "⌥1" },
   { type: "quote", label: "QUOTE", key: "⌥2" },
   { type: "news", label: "NEWS", key: "⌥3" },
@@ -22,32 +23,65 @@ const ITEMS: Array<{ type: WidgetType; label: string; key: string }> = [
   { type: "recap", label: "MARKET RECAP", key: "" },
 ];
 
+function Item({ view, current, label, hint, onAdd }: { view: View; current: View; label: string; hint: string; onAdd?: () => void }) {
+  const setView = useTerminal((s) => s.setView);
+  const active = view === current;
+  return (
+    <div
+      role="button"
+      onClick={() => setView(view)}
+      className={`group flex items-center justify-between px-2 py-1.5 text-[11px] cursor-pointer border-l-2 ${
+        active ? "border-[var(--amber)] bg-[#1a1a1a] text-[var(--amber)]" : "border-transparent hover:bg-[#1a1a1a] hover:text-[var(--amber)]"
+      }`}
+    >
+      <span>{label}</span>
+      <span className="flex items-center gap-1">
+        {onAdd && (
+          <button
+            title="Add to the workspace"
+            className="hidden group-hover:inline dim hover:text-[var(--amber)] px-0.5"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAdd();
+            }}
+          >
+            +
+          </button>
+        )}
+        <span className="dim text-[9px]">{hint}</span>
+      </span>
+    </div>
+  );
+}
+
 export default function Sidebar() {
+  const view = useTerminal((s) => s.view);
+  const setView = useTerminal((s) => s.setView);
   const addWidget = useTerminal((s) => s.addWidget);
   const resetWorkspace = useTerminal((s) => s.resetWorkspace);
 
   return (
-    <nav className="w-32 bg-[var(--panel)] border-r border-[var(--border)] flex flex-col shrink-0">
-      <div className="dim px-2 py-1 text-[10px] uppercase tracking-wider border-b border-[var(--border)]">
-        Add widget
-      </div>
-      {ITEMS.map((item) => (
-        <button
+    <nav className="w-32 bg-[var(--panel)] border-r border-[var(--border)] flex flex-col shrink-0 overflow-auto">
+      {MENU.map((item) => (
+        <Item
           key={item.type}
-          onClick={() => addWidget(item.type)}
-          className="text-left px-2 py-1.5 text-[11px] hover:bg-[#1a1a1a] hover:text-[var(--amber)] flex justify-between"
-        >
-          <span>{item.label}</span>
-          <span className="dim text-[9px]">{item.key}</span>
-        </button>
+          view={item.type}
+          current={view}
+          label={item.label}
+          hint={item.key}
+          onAdd={() => {
+            addWidget(item.type);
+            setView("workspace");
+          }}
+        />
       ))}
       <div className="mt-auto border-t border-[var(--border)]">
-        <button
-          onClick={resetWorkspace}
-          className="w-full text-left px-2 py-1.5 text-[11px] dim hover:text-[var(--down)]"
-        >
-          RESET LAYOUT
-        </button>
+        <Item view="workspace" current={view} label="WORKSPACE" hint="⌥0" />
+        {view === "workspace" && (
+          <button onClick={resetWorkspace} className="w-full text-left px-2 py-1.5 text-[11px] dim hover:text-[var(--down)]">
+            RESET LAYOUT
+          </button>
+        )}
       </div>
     </nav>
   );

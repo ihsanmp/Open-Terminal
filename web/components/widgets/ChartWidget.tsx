@@ -582,7 +582,11 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       priceScale.setVisibleRange(savedPrice.current.range);
     } else savedPrice.current = null;
     chartRef.current = chart;
-    const syncAuto = () => setAutoScale(priceScale.options().autoScale);
+    // Deferred syncs can land after the chart is gone (a click that switches page).
+    let disposed = false;
+    const syncAuto = () => {
+      if (!disposed) setAutoScale(priceScale.options().autoScale);
+    };
     syncAuto();
     const isLog = scaleMode === "log";
     const maxBars = Math.max(200, total * 1.2 + 50);
@@ -705,6 +709,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       const pr = priceScale.options().autoScale ? null : priceScale.getVisibleRange();
       savedPrice.current = pr ? { key: priceKey, range: pr } : null;
       chartRef.current = null;
+      disposed = true;
       navRef.current = null;
       ts.unsubscribeVisibleLogicalRangeChange(onRange);
       el.removeEventListener("pointerdown", onPointerDown, { capture: true });
@@ -980,6 +985,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
 
 /** Latest indicator list straight from the store, so rapid adds in the picker don't drop each other. */
 function latestIndicators(widgetId: string): IndicatorInstance[] {
-  const w = useTerminal.getState().widgets.find((x) => x.id === widgetId);
+  const st = useTerminal.getState();
+  const w = st.widgets.find((x) => x.id === widgetId) ?? st.pages.find((x) => x.id === widgetId);
   return w?.indicators ?? DEFAULT_CHART_INDICATORS;
 }

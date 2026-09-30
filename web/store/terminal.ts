@@ -45,8 +45,14 @@ export const DEFAULT_CHART_INDICATORS: IndicatorInstance[] = [
 
 export type LayoutItem = { i: string; x: number; y: number; w: number; h: number };
 
+/** What the main area shows: one feature full-page, or the free-form widget workspace. */
+export type View = WidgetType | "workspace";
+
 type TerminalState = {
   activeSymbol: string;
+  view: View;
+  /** The widget behind each full-page view (its own settings, apart from the workspace's). */
+  pages: WidgetInstance[];
   widgets: WidgetInstance[];
   layout: LayoutItem[];
   watchlist: string[];
@@ -55,6 +61,8 @@ type TerminalState = {
   commandOpen: boolean;
   setActiveSymbol: (s: string) => void;
   setCommandOpen: (open: boolean) => void;
+  setView: (view: View) => void;
+  ensurePage: (type: WidgetType) => void;
   addWidget: (type: WidgetType, symbol?: string) => void;
   removeWidget: (id: string) => void;
   setWidgetSymbol: (id: string, symbol: string) => void;
@@ -104,10 +112,24 @@ const SIZE_BY_TYPE: Record<WidgetType, { w: number; h: number }> = {
   research: { w: 7, h: 16 },
 };
 
+/** Apply a change to the widget with this id, whether it's in the workspace or a page. */
+const patchWidget = (st: TerminalState, id: string, f: (w: WidgetInstance) => WidgetInstance) => ({
+  widgets: st.widgets.map((w) => (w.id === id ? f(w) : w)),
+  pages: st.pages.map((w) => (w.id === id ? f(w) : w)),
+});
+
+/** A new page starts from the settings of the workspace's first widget of its kind. */
+function newPage(st: TerminalState, type: WidgetType): WidgetInstance {
+  const like = st.widgets.find((w) => w.type === type);
+  return { ...like, id: `page-${type}`, type, symbol: undefined, linked: true };
+}
+
 export const useTerminal = create<TerminalState>()(
   persist(
     (set) => ({
       activeSymbol: "AAPL",
+      view: "chart",
+      pages: [],
       widgets: DEFAULT_WIDGETS,
       layout: DEFAULT_LAYOUT,
       watchlist: ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL", "META", "SPY"],
@@ -115,6 +137,8 @@ export const useTerminal = create<TerminalState>()(
       commandOpen: false,
       setActiveSymbol: (s) => set({ activeSymbol: s.toUpperCase() }),
       setCommandOpen: (open) => set({ commandOpen: open }),
+      setView: (view) => set({ view }),
+      ensurePage: (type) => set((st) => (st.pages.some((p) => p.type === type) ? {} : { pages: [...st.pages, newPage(st, type)] })),
       addWidget: (type, symbol) =>
         set((st) => {
           const id = `w-${type}-${Date.now()}`;
@@ -130,22 +154,10 @@ export const useTerminal = create<TerminalState>()(
           widgets: st.widgets.filter((w) => w.id !== id),
           layout: st.layout.filter((l) => l.i !== id),
         })),
-      setWidgetSymbol: (id, symbol) =>
-        set((st) => ({
-          widgets: st.widgets.map((w) => (w.id === id ? { ...w, symbol: symbol.toUpperCase(), linked: false } : w)),
-        })),
-      toggleLinked: (id) =>
-        set((st) => ({
-          widgets: st.widgets.map((w) => (w.id === id ? { ...w, linked: !w.linked } : w)),
-        })),
-      setWidgetIndicators: (id, indicators) =>
-        set((st) => ({
-          widgets: st.widgets.map((w) => (w.id === id ? { ...w, indicators } : w)),
-        })),
-      setWidgetChart: (id, patch) =>
-        set((st) => ({
-          widgets: st.widgets.map((w) => (w.id === id ? { ...w, ...patch } : w)),
-        })),
+      setWidgetSymbol: (id, symbol) => set((st) => patchWidget(st, id, (w) => ({ ...w, symbol: symbol.toUpperCase(), linked: false }))),
+      toggleLinked: (id) => set((st) => patchWidget(st, id, (w) => ({ ...w, linked: !w.linked }))),
+      setWidgetIndicators: (id, indicators) => set((st) => patchWidget(st, id, (w) => ({ ...w, indicators }))),
+      setWidgetChart: (id, patch) => set((st) => patchWidget(st, id, (w) => ({ ...w, ...patch }))),
       setLayout: (layout) => set({ layout }),
       addToWatchlist: (s) =>
         set((st) => ({
