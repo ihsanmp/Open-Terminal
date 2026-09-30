@@ -26,7 +26,7 @@ import ResearchWidget from "./widgets/ResearchWidget";
 
 const Grid = WidthProvider(GridLayout);
 
-function WidgetBody({ widget }: { widget: WidgetInstance }) {
+export function WidgetBody({ widget }: { widget: WidgetInstance }) {
   switch (widget.type) {
     case "quote": return <QuoteWidget widget={widget} />;
     case "chart": return <ChartWidget widget={widget} />;
@@ -66,7 +66,7 @@ function VisibilityScope({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SymbolTag({ widget, activeSymbol }: { widget: WidgetInstance; activeSymbol: string }) {
+export function SymbolTag({ widget, activeSymbol }: { widget: WidgetInstance; activeSymbol: string }) {
   const setWidgetSymbol = useTerminal((s) => s.setWidgetSymbol);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -112,13 +112,16 @@ function SymbolTag({ widget, activeSymbol }: { widget: WidgetInstance; activeSym
   );
 }
 
-const TITLES: Record<string, string> = {
+export const TITLES: Record<string, string> = {
   quote: "Quote", chart: "Chart", watchlist: "Watchlist", news: "News",
   heatmap: "Heatmap", screener: "Screener", crypto: "Crypto",
   macro: "Macro / Indexes", options: "Option Chain", portfolio: "Portfolio", ai: "AI Assistant",
   calendar: "Calendar", insider: "Insider Transactions", tv: "Live TV", recap: "Market Recap",
   indices: "World Indices", research: "Equity Research",
 };
+
+/** Widgets that show one symbol (their own, or the active one when linked). */
+export const SYMBOL_AWARE = new Set(["quote", "chart", "news", "options", "insider", "research"]);
 
 export default function Workspace() {
   const widgets = useTerminal((s) => s.widgets);
@@ -128,7 +131,6 @@ export default function Workspace() {
   const toggleLinked = useTerminal((s) => s.toggleLinked);
   const activeSymbol = useTerminal((s) => s.activeSymbol);
 
-  const symbolAware = new Set(["quote", "chart", "news", "options", "insider", "research"]);
 
   return (
     <Grid
@@ -146,10 +148,10 @@ export default function Workspace() {
             <div className="panel-title">
               <span>
                 {TITLES[w.type]}
-                {symbolAware.has(w.type) && <SymbolTag widget={w} activeSymbol={activeSymbol} />}
+                {SYMBOL_AWARE.has(w.type) && <SymbolTag widget={w} activeSymbol={activeSymbol} />}
               </span>
               <span className="flex gap-2 items-center">
-                {symbolAware.has(w.type) && (
+                {SYMBOL_AWARE.has(w.type) && (
                   <button
                     title={w.linked ? "Linked to active symbol (click to unlink)" : "Unlinked (click to link)"}
                     onMouseDown={(e) => e.stopPropagation()}
