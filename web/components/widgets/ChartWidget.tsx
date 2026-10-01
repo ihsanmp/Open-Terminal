@@ -868,6 +868,12 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           .map((it) => (
             <IndicatorTableView key={`table-${it.inst.uid}`} table={it.result.table!} inset={axes} paneBottom={paneTops.length > 1 ? paneTops[1] : undefined} />
           ))}
+        {items
+          .filter((it) => paneOf.has(it.inst.uid) && it.result.table && paneTops[paneOf.get(it.inst.uid)!] !== undefined)
+          .map((it) => {
+            const pane = paneOf.get(it.inst.uid)!;
+            return <IndicatorTableView key={`table-${it.inst.uid}`} table={it.result.table!} inset={axes} paneTop={paneTops[pane]} paneBottom={paneTops[pane + 1]} />;
+          })}
         <div
           ref={containerRef}
           tabIndex={0}

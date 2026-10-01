@@ -211,3 +211,91 @@ describe("Bitcoin Halving Cycle Profit", () => {
     expect(r.bgColors!.some(Boolean)).toBe(true);
   });
 });
+
+describe("BBPct [AlgoAlpha]", () => {
+  it("places price between the Bollinger Bands as 0–100 and marks reversals", () => {
+    const r = run("algoalpha-bbpct", AAPL);
+    const z = r.plots.z;
+    const i = AAPL.length - 1;
+    const win = AAPL.close.slice(i - 19, i + 1);
+    const mean = win.reduce((a, v) => a + v, 0) / 20;
+    const sd = Math.sqrt(win.reduce((a, v) => a + (v - mean) ** 2, 0) / 20);
+    expect(z[i]).toBeCloseTo((100 * (AAPL.close[i] - (mean - 2 * sd))) / (4 * sd), 6);
+    expect(r.plots.stdev).toBeUndefined();
+    expect(r.markers!.length).toBeGreaterThan(0);
+    for (const m of r.markers!) {
+      if (m.shape === "arrowUp") expect(z[m.index - 1] <= -8 && z[m.index] > -8).toBe(true);
+      else expect(z[m.index - 1] >= 108 && z[m.index] < 108).toBe(true);
+    }
+  });
+});
+
+describe("BTC Spl-P/L & MVRV RoC", () => {
+  const day = 86_400;
+  const start = Date.UTC(2020, 0, 1) / 1000;
+  const days = 1600;
+  // A 400-day cycle in the share of supply in profit, with MVRV following it.
+  const cycle = (k: number) => 0.5 + 0.5 * Math.sin((2 * Math.PI * k) / 400);
+  const time = Array.from({ length: days }, (_, k) => start + k * day);
+  const data = {
+    supply: { time, inProfit: time.map((_, k) => 0.4 + 0.6 * cycle(k)) },
+    mvrv: { time, value: time.map((_, k) => 1 + 2 * cycle(k)) },
+  };
+
+  it("is long while the cycle rises, short while it falls, and tabulates the last bar", async () => {
+    const { btcSplMvrvRoc } = await import("../indicators/btc-spl-mvrv");
+    const params: Params = { ...defaultParams(INDICATOR_BY_ID.get("btc-spl-mvrv-roc")!), normLen: 365 };
+    const chart = barsOf(Array.from({ length: days }, () => flat(100)), day, start);
+    const r = btcSplMvrvRoc(chart, params, data);
+    const sig = r.plots.signal;
+    expect(sig[1250]).toBe(1); // rising: the 30-day average above the 150-day, MVRV up over 2 % a month
+    expect(sig[1450]).toBe(-1); // falling: both short
+    expect(r.barColors![1250]).toBe(params.longColor);
+    expect(r.barColors![1450]).toBe(params.shortColor);
+    const last = days - 1;
+    const cells = r.table!.cells.map((c) => c.text);
+    expect(cells[0]).toBe("Sup. P/L");
+    expect(cells[5]).toBe(String(sig[last]));
+    for (const v of r.plots.fast.filter(Number.isFinite)) expect(v >= 0 && v <= 1).toBe(true);
+  });
+
+  it("waits for the on-chain data", async () => {
+    const { btcSplMvrvRoc } = await import("../indicators/btc-spl-mvrv");
+    expect(btcSplMvrvRoc(AAPL, {}, null)).toEqual({ plots: {} });
+  });
+});
+
+describe("Whale & Institution Alerts", () => {
+  const day = 86_400;
+  const start = Date.UTC(2026, 0, 1) / 1000;
+  const chart = barsOf(Array.from({ length: 30 }, (_, i) => flat(80_000 + i)), day, start);
+  const tx = (k: number, hours: number, btc: number) => ({ txid: `t${k}`, time: start + k * day + hours * 3600, height: 900_000 + k, btc });
+  const data = {
+    whales: { height: 900_020, txs: [tx(3, 5, 2_500), tx(3, 9, 1_200), tx(5, 1, 400), tx(40, 0, 9_000)] },
+    treasuries: [
+      { company: "Strategy", ticker: "MSTR", time: start + 10 * day, from: start + 4 * day, btc: 1_665, usd: 142.7e6, avgPrice: 85_681, holdings: 847_666, url: "u" },
+      { company: "Strategy", ticker: "MSTR", time: start + 20 * day, btc: -1_690, usd: 108.6e6, avgPrice: 64_262, holdings: 840_447, url: "u" },
+    ],
+  };
+
+  it("labels whales per bar above the minimum and company buys and sells", async () => {
+    const { whaleAlertsCompute } = await import("../indicators/whale-alerts");
+    const params = defaultParams(INDICATOR_BY_ID.get("whale-alerts")!);
+    const r = whaleAlertsCompute(chart, params, data);
+    const labels = r.labels!.map((l) => [l.index, l.text, l.style]);
+    // Two transfers on day 3 are summed; 400 BTC is under the 1,000 minimum; day 40 is off the chart.
+    expect(labels).toEqual([
+      [3, "🐋 2× 3,700 BTC", "down"],
+      [10, "MSTR +1,665 BTC", "up"],
+      [20, "MSTR −1,690 BTC", "down"],
+    ]);
+    expect(r.labels![0].price).toBe(chart.high[3]);
+    const cells = r.table!.cells.map((c) => c.text);
+    expect(cells.slice(1, 5)).toEqual(["2026-01-21", "Strategy sold", "−1,690 BTC", "$108.6M"]);
+  });
+
+  it("waits for the data", async () => {
+    const { whaleAlertsCompute } = await import("../indicators/whale-alerts");
+    expect(whaleAlertsCompute(AAPL, {}, null)).toEqual({ plots: {} });
+  });
+});
