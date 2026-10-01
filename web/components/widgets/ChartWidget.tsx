@@ -373,6 +373,9 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         borderColor: "#262626",
         timeVisible: intraday,
         minBarSpacing: 0.01,
+        // All marks of a weight (every month, every hour, …) or none, so the vertical grid lines are
+        // evenly spaced; otherwise a few odd mid-month days get a line and the cells differ in width.
+        uniformDistribution: true,
         tickMarkFormatter: (t: Time, kind: number) => formatTick(t as number, kind, intraday, timezone),
       },
       rightPriceScale: { borderColor: "#262626", mode: PRICE_SCALE_MODE[scaleMode], invertScale: invert },
