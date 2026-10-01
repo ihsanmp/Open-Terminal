@@ -609,7 +609,7 @@ function fairValueGap(bars: Bars, p: Params): IndicatorResult {
   if (b(p, "showDash")) {
     const size = TABLE_SIZE[s(p, "textSize")] ?? "small";
     const [bs, rs] = [toHex(bullCss), toHex(bearCss)];
-    const pct = (a: number, c: number) => (c ? `${((a / c) * 100).toFixed(2)}%` : "NaN");
+    const pct = (a: number, c: number) => (c ? `${((a / c) * 100).toFixed(2)}%` : "—");
     const cells: TableCell[] = [
       { col: 1, row: 0, text: "Bullish", color: bs, size },
       { col: 2, row: 0, text: "Bearish", color: rs, size },
@@ -626,10 +626,12 @@ function fairValueGap(bars: Bars, p: Params): IndicatorResult {
   return {
     // The dynamic zones only exist in Dynamic mode.
     plots: dynamic ? plots : {},
-    fills: [
-      { a: "maxBull", b: "minBull", color: bullCss },
-      { a: "maxBear", b: "minBear", color: bearCss },
-    ],
+    fills: dynamic
+      ? [
+          { a: "maxBull", b: "minBull", color: bullCss },
+          { a: "maxBear", b: "minBear", color: bearCss },
+        ]
+      : [],
     boxes: boxes.slice(0, 500),
     lines: lines.slice(-500),
     table,
@@ -652,7 +654,7 @@ luxalgo2.push({
     float("shortMult", "Short Multiplier", 0.5, 0.1, 0.1),
     float("medMult", "Medium Multiplier", 1, 0.1, 0.1),
     float("longMult", "Long Multiplier", 2, 0.1, 0.1),
-    float("bandwidth", "Bandwidth", 0.1, 0.05, 0.01),
+    float("bandwidth", "Bandwidth", 0.1, 0.05, 0.01, 0.5), // Ehlers' band-pass needs 4πB / period < π/2
     int("normLength", "Normalization Lookback", 50, 10),
     float("ob", "Overbought Threshold", 80, 1, 50),
     float("os", "Oversold Threshold", 20, 1, 0),
@@ -952,7 +954,7 @@ function msbObToolkit(bars: Bars, p: Params, chart?: ChartContext): IndicatorRes
           ? { x1: i - obIdx, top, x2: i + 15, bottom, border: colorNew(hpz, 40), bg: colorNew(hpz, 80), borderStyle: "dashed" }
           : { x1: i - obIdx, top, x2: i + 15, bottom, border: colorNew(base, 60), bg: colorNew(base, 85), borderStyle: "dashed" };
         const poc: Line = { x1: i - obIdx, y1: mid, x2: i + 15, y2: mid, color: colorNew(isHPZ ? hpz : base, isHPZ ? 40 : 70), style: "dashed" };
-        const label: Label = { index: i + 18, price: mid, text: `${formatPattern(score, "#")}%`, style: "none", textColor: isHPZ ? hpz : base, size: "tiny" };
+        const label: Label = { index: i + 18, price: mid, text: Number.isFinite(score) ? `${formatPattern(score, "#")}%` : "", style: "none", textColor: isHPZ ? hpz : base, size: "tiny" };
         boxes.push(box), lines.push(poc), labels.push(label);
         obs.push({ box, label, poc, top, bottom, isBull: msbBull, isHPZ, mitigated: false, mitBar: 0, score });
       }

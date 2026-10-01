@@ -230,7 +230,7 @@ export const oscillators: IndicatorDef[] = [
   },
   {
     id: "chop", name: "Choppiness Index", short: "CHOP", category: "Volatility", overlay: false,
-    inputs: [int("length", "Length", 14), int("offset", "Offset", 0, -500)],
+    inputs: [int("length", "Length", 14, 2), int("offset", "Offset", 0, -500)],
     plots: [{ key: "chop", title: "CHOP", color: C.blue }],
     compute: (bars, p) => {
       const len = n(p, "length");

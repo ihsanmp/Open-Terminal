@@ -43,7 +43,9 @@ function timing(bars: Bars, projectDays: number) {
   const len = bars.length;
   const span = len > 1 ? Math.max(60, bars.time[len - 1] - bars.time[len - 2]) : DAY;
   const last = bars.time[len - 1];
-  return { len, span, last, ahead: Math.min(5000, Math.round((projectDays * DAY) / span)), end: last + projectDays * DAY };
+  // At most 5,000 bars ahead (on an hourly chart a year is 8,760): events past that aren't drawn.
+  const ahead = Math.min(5000, Math.round((projectDays * DAY) / span));
+  return { len, span, last, ahead, end: last + ahead * span };
 }
 
 /** The bar a time falls in, counting future bars past the last one; -1 before the chart. */
@@ -173,8 +175,8 @@ export function aspectsCompute(bars: Bars, p: Params): IndicatorResult {
 
 export const moonPhases: IndicatorDef = {
   id: "moon-phases",
-  name: "Moon Phases",
-  short: "Moon",
+  name: "Lunar Phases (Astro)",
+  short: "Lunar",
   category: "Community",
   overlay: true,
   aliases: ["Lunar", "New Moon", "Full Moon", "Astro"],
@@ -625,6 +627,7 @@ export function gannTimeCompute(bars: Bars, p: Params): IndicatorResult {
   for (const d of counts) {
     const t = bars.time[pi] + d * DAY;
     const i = indexAt(bars, span, t);
+    if (i > len - 1 + 5000) continue; // years ahead on an intraday chart
     const major = d % 90 === 0;
     const color = major ? "#FF9800" : "#78909C";
     lines.push({ x1: i, y1: lo, x2: i, y2: hi, color, dashed: !major, width: 1 });

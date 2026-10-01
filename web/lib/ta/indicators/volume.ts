@@ -338,7 +338,7 @@ export const community: IndicatorDef[] = [
     description: "Volatility-blended EMA spine with an EWMA log-return envelope, hysteresis and 3-state regimes.",
     inputs: [
       src(), int("fast", "Fast EMA", 21), int("slow", "Slow EMA", 89), int("volShort", "Short Volatility Length", 20, 2),
-      int("volLong", "Long Volatility Length", 100, 2), int("smooth", "Spine Smoothing", 5), float("lambda", "EWMA Decay (lambda)", 0.94, 0.01, 0.5),
+      int("volLong", "Long Volatility Length", 100, 2), int("smooth", "Spine Smoothing", 5), float("lambda", "EWMA Decay (lambda)", 0.94, 0.01, 0.5, 0.999),
       float("mult", "Envelope Multiplier", 2, 0.1, 0), float("inner", "Inner Band (fraction of envelope)", 0.5, 0.05, 0),
       int("confirm", "Confirmation Bars", 2), bool("colorCandles", "Color Candles", true), bool("signals", "Show Signals", true),
     ],

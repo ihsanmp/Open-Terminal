@@ -161,3 +161,14 @@ describe("newer built-ins", () => {
     expect(cc.at(-1)).toBeCloseTo(1, 9);
   });
 });
+
+describe("McGinley Dynamic", () => {
+  it("keeps up after a rally that would freeze the plain formula", () => {
+    const def = INDICATOR_BY_ID.get("mcginley")!;
+    // $1 for a month, then ×20 in ten days, then flat at $20.
+    const closes = [...Array(30).fill(1), ...Array.from({ length: 10 }, (_, i) => 20 ** ((i + 1) / 10)), ...Array(200).fill(20)];
+    const bars = candlesToBars(closes.map((c, i) => ({ time: 1_600_000_000 + i * 86_400, open: c, high: c, low: c, close: c, volume: 1 })));
+    const md = def.compute(bars, defaultParams(def)).plots.ma;
+    expect(md[md.length - 1]).toBeCloseTo(20, 1);
+  });
+});
