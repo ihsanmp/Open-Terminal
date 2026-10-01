@@ -7,6 +7,16 @@ export async function apiGet<T>(path: string): Promise<T> {
   return res.json();
 }
 
+/** apiGet that also tells whether the API answered from a saved copy (its x-stale header). */
+export async function apiGetWithStale<T>(path: string): Promise<{ data: T; stale: boolean }> {
+  const res = await fetch(path);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `HTTP ${res.status}`);
+  }
+  return { data: (await res.json()) as T, stale: res.headers.get("x-stale") === "1" };
+}
+
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(path, {
     method: "POST",

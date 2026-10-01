@@ -21,6 +21,7 @@ import * as newsfeeds from "../providers/newsfeeds.js";
 import { cryptoBase, cryptoTicker, isIndex, isYahooOnly } from "../symbols.js";
 import { INDEX_TV_TICKER, WORLD_INDICES, searchIndices } from "../indices.js";
 import { tvHistory } from "../tvhistory.js";
+import { cachedOnDisk } from "../diskcache.js";
 import { BINANCE_INTERVAL, INTERVAL_SECONDS, aggregateByPeriod, clip, groupCandles, isInterval, loadStart, yahooPlan, type Interval } from "../intervals.js";
 import { cryptoTerm, matchCoins, rankResults, type Coin, type SearchResult } from "../search.js";
 
@@ -320,6 +321,10 @@ async function historyAtInterval(symbol: string, rangeKey: string, interval: Int
   return clip(await withFallback(attempts));
 }
 
+// History survives restarts on disk (see diskcache.ts): a chart opens at once after a launch,
+// marked x-stale until the fresh copy is in.
+const nonEmpty = (data: unknown) => Array.isArray(data) && data.length > 0;
+
 marketRouter.get("/history/:symbol", async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
   const rangeKey = String(req.query.range ?? "6M");
@@ -327,8 +332,9 @@ marketRouter.get("/history/:symbol", async (req, res) => {
   if (isInterval(interval)) {
     try {
       const ttl = INTERVAL_SECONDS[interval] < 86_400 ? INTRADAY_HISTORY_TTL : HISTORY_TTL;
-      const data = await cached(`history:${symbol}:${rangeKey}:${interval}`, ttl, () => historyAtInterval(symbol, rangeKey, interval));
+      const { value: data, fromDisk } = await cachedOnDisk(`history:${symbol}:${rangeKey}:${interval}`, ttl, () => historyAtInterval(symbol, rangeKey, interval), nonEmpty);
       if (data.length === 0) throw new Error("empty history from all providers");
+      if (fromDisk) res.set("x-stale", "1");
       res.json(data);
     } catch (err) {
       fail(req, res, err);
@@ -339,7 +345,7 @@ marketRouter.get("/history/:symbol", async (req, res) => {
     const base = cryptoBase(symbol);
     const yahooHistory = () => yahoo.history(symbol, yahooRange(rangeKey).range, yahooRange(rangeKey).interval);
     const ttl = INTRADAY_RANGES.has(rangeKey) ? INTRADAY_HISTORY_TTL : HISTORY_TTL;
-    const data = await cached(`history:${symbol}:${rangeKey}`, ttl, () =>
+    const { value: data, fromDisk } = await cachedOnDisk(`history:${symbol}:${rangeKey}`, ttl, () =>
       base
         ? cryptoHistory(base, symbol, rangeKey)
         : isVix(symbol)
@@ -360,9 +366,11 @@ marketRouter.get("/history/:symbol", async (req, res) => {
             ["nasdaq", () => nasdaq.history(symbol, rangeKey)],
             ["yahoo", yahooHistory],
             ["stooq", () => stooq.history(symbol)],
-          ])
+          ]),
+      nonEmpty
     );
     if (!Array.isArray(data) || data.length === 0) throw new Error("empty history from all providers");
+    if (fromDisk) res.set("x-stale", "1");
     res.json(data);
   } catch (err) {
     fail(req, res, err);

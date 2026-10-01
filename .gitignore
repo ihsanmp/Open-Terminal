@@ -15,6 +15,9 @@ data/.api-key
 # Desktop app runtime files
 data/logs/
 data/.built-commit
+data/.build-*
+data/.installed-lock
+data/cache/
 data/btc-heights.json
 data/btc-supply-pl.json
 data/btc-whales.json

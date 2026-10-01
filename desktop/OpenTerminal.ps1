@@ -1,7 +1,12 @@
 # OpenTerminal desktop launcher: pulls the latest code from GitHub, rebuilds
-# when it changed, starts the API and web servers in the background, opens the
+# what changed, starts the API and web servers in the background, opens the
 # UI in its own app window, and stops the servers again once that window is
 # closed. Run through OpenTerminal.vbs so no console window shows.
+#
+# Startup is kept short: a build only runs when the sources changed, and only
+# for the part that did (scripts/build.mjs); the window opens at once on a
+# loading page while the servers start; and the efficiency-mode setup waits
+# until the window is up.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
@@ -10,7 +15,7 @@ $WebPort     = 3000
 $ApiPort     = 4000
 $AppUrl      = "http://127.0.0.1:$WebPort"
 $LogDir      = Join-Path $Root 'data\logs'
-$BuiltMarker = Join-Path $Root 'data\.built-commit'
+$LoadingPage = Join-Path $PSScriptRoot 'loading.html'
 # A dedicated browser profile keeps the app window in its own process (so we
 # can tell when it closes) and keeps the saved workspace separate.
 $ProfileDir  = Join-Path $env:LOCALAPPDATA 'OpenTerminal\app-profile'
@@ -21,16 +26,18 @@ $env:API_URL = "http://127.0.0.1:$ApiPort"
 
 # ---------------------------------------------------------------- helpers ---
 
+# Whether something listens on the port. Asks Windows for its listening sockets
+# (about a millisecond) rather than connecting: a connection to a closed local
+# port takes Windows half a second or more to refuse.
 function Test-Port([int]$port) {
-  $client = New-Object System.Net.Sockets.TcpClient
-  try {
-    $pending = $client.BeginConnect('127.0.0.1', $port, $null, $null)
-    return ($pending.AsyncWaitHandle.WaitOne(500) -and $client.Connected)
-  } catch {
-    return $false
-  } finally {
-    $client.Close()
-  }
+  $listeners = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()
+  return [bool]($listeners | Where-Object { $_.Port -eq $port } | Select-Object -First 1)
+}
+
+# Seconds since launch per step, in data\logs\launcher.log, to see where startup time goes.
+$LaunchClock = [System.Diagnostics.Stopwatch]::StartNew()
+function Write-Timing([string]$step) {
+  try { Add-Content -Path (Join-Path $LogDir 'launcher.log') -Value ('{0,6:N2}s  {1}' -f $LaunchClock.Elapsed.TotalSeconds, $step) } catch {}
 }
 
 function Find-Browser {
@@ -102,7 +109,7 @@ function Invoke-Hidden([string]$name, [string]$commandLine, [int]$timeoutSec) {
       & taskkill.exe /PID $p.Id /T /F | Out-Null
       return $false
     }
-    Start-Sleep -Milliseconds 200
+    Start-Sleep -Milliseconds 50
   }
   return ($p.ExitCode -eq 0)
 }
@@ -113,49 +120,63 @@ function Get-GitOutput([string[]]$arguments) {
   return ($out | Out-String).Trim()
 }
 
-# Fast-forwards to origin/main when GitHub has new commits. Never fatal: with
-# no network, no git, or local edits in the way, the current version is used.
-function Update-FromGitHub {
-  if (-not (Get-Command git -ErrorAction SilentlyContinue) -or -not (Test-Path (Join-Path $Root '.git'))) { return }
-  Set-Status 'Checking GitHub for updates...'
-  if (-not (Invoke-Hidden 'git-fetch' 'git fetch origin main' 45)) { return }
+# GitHub updates: `git fetch` runs in the background while the app starts (it
+# takes about a second), and what it finds is fast-forwarded once the app is
+# up. The running servers keep the version they started with; the next launch
+# installs packages if they changed and builds the update. Never fatal: with no
+# network, no git, or local edits in the way, the current version is used.
+function Start-UpdateCheck {
+  if (-not (Get-Command git -ErrorAction SilentlyContinue) -or -not (Test-Path (Join-Path $Root '.git'))) { return $null }
+  $p = Start-Process -FilePath $env:ComSpec -ArgumentList '/d /s /c "git fetch origin main"' `
+    -WorkingDirectory $Root -WindowStyle Hidden -PassThru `
+    -RedirectStandardOutput (Join-Path $LogDir 'git-fetch.log') `
+    -RedirectStandardError (Join-Path $LogDir 'git-fetch.err.log')
+  $null = $p.Handle
+  return $p
+}
 
+function Complete-Update($fetch) {
+  if (-not $fetch) { return }
+  if (-not $fetch.WaitForExit(20000)) {
+    & taskkill.exe /PID $fetch.Id /T /F | Out-Null
+    return
+  }
+  if ($fetch.ExitCode -ne 0) { return }
   $before = Get-GitOutput @('rev-parse', 'HEAD')
   $remote = Get-GitOutput @('rev-parse', 'origin/main')
   if (-not $remote -or $before -eq $remote) { return }
   & git -C $Root merge-base --is-ancestor HEAD origin/main 2>$null
   if ($LASTEXITCODE -ne 0) { return } # local commits not on GitHub yet
-
-  Set-Status 'Downloading update...'
-  if (-not (Invoke-Hidden 'git-merge' 'git merge --ff-only origin/main' 60)) { return }
-
-  $changed = Get-GitOutput @('diff', '--name-only', $before, 'HEAD')
-  if ($changed -match '(^|/)package(-lock)?\.json') {
-    Set-Status 'Installing dependencies...'
-    if (-not (Invoke-Hidden 'npm-install' 'npm install' 900)) {
-      Stop-WithError "Updating dependencies failed. See:`n$LogDir\npm-install.err.log"
-    }
-  }
+  if (Invoke-Hidden 'git-merge' 'git merge --ff-only origin/main' 60) { Write-Timing 'update downloaded; it is built at the next start' }
 }
 
-# Rebuilds when there is no build yet or it was made from a different commit.
-function Update-Build {
-  $head = Get-GitOutput @('rev-parse', 'HEAD')
-  $built = if (Test-Path $BuiltMarker) { (Get-Content $BuiltMarker -Raw).Trim() } else { $null }
-  $hasBuild = (Test-Path (Join-Path $Root 'server\dist\index.js')) -and (Test-Path (Join-Path $Root 'web\.next\BUILD_ID'))
-  if ($hasBuild -and ($null -eq $head -or $head -eq $built)) { return }
-
-  if (-not (Test-Path (Join-Path $Root 'node_modules'))) {
-    Set-Status 'Installing dependencies...'
-    if (-not (Invoke-Hidden 'npm-install' 'npm install' 900)) {
-      Stop-WithError "Installing dependencies failed. See:`n$LogDir\npm-install.err.log"
-    }
+# Installs packages when package-lock.json differs from the one last installed.
+function Update-Packages {
+  $lock = Join-Path $Root 'package-lock.json'
+  $marker = Join-Path $Root 'data\.installed-lock'
+  $hash = if (Test-Path $lock) { (Get-FileHash $lock -Algorithm SHA256).Hash } else { '' }
+  $installed = if (Test-Path $marker) { (Get-Content $marker -Raw).Trim() } else { $null }
+  $hasModules = Test-Path (Join-Path $Root 'node_modules')
+  # The first time on an existing install, what's there counts as installed.
+  if ($hasModules -and $null -eq $installed) { Set-Content -Path $marker -Value $hash -Encoding ASCII; return }
+  if ($hasModules -and $installed -eq $hash) { return }
+  Set-Status 'Installing dependencies...'
+  if (-not (Invoke-Hidden 'npm-install' 'npm install' 900)) {
+    Stop-WithError "Installing dependencies failed. See:`n$LogDir\npm-install.err.log"
   }
-  Set-Status 'Building the new version (a minute or two)...'
-  if (-not (Invoke-Hidden 'build' 'npm run build' 900)) {
+  Set-Content -Path $marker -Value $hash -Encoding ASCII
+}
+
+# Rebuilds the API and/or the web app when their sources changed since they
+# were built (scripts/build.mjs keeps a hash of each); the two build at once.
+function Update-Build {
+  Update-Packages
+  $buildScript = Join-Path $Root 'scripts\build.mjs'
+  if (Invoke-Hidden 'build-check' "`"$Node`" `"$buildScript`" --check" 60) { return }
+  Set-Status 'Building the new version (about 20 seconds)...'
+  if (-not (Invoke-Hidden 'build' "`"$Node`" `"$buildScript`" --fast" 900)) {
     Stop-WithError "Build failed. See:`n$LogDir\build.log"
   }
-  if ($head) { Set-Content -Path $BuiltMarker -Value $head -Encoding ASCII }
 }
 
 function Start-NodeServer([string]$name, [string]$workDir, [string[]]$arguments) {
@@ -170,12 +191,16 @@ function Start-NodeServer([string]$name, [string]$workDir, [string[]]$arguments)
 # Windows 11 "Efficiency mode" (EcoQoS) plus below-normal priority. On hybrid Intel
 # CPUs (e.g. Core Ultra P/E/LP-E cores) the scheduler then keeps these background
 # servers on efficiency cores, leaving performance cores to the UI and other apps.
-Add-Type -Namespace OpenTerminal -Name Power -MemberDefinition @'
+# Compiled on first use (about a third of a second), after the window is open.
+function Initialize-PowerApi {
+  if ('OpenTerminal.Power' -as [type]) { return }
+  Add-Type -Namespace OpenTerminal -Name Power -MemberDefinition @'
 [StructLayout(LayoutKind.Sequential)]
 public struct PROCESS_POWER_THROTTLING_STATE { public uint Version; public uint ControlMask; public uint StateMask; }
 [DllImport("kernel32.dll", SetLastError = true)]
 public static extern bool SetProcessInformation(IntPtr hProcess, int infoClass, ref PROCESS_POWER_THROTTLING_STATE info, uint size);
 '@
+}
 
 function Set-EfficiencyMode([int]$processId) {
   try {
@@ -194,6 +219,7 @@ function Set-EfficiencyMode([int]$processId) {
 
 # Applies efficiency mode to the given processes and any node children they spawned.
 function Set-ServersEfficient([int[]]$ids) {
+  try { Initialize-PowerApi } catch { return }
   $all = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'")
   $targets = @($ids) + @($all | Where-Object { $ids -contains $_.ParentProcessId } | ForEach-Object { [int]$_.ProcessId })
   foreach ($id in ($targets | Select-Object -Unique)) { Set-EfficiencyMode $id }
@@ -202,6 +228,7 @@ function Set-ServersEfficient([int[]]$ids) {
 # ------------------------------------------------------------------- main ---
 
 New-Item -ItemType Directory -Force -Path $LogDir, $ProfileDir | Out-Null
+Set-Content -Path (Join-Path $LogDir 'launcher.log') -Value ("started {0:yyyy-MM-dd HH:mm:ss}" -f (Get-Date))
 $Splash = $null
 
 $Node = (Get-Command node -ErrorAction SilentlyContinue).Source
@@ -212,14 +239,16 @@ if (-not $Browser) { Stop-WithError 'Microsoft Edge or Google Chrome is required
 # Servers this launcher started itself; ones that were already running (for
 # example `npm run dev` in a terminal) are reused and left alone on exit.
 $started = @()
+$fetch = $null
 try {
   $alreadyRunning = (Test-Port $ApiPort) -and (Test-Port $WebPort)
   if (-not $alreadyRunning) {
     $Splash = New-Splash
     $Splash.Show()
 
-    Update-FromGitHub
+    $fetch = Start-UpdateCheck
     Update-Build
+    Write-Timing 'build up to date'
 
     $NextBin = @((Join-Path $Root 'node_modules\next\dist\bin\next'), (Join-Path $Root 'web\node_modules\next\dist\bin\next')) |
       Where-Object { Test-Path $_ } | Select-Object -First 1
@@ -232,21 +261,16 @@ try {
     if (-not (Test-Port $WebPort)) {
       $started += Start-NodeServer 'web' (Join-Path $Root 'web') @("`"$NextBin`"", 'start', '-H', '127.0.0.1', '-p', "$WebPort")
     }
-
-    $deadline = (Get-Date).AddSeconds(90)
-    while (-not ((Test-Port $ApiPort) -and (Test-Port $WebPort))) {
-      [System.Windows.Forms.Application]::DoEvents()
-      if (($started | Where-Object { $_.HasExited }) -or (Get-Date) -gt $deadline) {
-        Stop-WithError "OpenTerminal failed to start. See the logs in:`n$LogDir"
-      }
-      Start-Sleep -Milliseconds 250
-    }
-    $Splash.Close()
-    if ($started.Count -gt 0) { Set-ServersEfficient @($started | ForEach-Object { $_.Id }) }
   }
 
+  # The window opens now, on a page that moves to the app as soon as it
+  # answers, so the browser starts up while the servers do.
+  $windowUrl = $AppUrl
+  if ($started.Count -gt 0 -and (Test-Path $LoadingPage)) {
+    $windowUrl = ([System.Uri]$LoadingPage).AbsoluteUri + '#' + [System.Uri]::EscapeDataString($AppUrl)
+  }
   Start-Process -FilePath $Browser -ArgumentList @(
-    "--app=$AppUrl",
+    "--app=$windowUrl",
     "--user-data-dir=`"$ProfileDir`"",
     '--no-first-run',
     '--no-default-browser-check',
@@ -256,6 +280,22 @@ try {
     '--disable-extensions',
     '--window-size=1600,950'
   ) | Out-Null
+  Write-Timing 'window opened'
+
+  if ($started.Count -gt 0) {
+    $deadline = (Get-Date).AddSeconds(90)
+    while (-not ((Test-Port $ApiPort) -and (Test-Port $WebPort))) {
+      [System.Windows.Forms.Application]::DoEvents()
+      if (($started | Where-Object { $_.HasExited }) -or (Get-Date) -gt $deadline) {
+        Stop-WithError "OpenTerminal failed to start. See the logs in:`n$LogDir"
+      }
+      Start-Sleep -Milliseconds 100
+    }
+  }
+  Write-Timing 'servers listening'
+  if ($Splash) { $Splash.Close() }
+  if ($started.Count -gt 0) { Set-ServersEfficient @($started | ForEach-Object { $_.Id }) }
+  Complete-Update $fetch
 
   # Wait for the app window to appear, then until every window is closed.
   $appeared = (Get-Date).AddSeconds(20)
