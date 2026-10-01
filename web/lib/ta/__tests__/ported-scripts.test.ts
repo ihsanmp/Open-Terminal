@@ -269,33 +269,75 @@ describe("Whale & Institution Alerts", () => {
   const day = 86_400;
   const start = Date.UTC(2026, 0, 1) / 1000;
   const chart = barsOf(Array.from({ length: 30 }, (_, i) => flat(80_000 + i)), day, start);
-  const tx = (k: number, hours: number, btc: number) => ({ txid: `t${k}`, time: start + k * day + hours * 3600, height: 900_000 + k, btc });
-  const data = {
-    whales: { height: 900_020, txs: [tx(3, 5, 2_500), tx(3, 9, 1_200), tx(5, 1, 400), tx(40, 0, 9_000)] },
-    treasuries: [
-      { company: "Strategy", ticker: "MSTR", time: start + 10 * day, from: start + 4 * day, btc: 1_665, usd: 142.7e6, avgPrice: 85_681, holdings: 847_666, url: "u" },
-      { company: "Strategy", ticker: "MSTR", time: start + 20 * day, btc: -1_690, usd: 108.6e6, avgPrice: 64_262, holdings: 840_447, url: "u" },
-    ],
-  };
+  const btc = { symbol: "BTC-USD", ticker: "BTCUSDT", type: "crypto" as const, timezone: "Etc/UTC", intervalSeconds: day };
+  const trade = (ticker: string, asset: string, k: number, amount: number, usd: number | null) => ({
+    company: ticker === "MSTR" ? "Strategy" : "BitMine",
+    ticker,
+    asset,
+    time: start + k * day,
+    amount,
+    usd,
+    avgPrice: null,
+    holdings: null,
+    url: "u",
+  });
+  const tx = (k: number, hours: number, amount: number) => ({ txid: `t${k}`, time: start + k * day + hours * 3600, height: 900_000 + k, btc: amount });
+  const params = () => defaultParams(INDICATOR_BY_ID.get("whale-alerts")!);
 
-  it("labels whales per bar above the minimum and company buys and sells", async () => {
+  it("asks for the chart's own coin, or a stock's insider filings", () => {
+    const def = INDICATOR_BY_ID.get("whale-alerts")!;
+    expect(def.fetches!(params(), btc)).toEqual(["/api/onchain/whales/BTC"]);
+    expect(def.fetches!(params(), { ...btc, symbol: "ETH-USD", ticker: "ETHUSDT" })).toEqual(["/api/onchain/whales/ETH"]);
+    expect(def.fetches!(params(), { ...btc, symbol: "AAPL", ticker: "AAPL", type: "stock" })).toEqual(["/api/insider/AAPL"]);
+    expect(def.fetches!(params(), { ...btc, symbol: "EURUSD=X", ticker: "EURUSD", type: "forex" })).toEqual([]);
+  });
+
+  it("labels on-chain whales per bar above the minimum and treasury companies' trades", async () => {
     const { whaleAlertsCompute } = await import("../indicators/whale-alerts");
-    const params = defaultParams(INDICATOR_BY_ID.get("whale-alerts")!);
-    const r = whaleAlertsCompute(chart, params, data);
-    const labels = r.labels!.map((l) => [l.index, l.text, l.style]);
+    const data = {
+      asset: "BTC",
+      whales: { height: 900_020, txs: [tx(3, 5, 2_500), tx(3, 9, 1_200), tx(5, 1, 400), tx(40, 0, 9_000)] },
+      treasuries: [trade("MSTR", "BTC", 10, 1_665, 142.7e6), trade("MSTR", "BTC", 20, -1_690, 108.6e6)],
+    };
+    const r = whaleAlertsCompute(chart, params(), data, btc);
     // Two transfers on day 3 are summed; 400 BTC is under the 1,000 minimum; day 40 is off the chart.
-    expect(labels).toEqual([
+    expect(r.labels!.map((l) => [l.index, l.text, l.style])).toEqual([
       [3, "🐋 2× 3,700 BTC", "down"],
       [10, "MSTR +1,665 BTC", "up"],
       [20, "MSTR −1,690 BTC", "down"],
     ]);
     expect(r.labels![0].price).toBe(chart.high[3]);
     const cells = r.table!.cells.map((c) => c.text);
-    expect(cells.slice(1, 5)).toEqual(["2026-01-21", "Strategy sold", "−1,690 BTC", "$108.6M"]);
+    expect(cells.slice(1, 5)).toEqual(["2026-01-21", "🏦 Strategy sold", "−1,690 BTC", "$108.6M"]);
   });
 
-  it("waits for the data", async () => {
+  it("follows the pair: ETH treasuries on an ETH chart, volume whales on any", async () => {
     const { whaleAlertsCompute } = await import("../indicators/whale-alerts");
-    expect(whaleAlertsCompute(AAPL, {}, null)).toEqual({ plots: {} });
+    const rows = Array.from({ length: 30 }, (_, i): [number, number, number, number, number] => [2_000, 2_010, 1_990, 2_000, i === 25 ? 10 : 1]);
+    const eth = { ...btc, symbol: "ETH-USD", ticker: "ETHUSDT" };
+    const r = whaleAlertsCompute(barsOf(rows, day, start), { ...params(), volLen: 10 }, { asset: "ETH", whales: null, treasuries: [trade("BMNR", "ETH", 12, 17_362, null)] }, eth);
+    expect(r.labels!.map((l) => [l.index, l.text])).toEqual([
+      [25, "🐋 10.0×"],
+      [12, "BMNR +17,362 ETH"],
+    ]);
+  });
+
+  it("shows stock insiders' and 10 % owners' open-market trades above the minimum", async () => {
+    const { whaleAlertsCompute } = await import("../indicators/whale-alerts");
+    const insider = (code: string, value: number, owner = "BERKSHIRE HATHAWAY INC", ten = true) => ({
+      transactionDate: "2026-01-11",
+      ownerName: owner,
+      isTenPercentOwner: ten,
+      transactionCode: code,
+      shares: 1_000,
+      value,
+    });
+    // Two lots of one day's sale are one alert; a lone $0.5M sale is under the $1M minimum.
+    const data = [insider("P", 5e6), insider("A", 9e6), insider("S", 0.5e6), insider("S", 1.2e6, "Cook Timothy", false), insider("S", 0.8e6, "Cook Timothy", false)];
+    const r = whaleAlertsCompute(chart, params(), data, { ...btc, symbol: "AAPL", ticker: "AAPL", type: "stock" });
+    expect(r.labels!.map((l) => [l.index, l.text, l.style])).toEqual([
+      [10, "🏦 BERKSHIRE HATHAWA… +$5.0M", "up"],
+      [10, "👤 Cook Timothy −$2.0M", "down"],
+    ]);
   });
 });

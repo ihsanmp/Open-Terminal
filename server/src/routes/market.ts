@@ -14,7 +14,7 @@ import * as finra from "../providers/finra.js";
 import * as secedgar from "../providers/secedgar.js";
 import * as onchain from "../providers/onchain.js";
 import * as supplypl from "../providers/supplypl.js";
-import * as btctreasury from "../providers/btctreasury.js";
+import * as treasuries from "../providers/treasuries.js";
 import * as whales from "../providers/whales.js";
 import * as tvchart from "../providers/tvchart.js";
 import * as newsfeeds from "../providers/newsfeeds.js";
@@ -577,12 +577,17 @@ marketRouter.get("/onchain/btc-supply-mvrv", async (req, res) => {
   }
 });
 
-// Large BTC transfers (mempool.space) and companies' reported BTC buys and sells (SEC 8-Ks), for
-// the "Whale & Institution Alerts" indicator. Both answer from disk at once and read new blocks
-// and filings in the background.
-marketRouter.get("/onchain/btc-whales", (req, res) => {
+// Whale & institution alerts for one coin: large on-chain transfers (BTC, from mempool.space) and
+// what treasury companies report buying or selling (SEC 8-Ks). Both answer from disk at once and
+// read new blocks and filings in the background.
+marketRouter.get("/onchain/whales/:asset", (req, res) => {
+  const asset = req.params.asset.toUpperCase();
   try {
-    res.json({ whales: whales.btcWhales(), treasuries: btctreasury.treasuryTrades() });
+    res.json({
+      asset,
+      whales: asset === "BTC" ? whales.btcWhales() : null,
+      treasuries: treasuries.treasuryTrades().filter((t) => t.asset === asset),
+    });
   } catch (err) {
     fail(req, res, err);
   }

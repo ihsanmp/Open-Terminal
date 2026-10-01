@@ -18,4 +18,4 @@ data/.built-commit
 data/btc-heights.json
 data/btc-supply-pl.json
 data/btc-whales.json
-data/btc-treasuries.json
+data/crypto-treasuries.json
