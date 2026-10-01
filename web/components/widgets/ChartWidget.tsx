@@ -21,7 +21,7 @@ import {
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { apiGet, fmt, fmtBig, fmtPrice, type Candle } from "../../lib/api";
+import { apiGet, apiGetWithStale, fmt, fmtBig, fmtPrice, type Candle } from "../../lib/api";
 import {
   INDICATOR_BY_ID,
   candlesToBars,
@@ -221,12 +221,14 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     return live ? 120_000 : 900_000;
   });
 
-  const { data: candles, error } = useQuery({
+  const { data: history, error } = useQuery({
     queryKey: ["history", symbol, range, interval],
-    queryFn: () => apiGet<Candle[]>(`/api/history/${symbol}?range=${range}&interval=${interval}`),
-    // Intraday bars move; daily-and-longer bars only change at the last candle.
-    refetchInterval: poll,
+    queryFn: () => apiGetWithStale<Candle[]>(`/api/history/${symbol}?range=${range}&interval=${interval}`),
+    // Intraday bars move; daily-and-longer bars only change at the last candle. Right after a
+    // launch the API answers from its disk cache and marks it stale: ask again shortly.
+    refetchInterval: (q) => (q.state.data?.stale ? 2_500 : poll()),
   });
+  const candles = history?.data;
 
   const bars = useMemo(() => (candles && candles.length > 0 ? candlesToBars(candles) : null), [candles]);
 

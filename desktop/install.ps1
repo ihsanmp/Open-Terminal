@@ -20,8 +20,8 @@ if (-not $SkipBuild) {
     & npm.cmd install
     if ($LASTEXITCODE -ne 0) { throw 'npm install failed' }
   }
-  Write-Host '==> Building (this can take a few minutes)'
-  & npm.cmd run build
+  Write-Host '==> Building (about 20 seconds)'
+  & node (Join-Path $Root 'scripts/build.mjs') --fast
   if ($LASTEXITCODE -ne 0) { throw 'build failed' }
 }
 

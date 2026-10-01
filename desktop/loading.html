@@ -1,0 +1,86 @@
+<!doctype html>
+<!--
+  Shown in the app window while the servers start, so the window opens at once instead of after
+  them. The launcher opens it as loading.html#<app url>; it moves on as soon as the app answers.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>OpenTerminal</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0c0c0c;
+        color: #969696;
+        font: 13px Consolas, "Courier New", monospace;
+      }
+      main {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+      }
+      h1 {
+        margin: 0;
+        color: #ff9900;
+        font-size: 24px;
+        letter-spacing: 1px;
+      }
+      .bar {
+        width: 220px;
+        height: 2px;
+        background: #262626;
+        overflow: hidden;
+      }
+      .bar::after {
+        content: "";
+        display: block;
+        width: 40%;
+        height: 100%;
+        background: #ff9900;
+        animation: slide 1s ease-in-out infinite alternate;
+      }
+      @keyframes slide {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(250%);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .bar::after {
+          animation: none;
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>OPENTERMINAL</h1>
+      <div class="bar"></div>
+      <div id="status">Starting…</div>
+    </main>
+    <script>
+      const target = decodeURIComponent(location.hash.slice(1)) || "http://127.0.0.1:3000";
+      const started = Date.now();
+      // An opaque (no-cors) response is enough to know the web server is up.
+      async function poll() {
+        try {
+          await fetch(target, { mode: "no-cors", cache: "no-store" });
+          location.replace(target);
+          return;
+        } catch {
+          if (Date.now() - started > 15000) document.getElementById("status").textContent = "Still starting… (see data\\logs if this takes long)";
+        }
+        setTimeout(poll, 100);
+      }
+      poll();
+    </script>
+  </body>
+</html>

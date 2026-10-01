@@ -29,10 +29,11 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
   });
 
   const body = upstream.status === 204 ? null : await upstream.arrayBuffer();
-  return new NextResponse(body, {
-    status: upstream.status,
-    headers: { "content-type": upstream.headers.get("content-type") ?? "application/json" },
-  });
+  const out = new Headers({ "content-type": upstream.headers.get("content-type") ?? "application/json" });
+  // A saved copy from the API's disk cache, served while it fetches a fresh one.
+  const stale = upstream.headers.get("x-stale");
+  if (stale) out.set("x-stale", stale);
+  return new NextResponse(body, { status: upstream.status, headers: out });
 }
 
 type RouteContext = { params: Promise<{ path: string[] }> };
