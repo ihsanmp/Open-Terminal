@@ -112,7 +112,12 @@ export const averages: IndicatorDef[] = [
       const out = ta.fill(bars.length);
       for (let i = 0; i < bars.length; i++) {
         const prev = i > 0 ? out[i - 1] : NaN;
-        out[i] = ta.isNa(prev) ? e[i] : prev + (x[i] - prev) / (len * Math.pow(x[i] / prev, 4));
+        // TradingView's formula, with one guard: once price is more than twice (or under half) the
+        // line, (price / line)⁴ makes each step vanish and the line never catches up again — as
+        // after bitcoin's early rallies, where it froze at ~21 with price at 83,000. It restarts
+        // from the EMA instead; ordinary moves never get that far from it.
+        const ratio = x[i] / prev;
+        out[i] = ta.isNa(prev) || !(ratio > 0.5 && ratio < 2) ? e[i] : prev + (x[i] - prev) / (len * Math.pow(ratio, 4));
       }
       return { plots: { ma: out } };
     },

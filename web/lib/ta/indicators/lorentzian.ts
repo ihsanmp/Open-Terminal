@@ -379,11 +379,11 @@ export function lorentzianClassification(bars: Bars, p: Params): IndicatorResult
       cells: [
         cell(0, 0, "📈 Trade Stats"),
         cell(0, 1, "Winrate"),
-        cell(1, 1, st.trades ? `${formatPattern((st.wins / st.trades) * 100, "#.#")}%` : "NaN"),
+        cell(1, 1, st.trades ? `${formatPattern((st.wins / st.trades) * 100, "#.#")}%` : "—"),
         cell(0, 2, "Trades"),
         cell(1, 2, `${st.trades} (${st.wins}|${st.losses})`),
         cell(0, 5, "WL Ratio"),
-        cell(1, 5, st.losses ? (st.wins / st.losses).toFixed(2) : "NaN"),
+        cell(1, 5, st.losses ? (st.wins / st.losses).toFixed(2) : "—"),
         cell(0, 6, "Early Signal Flips"),
         cell(1, 6, String(st.earlyFlips)),
       ],

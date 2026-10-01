@@ -390,6 +390,8 @@ export function volumeProfileFixedRange(bars: Bars, p: Params): IndicatorResult 
   }
   const totals = Array.from({ length: cnum }, (_, x) => volumes[x] + volumes[x + cnum]);
   const maxvol = Math.max(...totals);
+  // A flat range or bars without volume have no profile to draw.
+  if (!(top > bot) || !(maxvol > 0)) return { plots: {} };
   const poc = totals.indexOf(maxvol);
   const totalmax = (totals.reduce((a, v) => a + v, 0) * n(p, "percent")) / 100;
   let vaTotal = totals[poc];

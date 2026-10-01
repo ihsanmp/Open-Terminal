@@ -328,7 +328,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         const offset = c.result.offsets?.[key] ?? 0;
         const colors = c.result.colors?.[key];
         plots[key] = {
-          values: shifted(values, offset, total, NaN),
+          // ±Infinity (an overflow at extreme settings) would break the chart's series; draw a gap.
+          values: shifted(values.map((v) => (v === Infinity || v === -Infinity ? NaN : v)), offset, total, NaN),
           colors: colors ? shifted<Color>(colors, offset, total, undefined) : undefined,
         };
       }

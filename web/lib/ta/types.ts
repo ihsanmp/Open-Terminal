@@ -259,8 +259,8 @@ export type IndicatorInstance = {
 export const int = (key: string, label: string, def: number, min = 1, max = 5000): InputDef => ({
   key, label, type: "int", default: def, min, max, step: 1,
 });
-export const float = (key: string, label: string, def: number, step = 0.1, min = -1e9): InputDef => ({
-  key, label, type: "float", default: def, step, min,
+export const float = (key: string, label: string, def: number, step = 0.1, min = -1e9, max?: number): InputDef => ({
+  key, label, type: "float", default: def, step, min, ...(max !== undefined ? { max } : {}),
 });
 export const src = (def = "close", key = "source", label = "Source"): InputDef => ({ key, label, type: "source", default: def });
 export const select = (key: string, label: string, options: readonly string[], def: string): InputDef => ({
