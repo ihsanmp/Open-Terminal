@@ -9,14 +9,17 @@ const TEXT_PX: Record<DrawSize, number> = { tiny: 9, small: 11, normal: 13, larg
 /** A Pine table.new() drawn over the price pane. Cells that were never set take no space,
  *  as in Pine, so the grid is filled with zero-width placeholders. */
 /** `paneBottom`: where the price pane ends when indicator panes sit below it — overlay
- *  tables stay inside the price pane, as with Pine's force_overlay. */
+ *  tables stay inside the price pane, as with Pine's force_overlay. A separate-pane indicator's
+ *  table sits in its own pane, from `paneTop` to `paneBottom`. */
 export function IndicatorTableView({
   table,
   inset,
+  paneTop = 0,
   paneBottom,
 }: {
   table: IndicatorTable;
   inset: { right: number; bottom: number };
+  paneTop?: number;
   paneBottom?: number;
 }) {
   const cols = Math.max(1, ...table.cells.map((c) => c.col + (c.colSpan ?? 1)));
@@ -26,7 +29,7 @@ export function IndicatorTableView({
 
   // Under the legend (z-10), so indicator titles and their buttons stay reachable, as on TradingView.
   const place: CSSProperties = { position: "absolute", zIndex: 5 };
-  if (table.position.startsWith("top")) place.top = 4;
+  if (table.position.startsWith("top")) place.top = paneTop + 4;
   else if (paneBottom !== undefined) {
     place.top = paneBottom - 4;
     place.transform = "translateY(-100%)";

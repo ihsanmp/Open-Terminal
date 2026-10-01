@@ -13,6 +13,9 @@ import * as econcalendar from "../providers/econcalendar.js";
 import * as finra from "../providers/finra.js";
 import * as secedgar from "../providers/secedgar.js";
 import * as onchain from "../providers/onchain.js";
+import * as supplypl from "../providers/supplypl.js";
+import * as btctreasury from "../providers/btctreasury.js";
+import * as whales from "../providers/whales.js";
 import * as tvchart from "../providers/tvchart.js";
 import * as newsfeeds from "../providers/newsfeeds.js";
 import { cryptoBase, cryptoTicker, isIndex, isYahooOnly } from "../symbols.js";
@@ -559,6 +562,27 @@ marketRouter.get("/crypto/global", async (req, res) => {
 marketRouter.get("/onchain/btc-daily", async (req, res) => {
   try {
     res.json(await cached("onchain:btc-daily", 10 * 60_000, () => onchain.btcDaily()));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// Daily BTC supply in profit/loss (BGeometrics, cached on disk) and MVRV (Coin Metrics), for the
+// "BTC Spl-P/L & MVRV RoC" indicator. Both update once a day.
+marketRouter.get("/onchain/btc-supply-mvrv", async (req, res) => {
+  try {
+    res.json(await cached("onchain:btc-supply-mvrv", 30 * 60_000, () => supplypl.btcSupplyMvrv()));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// Large BTC transfers (mempool.space) and companies' reported BTC buys and sells (SEC 8-Ks), for
+// the "Whale & Institution Alerts" indicator. Both answer from disk at once and read new blocks
+// and filings in the background.
+marketRouter.get("/onchain/btc-whales", (req, res) => {
+  try {
+    res.json({ whales: whales.btcWhales(), treasuries: btctreasury.treasuryTrades() });
   } catch (err) {
     fail(req, res, err);
   }

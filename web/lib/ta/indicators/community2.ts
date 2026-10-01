@@ -7,6 +7,7 @@
 // - Supertrend                                (© KivancOzbulgen, Pine v4)
 // - UT Bot Alerts                             (open-source TradingView script, Pine v4)
 // - Volume Profile / Fixed Range              (© LonesomeTheBlue, MPL-2.0, Pine v5)
+// - Bollinger Bands Percentile + Stdev Channels (BBPct) (© Algoalpha X © Sushiboi77, MPL-2.0, Pine v5)
 
 import * as ta from "../core";
 import { type Bars, type Series } from "../core";
@@ -429,4 +430,91 @@ export function volumeProfileFixedRange(bars: Bars, p: Params): IndicatorResult 
     });
   }
   return { plots: {}, boxes, lines, labels };
+}
+
+// =====================================================================================
+// Bollinger Bands Percentile + Stdev Channels (BBPct) [AlgoAlpha] (© Algoalpha X © Sushiboi77, MPL-2.0)
+// =====================================================================================
+
+community2.push({
+  id: "algoalpha-bbpct",
+  name: "Bollinger Bands Percentile + Stdev Channels (BBPct) [AlgoAlpha]",
+  short: "◭ BBPCT% [AlgoAlpha]",
+  category: "Community",
+  overlay: false,
+  aliases: ["BBPct", "Bollinger Bands Percent", "AlgoAlpha"],
+  legendInputs: ["length", "source", "mult"],
+  inputs: [
+    bool("neon", "Neon Color Theme", true),
+    int("length", "Length", 20, 1),
+    src("close"),
+    float("mult", "Multiplier", 2, 0.1, 0.001),
+    bool("showStdev", "Show Bollinger Band Stdev %", false),
+  ],
+  plots: [
+    { key: "z", title: "Z", color: "#00ffbb" },
+    { key: "stdev", title: "Stdev %", color: "#26A69A", style: "histogram" },
+    { key: "obUpper", title: "OB upper", color: "#ff1100", display: "none" },
+    { key: "obLower", title: "OB lower", color: "#ff1100", display: "none" },
+    { key: "obMid", title: "OB mid", color: "#ff1100", display: "none" },
+    { key: "osUpper", title: "OS upper", color: "#00ffbb", display: "none" },
+    { key: "osLower", title: "OS lower", color: "#00ffbb", display: "none" },
+    { key: "osMid", title: "OS mid", color: "#00ffbb", display: "none" },
+    { key: "mid", title: "Mid", color: "#787B86", display: "none" },
+  ],
+  compute: (bars, p) => bbpct(bars, p),
+});
+
+export function bbpct(bars: Bars, p: Params): IndicatorResult {
+  const len = bars.length;
+  const x = ta.source(bars, s(p, "source"));
+  const length = n(p, "length");
+  const basis = ta.sma(x, length);
+  const sd = ta.stdev(x, length);
+  const dev = sd.map((v) => n(p, "mult") * v);
+  const z = x.map((v, i) => (100 * (v - (basis[i] - dev[i]))) / (2 * dev[i]));
+  const hist = dev.map((d, i) => (100 * d) / bars.close[i]);
+  const bull = b(p, "neon") ? "#00ffbb" : "#00b712";
+  const bear = b(p, "neon") ? "#ff1100" : "#c30010";
+  const level = (v: number) => new Array<number>(len).fill(v);
+  // The script's "Symmetrical Standard Deviation Channels" (close within ±5 % of itself) are
+  // always true for a positive price, so the arrows fire on the BBPct crosses alone.
+  const close = bars.close;
+  const stdL = close.map((c) => c > c - 0.05 * c);
+  const stdS = close.map((c) => c < c + 0.05 * c);
+  const markers: Marker[] = [];
+  const lo = level(-8);
+  const hi = level(108);
+  for (let i = 1; i < len; i++) {
+    if (ta.crossover(z, lo, i) && stdL[i]) markers.push({ index: i, position: "belowBar", shape: "arrowUp", color: bull });
+    if (ta.crossunder(z, hi, i) && stdS[i]) markers.push({ index: i, position: "aboveBar", shape: "arrowDown", color: bear });
+  }
+  const plots: Record<string, Series> = {
+    z,
+    obUpper: level(130),
+    obLower: level(110),
+    obMid: level(95),
+    osUpper: level(-10),
+    osLower: level(-30),
+    osMid: level(5),
+    mid: level(50),
+  };
+  if (b(p, "showStdev")) plots.stdev = hist;
+  return {
+    plots,
+    colors: {
+      z: z.map((v) => (v > 50 ? bull : bear)),
+      stdev: hist.map((v, i) => (i > 0 && hist[i - 1] < v ? "#26A69A" : "#B2DFDB")),
+    },
+    hlines: [{ price: 50, color: "#787B86", dashed: true }],
+    fills: [
+      // A vertical gradient in Pine, from the line's color at the oscillator to clear at 50.
+      { a: "z", b: "mid", color: z.map((v) => (Number.isFinite(v) ? colorNew(v > 50 ? bull : bear, 50) : undefined)) },
+      { a: "obUpper", b: "obLower", color: colorNew(bear, 80) },
+      { a: "obLower", b: "obMid", color: colorNew(bear, 87) },
+      { a: "osUpper", b: "osLower", color: colorNew(bull, 87) },
+      { a: "osUpper", b: "osMid", color: colorNew(bull, 93) },
+    ],
+    markers,
+  };
 }
