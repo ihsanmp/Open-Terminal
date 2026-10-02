@@ -48,7 +48,26 @@ export type LayoutItem = { i: string; x: number; y: number; w: number; h: number
 /** What the main area shows: one feature full-page, or the free-form widget workspace. */
 export type View = WidgetType | "workspace";
 
+/**
+ * One tab of the app, like a browser tab: its own symbol, page and workspace. The watchlist
+ * and the starred intervals are shared by all tabs.
+ */
+export type TabData = {
+  id: string;
+  /** A name the user gave it; otherwise the tab shows its symbol and page. */
+  title?: string;
+  activeSymbol: string;
+  view: View;
+  pages: WidgetInstance[];
+  widgets: WidgetInstance[];
+  layout: LayoutItem[];
+};
+
 type TerminalState = {
+  /** Every open tab, in tab-bar order (saved; the fields below mirror the active one). */
+  tabs: TabData[];
+  /** The tab this window shows. Each window has its own, so tabs can be watched side by side. */
+  activeTab: string;
   activeSymbol: string;
   view: View;
   /** The widget behind each full-page view (its own settings, apart from the workspace's). */
@@ -74,6 +93,12 @@ type TerminalState = {
   addToWatchlist: (s: string) => void;
   removeFromWatchlist: (s: string) => void;
   resetWorkspace: () => void;
+  /** Opens a copy of the current tab next to it (switching to it unless `stay`); returns its id. */
+  duplicateTab: (stay?: boolean) => string;
+  switchTab: (id: string) => void;
+  closeTab: (id: string) => void;
+  renameTab: (id: string, title: string) => void;
+  moveTab: (id: string, toIndex: number) => void;
 };
 
 const DEFAULT_WIDGETS: WidgetInstance[] = [
@@ -124,14 +149,47 @@ function newPage(st: TerminalState, type: WidgetType): WidgetInstance {
   return { ...like, id: `page-${type}`, type, symbol: undefined, linked: true };
 }
 
+const TAB_KEYS = ["activeSymbol", "view", "pages", "widgets", "layout"] as const;
+const pickTab = (st: Pick<TabData, (typeof TAB_KEYS)[number]>) => ({
+  activeSymbol: st.activeSymbol,
+  view: st.view,
+  pages: st.pages,
+  widgets: st.widgets,
+  layout: st.layout,
+});
+
+const DEFAULT_TAB: TabData = { id: "t1", activeSymbol: "AAPL", view: "chart", pages: [], widgets: DEFAULT_WIDGETS, layout: DEFAULT_LAYOUT };
+
+// The tab a window opens on: the one named in its address (?tab=…, a window opened from a tab),
+// or the one it showed before a reload.
+const TAB_SESSION_KEY = "openterminal-tab";
+const windowTab = (() => {
+  if (typeof window === "undefined") return null;
+  try {
+    return new URLSearchParams(window.location.search).get("tab") ?? window.sessionStorage.getItem(TAB_SESSION_KEY);
+  } catch {
+    return null;
+  }
+})();
+
+function rememberWindowTab(id: string) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(TAB_SESSION_KEY, id);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", id);
+    window.history.replaceState(null, "", url);
+  } catch {
+    // the tab is still switched; only a reload forgets it
+  }
+}
+
 export const useTerminal = create<TerminalState>()(
   persist(
-    (set) => ({
-      activeSymbol: "AAPL",
-      view: "chart",
-      pages: [],
-      widgets: DEFAULT_WIDGETS,
-      layout: DEFAULT_LAYOUT,
+    (set, get) => ({
+      tabs: [DEFAULT_TAB],
+      activeTab: windowTab ?? DEFAULT_TAB.id,
+      ...pickTab(DEFAULT_TAB),
       watchlist: ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL", "META", "SPY"],
       favoriteIntervals: [],
       commandOpen: false,
@@ -171,10 +229,101 @@ export const useTerminal = create<TerminalState>()(
             : [...st.favoriteIntervals, interval],
         })),
       resetWorkspace: () => set({ widgets: DEFAULT_WIDGETS, layout: DEFAULT_LAYOUT }),
+      duplicateTab: (stay = false) => {
+        const st = get();
+        const id = `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+        const current = st.tabs.find((tab) => tab.id === st.activeTab);
+        const copy: TabData = { ...structuredClone(pickTab(st)), id, title: current?.title ? `${current.title} (2)` : undefined };
+        const at = st.tabs.findIndex((tab) => tab.id === st.activeTab);
+        const tabs = [...st.tabs];
+        tabs.splice(at + 1, 0, copy);
+        if (stay) {
+          set({ tabs });
+          return id;
+        }
+        set({ tabs, activeTab: id });
+        rememberWindowTab(id);
+        return id;
+      },
+      switchTab: (id) => {
+        const tab = get().tabs.find((t) => t.id === id);
+        if (!tab) return;
+        set({ activeTab: id, ...pickTab(tab) });
+        rememberWindowTab(id);
+      },
+      closeTab: (id) => {
+        const st = get();
+        if (st.tabs.length <= 1) return;
+        const at = st.tabs.findIndex((t) => t.id === id);
+        const tabs = st.tabs.filter((t) => t.id !== id);
+        if (st.activeTab !== id) return set({ tabs });
+        const next = tabs[Math.min(at, tabs.length - 1)];
+        set({ tabs, activeTab: next.id, ...pickTab(next) });
+        rememberWindowTab(next.id);
+      },
+      renameTab: (id, title) => set((st) => ({ tabs: st.tabs.map((t) => (t.id === id ? { ...t, title: title.trim() || undefined } : t)) })),
+      moveTab: (id, toIndex) =>
+        set((st) => {
+          const from = st.tabs.findIndex((t) => t.id === id);
+          if (from < 0) return {};
+          const tabs = [...st.tabs];
+          const [tab] = tabs.splice(from, 1);
+          tabs.splice(Math.max(0, Math.min(toIndex, tabs.length)), 0, tab);
+          return { tabs };
+        }),
     }),
-    { name: "openterminal-workspace" }
+    {
+      name: "openterminal-workspace",
+      // v1: tabs. The window's own tab and the transient UI aren't saved.
+      version: 1,
+      partialize: (st) => ({ tabs: st.tabs, watchlist: st.watchlist, favoriteIntervals: st.favoriteIntervals }),
+      migrate: (saved, version) => {
+        if (version >= 1) return saved as TerminalState;
+        // v0 kept one workspace at the top level: it becomes the first tab.
+        const old = (saved ?? {}) as Partial<TabData> & { watchlist?: string[]; favoriteIntervals?: string[] };
+        const tab: TabData = {
+          id: DEFAULT_TAB.id,
+          activeSymbol: old.activeSymbol ?? DEFAULT_TAB.activeSymbol,
+          view: old.view ?? DEFAULT_TAB.view,
+          pages: old.pages ?? [],
+          widgets: old.widgets ?? DEFAULT_WIDGETS,
+          layout: old.layout ?? DEFAULT_LAYOUT,
+        };
+        return { tabs: [tab], watchlist: old.watchlist, favoriteIntervals: old.favoriteIntervals ?? [] } as unknown as TerminalState;
+      },
+      // Saved tabs, with this window staying on its own tab (the first if that one was closed).
+      merge: (saved, current) => {
+        const s = (saved ?? {}) as Partial<TerminalState>;
+        const tabs = s.tabs?.length ? s.tabs : current.tabs;
+        const tab = tabs.find((t) => t.id === current.activeTab) ?? tabs[0];
+        return { ...current, ...s, tabs, activeTab: tab.id, ...pickTab(tab) };
+      },
+    }
   )
 );
+
+// The live fields above are the active tab's; every change to them is saved into its entry.
+useTerminal.subscribe((st, prev) => {
+  if (st.activeTab !== prev.activeTab) return; // switching loads a tab, nothing to save
+  if (TAB_KEYS.every((k) => st[k] === prev[k])) return;
+  useTerminal.setState({ tabs: st.tabs.map((t) => (t.id === st.activeTab ? { ...t, ...pickTab(st) } : t)) });
+});
+
+/** Other windows' changes (another tab, or this one shown twice) arrive through localStorage. */
+export function followOtherWindows(): () => void {
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === "openterminal-workspace") void useTerminal.persist.rehydrate();
+  };
+  window.addEventListener("storage", onStorage);
+  return () => window.removeEventListener("storage", onStorage);
+}
+
+/** What a tab is called on the tab bar: its name, or its symbol and page. */
+export function tabLabel(tab: TabData): string {
+  if (tab.title) return tab.title;
+  const page = tab.view === "workspace" ? "Workspace" : tab.view.charAt(0).toUpperCase() + tab.view.slice(1);
+  return `${tab.activeSymbol} · ${page}`;
+}
 
 /** Symbol a widget should display: its own, or the active one when linked. */
 export function useWidgetSymbol(widget: WidgetInstance): string {

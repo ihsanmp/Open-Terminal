@@ -6,11 +6,14 @@ import { dataDir } from "./db.js";
 
 const keyFile = join(dataDir, ".api-key");
 
+let generatedKey = false;
+
 function resolveApiKey(): string {
   if (process.env.API_KEY) return process.env.API_KEY;
   if (existsSync(keyFile)) return readFileSync(keyFile, "utf8").trim();
   const generated = randomBytes(24).toString("hex");
   writeFileSync(keyFile, generated, { mode: 0o600 });
+  generatedKey = true;
   return generated;
 }
 
@@ -18,7 +21,7 @@ export const apiKey = resolveApiKey();
 
 if (!process.env.API_KEY) {
   console.warn(
-    `No API_KEY set — generated one and saved it to ${keyFile}. ` +
+    `No API_KEY set — ${generatedKey ? "generated one and saved it to" : "using the one saved in"} ${keyFile}. ` +
       "The bundled web app reads this file automatically for local use. " +
       "For any deployment reachable beyond localhost, set API_KEY explicitly " +
       "on both the api and web services and keep this file private."
