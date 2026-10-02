@@ -168,23 +168,44 @@ const pickTab = (st: Pick<TabData, (typeof TAB_KEYS)[number]>) => ({
 const DEFAULT_TAB: TabData = { id: "t1", activeSymbol: "AAPL", view: "chart", pages: [], widgets: DEFAULT_WIDGETS, layout: DEFAULT_LAYOUT };
 
 // The tab a window opens on: the one named in its address (?tab=…, a window opened from a tab),
-// or the one it showed before a reload.
+// or the one it showed before a reload. A window opened with ?new (the taskbar's "New window")
+// starts on a copy of the tab used last in any window.
 const TAB_SESSION_KEY = "openterminal-tab";
+const LAST_TAB_KEY = "openterminal-last-tab";
+const isNewWindow = (() => {
+  try {
+    return typeof window !== "undefined" && new URLSearchParams(window.location.search).has("new");
+  } catch {
+    return false;
+  }
+})();
 const windowTab = (() => {
   if (typeof window === "undefined") return null;
   try {
+    if (isNewWindow) return window.localStorage.getItem(LAST_TAB_KEY);
     return new URLSearchParams(window.location.search).get("tab") ?? window.sessionStorage.getItem(TAB_SESSION_KEY);
   } catch {
     return null;
   }
 })();
 
+/** Notes the tab as the one used last, for the next "New window". */
+function rememberLastTab(id: string) {
+  try {
+    window.localStorage.setItem(LAST_TAB_KEY, id);
+  } catch {
+    // a new window then copies the first tab
+  }
+}
+
 function rememberWindowTab(id: string) {
   if (typeof window === "undefined") return;
+  rememberLastTab(id);
   try {
     window.sessionStorage.setItem(TAB_SESSION_KEY, id);
     const url = new URL(window.location.href);
     url.searchParams.set("tab", id);
+    url.searchParams.delete("new"); // a reload stays on this tab rather than copying again
     window.history.replaceState(null, "", url);
   } catch {
     // the tab is still switched; only a reload forgets it
@@ -319,6 +340,18 @@ useTerminal.subscribe((st, prev) => {
   useTerminal.setState({ tabs: st.tabs.map((t) => (t.id === st.activeTab ? { ...t, ...pickTab(st) } : t)) });
 });
 
+// A "New window" copies the tab used last, once the saved tabs are loaded.
+if (isNewWindow) {
+  const start = () => void useTerminal.getState().duplicateTab();
+  if (useTerminal.persist.hasHydrated()) start();
+  else {
+    const off = useTerminal.persist.onFinishHydration(() => {
+      off();
+      start();
+    });
+  }
+}
+
 /** Other windows' changes (another tab, or this one shown twice) arrive through localStorage. */
 export function followOtherWindows(): () => void {
   // One save can touch several entries (a tab and the tab list): read them all once it's done.
@@ -328,10 +361,15 @@ export function followOtherWindows(): () => void {
     clearTimeout(pending);
     pending = setTimeout(() => void useTerminal.persist.rehydrate(), 30);
   };
+  // The window in front decides which tab a "New window" copies.
+  const onFocus = () => rememberLastTab(useTerminal.getState().activeTab);
+  if (document.hasFocus()) onFocus();
   window.addEventListener("storage", onStorage);
+  window.addEventListener("focus", onFocus);
   return () => {
     clearTimeout(pending);
     window.removeEventListener("storage", onStorage);
+    window.removeEventListener("focus", onFocus);
   };
 }
 
