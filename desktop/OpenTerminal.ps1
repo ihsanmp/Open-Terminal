@@ -7,6 +7,11 @@
 # for the part that did (scripts/build.mjs); the window opens at once on a
 # loading page while the servers start; and the efficiency-mode setup waits
 # until the window is up.
+#
+# All app windows share one taskbar button (Taskbar.cs) whose right-click menu
+# has "New window": that runs this launcher with -NewWindow, which opens one
+# more window on a copy of the tab used last (or starts the app if it's closed).
+param([switch]$NewWindow)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
@@ -20,6 +25,9 @@ $LoadingPage = Join-Path $PSScriptRoot 'loading.html'
 # can tell when it closes) and keeps the saved workspace separate.
 $ProfileDir  = Join-Path $env:LOCALAPPDATA 'OpenTerminal\app-profile'
 $IconPath    = Join-Path $PSScriptRoot 'icon.ico'
+# The taskbar identity shared by the app windows, the shortcuts and the jump list.
+$AppId       = 'IhsanMP.OpenTerminal'
+$Launcher    = Join-Path $PSScriptRoot 'OpenTerminal.vbs'
 
 $env:GIT_TERMINAL_PROMPT = '0'
 $env:API_URL = "http://127.0.0.1:$ApiPort"
@@ -225,9 +233,94 @@ function Set-ServersEfficient([int[]]$ids) {
   foreach ($id in ($targets | Select-Object -Unique)) { Set-EfficiencyMode $id }
 }
 
+# Taskbar integration (Taskbar.cs), compiled once per version of the source and
+# kept next to the browser profile, so later starts only load it.
+function Initialize-Taskbar {
+  if ('OpenTerminal.Taskbar' -as [type]) { return $true }
+  try {
+    $source = Join-Path $PSScriptRoot 'Taskbar.cs'
+    $hash = (Get-FileHash $source -Algorithm SHA256).Hash.Substring(0, 12)
+    $dll = Join-Path (Split-Path $ProfileDir) "taskbar-$hash.dll"
+    if (-not (Test-Path $dll)) {
+      Get-ChildItem (Split-Path $ProfileDir) -Filter 'taskbar-*.dll' -ErrorAction SilentlyContinue | Remove-Item -ErrorAction SilentlyContinue
+      Add-Type -TypeDefinition (Get-Content -Raw $source) -Language CSharp -OutputAssembly $dll
+    }
+    Add-Type -Path $dll
+    return $true
+  } catch {
+    Write-Timing "taskbar integration unavailable: $($_.Exception.Message)"
+    return $false
+  }
+}
+
+function Get-Shortcuts {
+  @(
+    (Join-Path ([Environment]::GetFolderPath('Desktop')) 'OpenTerminal.lnk'),
+    (Join-Path ([Environment]::GetFolderPath('Programs')) 'OpenTerminal.lnk'),
+    (Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\OpenTerminal.lnk')
+  ) | Where-Object { Test-Path $_ }
+}
+
+# The shortcuts get the app's ID: the taskbar button then takes the name
+# "OpenTerminal" from them, and a pinned shortcut shares the windows' button.
+# Done before the first window is tagged, as the taskbar names a button once.
+function Set-ShortcutIds {
+  if (-not (Initialize-Taskbar)) { return }
+  foreach ($lnk in Get-Shortcuts) {
+    try { [void][OpenTerminal.Taskbar]::SetShortcutAppId($lnk, $AppId) } catch {}
+  }
+}
+
+# The button's right-click menu: "New window".
+function Set-JumpList {
+  if (-not (Initialize-Taskbar)) { return }
+  try {
+    [OpenTerminal.Taskbar]::SetJumpList($AppId, 'New window', (Join-Path $env:WINDIR 'System32\wscript.exe'), "`"$Launcher`" -NewWindow", $Root, $IconPath)
+  } catch {
+    Write-Timing "jump list not set: $($_.Exception.Message)"
+  }
+}
+
+# Edge gives each app window an ID of its own (from the address it opened on);
+# they're given the app's, so every window joins the one taskbar button.
+function Set-WindowTags([int[]]$browserIds) {
+  if (-not ('OpenTerminal.Taskbar' -as [type]) -or -not $browserIds) { return }
+  try { [void][OpenTerminal.Taskbar]::TagWindows($browserIds, $AppId) } catch {}
+}
+
+function Open-AppWindow([string]$url) {
+  Start-Process -FilePath $Browser -ArgumentList @(
+    "--app=$url",
+    "--user-data-dir=`"$ProfileDir`"",
+    '--no-first-run',
+    '--no-default-browser-check',
+    # Edge signs a fresh profile into the Windows account and syncs its
+    # extensions, which then pop up their own welcome windows.
+    '--disable-sync',
+    '--disable-extensions',
+    '--window-size=1600,950'
+  ) | Out-Null
+}
+
 # ------------------------------------------------------------------- main ---
 
 New-Item -ItemType Directory -Force -Path $LogDir, $ProfileDir | Out-Null
+
+# "New window" while the app runs: one more window, which starts on a copy of
+# the tab used last (?new). The running launcher moves it onto the app's
+# taskbar button; in case none runs (servers started by hand), this one does.
+if ($NewWindow -and (Test-Port $ApiPort) -and (Test-Port $WebPort)) {
+  $Browser = Find-Browser
+  if (-not $Browser) { exit 1 }
+  Open-AppWindow "$AppUrl/?new=1"
+  if (Initialize-Taskbar) {
+    Start-Sleep -Milliseconds 800
+    $ids = @(Get-AppBrowserProcesses | ForEach-Object { [int]$_.ProcessId })
+    for ($i = 0; $i -lt 16; $i++) { Set-WindowTags $ids; Start-Sleep -Milliseconds 250 }
+  }
+  exit 0
+}
+
 Set-Content -Path (Join-Path $LogDir 'launcher.log') -Value ("started {0:yyyy-MM-dd HH:mm:ss}" -f (Get-Date))
 $Splash = $null
 
@@ -272,45 +365,50 @@ try {
   if ($started.Count -gt 0 -and (Test-Path $LoadingPage)) {
     $windowUrl = ([System.Uri]$LoadingPage).AbsoluteUri + '#' + [System.Uri]::EscapeDataString($AppUrl)
   }
-  Start-Process -FilePath $Browser -ArgumentList @(
-    "--app=$windowUrl",
-    "--user-data-dir=`"$ProfileDir`"",
-    '--no-first-run',
-    '--no-default-browser-check',
-    # Edge signs a fresh profile into the Windows account and syncs its
-    # extensions, which then pop up their own welcome windows.
-    '--disable-sync',
-    '--disable-extensions',
-    '--window-size=1600,950'
-  ) | Out-Null
+  Open-AppWindow $windowUrl
   Write-Timing 'window opened'
+  Set-ShortcutIds
 
+  # While the servers start, the window is moved onto the app's taskbar
+  # button as soon as it shows.
   if ($started.Count -gt 0) {
     $deadline = (Get-Date).AddSeconds(90)
+    $browserIds = @()
+    $nextLookup = Get-Date
     while (-not ((Test-Port $ApiPort) -and (Test-Port $WebPort))) {
       [System.Windows.Forms.Application]::DoEvents()
       if (($started | Where-Object { $_.HasExited }) -or (Get-Date) -gt $deadline) {
         Stop-WithError "OpenTerminal failed to start. See the logs in:`n$LogDir"
       }
+      if (-not $browserIds -and (Get-Date) -ge $nextLookup) {
+        $browserIds = @(Get-AppBrowserProcesses | ForEach-Object { [int]$_.ProcessId })
+        $nextLookup = (Get-Date).AddMilliseconds(500)
+      }
+      Set-WindowTags $browserIds
       Start-Sleep -Milliseconds 100
     }
   }
   Write-Timing 'servers listening'
   if ($Splash) { $Splash.Close() }
   if ($started.Count -gt 0) { Set-ServersEfficient @($started | ForEach-Object { $_.Id }) }
+  Set-JumpList
+  Write-Timing 'taskbar set up'
   Complete-Update $fetch
 
   # Wait for the app window to appear, then until every window is closed. A
   # server that stops meanwhile is started again (the open windows reconnect
-  # by themselves), and its log is kept as <name>.crash.err.log.
+  # by themselves), and its log is kept as <name>.crash.err.log. New windows
+  # are moved onto the app's taskbar button as they appear.
   $appeared = (Get-Date).AddSeconds(20)
   while (-not (Get-AppBrowserProcesses) -and (Get-Date) -lt $appeared) { Start-Sleep -Milliseconds 500 }
   $restarts = 0
   while ($true) {
     $browser = @(Get-AppBrowserProcesses | ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue } | Where-Object { $_ })
     if ($browser.Count -eq 0) { break }
+    $browserIds = @($browser | ForEach-Object { $_.Id })
     while (-not $browser[0].HasExited) {
-      [void]$browser[0].WaitForExit(2000)
+      Set-WindowTags $browserIds
+      [void]$browser[0].WaitForExit(400)
       foreach ($s in $servers) {
         if (-not $s.Proc.HasExited -or $restarts -ge 20) { continue }
         $restarts++

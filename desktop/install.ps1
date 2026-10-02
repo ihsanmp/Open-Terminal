@@ -26,6 +26,12 @@ if (-not $SkipBuild) {
 }
 
 Write-Host '==> Creating shortcuts'
+# The app's taskbar identity (see Taskbar.cs and OpenTerminal.ps1): the
+# shortcuts share it with the app windows, and its right-click menu has
+# "New window". OpenTerminal.ps1 sets the same at every start.
+$AppId = 'IhsanMP.OpenTerminal'
+$taskbar = $false
+try { Add-Type -TypeDefinition (Get-Content -Raw (Join-Path $PSScriptRoot 'Taskbar.cs')) -Language CSharp; $taskbar = $true } catch {}
 $shell = New-Object -ComObject WScript.Shell
 foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {
   $shortcut = $shell.CreateShortcut((Join-Path $folder 'OpenTerminal.lnk'))
@@ -35,7 +41,11 @@ foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::Ge
   $shortcut.IconLocation = "$(Join-Path $PSScriptRoot 'icon.ico'),0"
   $shortcut.Description = 'OpenTerminal market terminal'
   $shortcut.Save()
+  if ($taskbar) { [void][OpenTerminal.Taskbar]::SetShortcutAppId($shortcut.FullName, $AppId) }
   Write-Host "    $($shortcut.FullName)"
+}
+if ($taskbar) {
+  [OpenTerminal.Taskbar]::SetJumpList($AppId, 'New window', (Join-Path $env:WINDIR 'System32\wscript.exe'), "`"$(Join-Path $PSScriptRoot 'OpenTerminal.vbs')`" -NewWindow", $Root, (Join-Path $PSScriptRoot 'icon.ico'))
 }
 
 Write-Host ''

@@ -8,6 +8,12 @@ foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::Ge
   if (Test-Path $lnk) { Remove-Item $lnk; Write-Host "Removed $lnk" }
 }
 
+try {
+  Add-Type -TypeDefinition (Get-Content -Raw (Join-Path $PSScriptRoot 'Taskbar.cs')) -Language CSharp
+  [OpenTerminal.Taskbar]::DeleteJumpList('IhsanMP.OpenTerminal')
+  Write-Host 'Removed the taskbar menu'
+} catch {}
+
 if ($RemoveAppData) {
   $appData = Join-Path $env:LOCALAPPDATA 'OpenTerminal'
   if (Test-Path $appData) { Remove-Item $appData -Recurse -Force; Write-Host "Removed $appData" }
