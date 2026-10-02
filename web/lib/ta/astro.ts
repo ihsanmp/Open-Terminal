@@ -63,6 +63,14 @@ function moonLongitude(t: number): number {
   return norm(L + 6.289 * Math.sin(M) + 1.274 * Math.sin(2 * D - M) + 0.658 * Math.sin(2 * D) + 0.214 * Math.sin(2 * M) - 0.186 * Math.sin(Ms) - 0.114 * Math.sin(2 * F));
 }
 
+/**
+ * JPL's elements give longitudes from the equinox of J2000; astrology's tropical zodiac counts
+ * from the equinox of the date, which precession has moved since by 1.397° a century (0.37° by
+ * 2026, 9 hours of the Sun's motion: equinoxes and ingresses would come that much late, and the
+ * Moon — computed of date — wouldn't line up with the Sun at new moon).
+ */
+const precession = (T: number) => 1.396971 * T + 0.0003086 * T * T;
+
 /** The Moon's ecliptic latitude (leading terms). */
 function moonLatitude(t: number): number {
   const d = t / 86_400 + 2_440_587.5 - 2_451_545;
@@ -84,7 +92,7 @@ export function geocentric(body: Exclude<Body, "Earth">, t: number): { lon: numb
     const [xe, ye, ze] = helio("Earth", T);
     const [x, y, z] = body === "Sun" ? [0, 0, 0] : helio(body, T);
     const [dx, dy, dz] = [x - xe, y - ye, z - ze];
-    lon = norm(Math.atan2(dy, dx) / RAD);
+    lon = norm(Math.atan2(dy, dx) / RAD + precession(T));
     lat = Math.atan2(dz, Math.hypot(dx, dy)) / RAD;
   }
   const eps = (23.43929 - 0.0130042 * T) * RAD; // obliquity of the ecliptic
@@ -108,13 +116,13 @@ export function longitude(body: Body, t: number, frame: "geocentric" | "heliocen
   if (frame === "heliocentric") {
     if (body === "Sun") return NaN;
     const [x, y] = helio(body, T);
-    return norm(Math.atan2(y, x) / RAD);
+    return norm(Math.atan2(y, x) / RAD + precession(T));
   }
   if (body === "Earth") return NaN;
   const [xe, ye] = helio("Earth", T);
-  if (body === "Sun") return norm(Math.atan2(-ye, -xe) / RAD);
+  if (body === "Sun") return norm(Math.atan2(-ye, -xe) / RAD + precession(T));
   const [x, y] = helio(body, T);
-  return norm(Math.atan2(y - ye, x - xe) / RAD);
+  return norm(Math.atan2(y - ye, x - xe) / RAD + precession(T));
 }
 
 /** The angle from body B to body A, 0 … 360 (0 = conjunction, 180 = opposition). */

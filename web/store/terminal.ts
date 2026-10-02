@@ -24,7 +24,8 @@ export type WidgetType =
   | "tv"
   | "recap"
   | "indices"
-  | "research";
+  | "research"
+  | "astrocal";
 
 export type ChartScaleMode = "normal" | "log" | "percent" | "indexed";
 
@@ -140,6 +141,7 @@ const SIZE_BY_TYPE: Record<WidgetType, { w: number; h: number }> = {
   recap: { w: 5, h: 12 },
   indices: { w: 5, h: 14 },
   research: { w: 7, h: 16 },
+  astrocal: { w: 12, h: 16 },
 };
 
 /** Apply a change to the widget with this id, whether it's in the workspace or a page. */
@@ -336,7 +338,7 @@ export function followOtherWindows(): () => void {
 /** What a tab is called on the tab bar: its name, or its symbol and page. */
 export function tabLabel(tab: TabData): string {
   if (tab.title) return tab.title;
-  const page = tab.view === "workspace" ? "Workspace" : tab.view.charAt(0).toUpperCase() + tab.view.slice(1);
+  const page = tab.view === "workspace" ? "Workspace" : tab.view === "astrocal" ? "Astro Calendar" : tab.view.charAt(0).toUpperCase() + tab.view.slice(1);
   return `${tab.activeSymbol} · ${page}`;
 }
 
