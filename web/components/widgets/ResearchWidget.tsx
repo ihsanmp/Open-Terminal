@@ -520,7 +520,7 @@ export default function ResearchWidget({ widget }: { widget: WidgetInstance }) {
       </div>
       <div className="flex-1 overflow-auto min-h-0">
         {isLoading && <div className="p-2 dim">Researching {symbol}…</div>}
-        {error && <div className="p-2 down">{(error as Error).message}</div>}
+        {error && !data && <div className="p-2 down">{(error as Error).message}</div>}
         {data && tab === "Overview" && <Overview r={data} />}
         {data && tab === "Financials" && <Financials r={data} />}
         {data && tab === "Ratios" && <Ratios r={data} />}

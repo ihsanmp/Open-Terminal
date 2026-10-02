@@ -239,6 +239,7 @@ if (-not $Browser) { Stop-WithError 'Microsoft Edge or Google Chrome is required
 # Servers this launcher started itself; ones that were already running (for
 # example `npm run dev` in a terminal) are reused and left alone on exit.
 $started = @()
+$servers = @()
 $fetch = $null
 try {
   $alreadyRunning = (Test-Port $ApiPort) -and (Test-Port $WebPort)
@@ -256,11 +257,13 @@ try {
 
     Set-Status 'Starting servers...'
     if (-not (Test-Port $ApiPort)) {
-      $started += Start-NodeServer 'api' (Join-Path $Root 'server') @('dist\index.js')
+      $servers += @{ Name = 'api'; Dir = (Join-Path $Root 'server'); Args = @('dist\index.js') }
     }
     if (-not (Test-Port $WebPort)) {
-      $started += Start-NodeServer 'web' (Join-Path $Root 'web') @("`"$NextBin`"", 'start', '-H', '127.0.0.1', '-p', "$WebPort")
+      $servers += @{ Name = 'web'; Dir = (Join-Path $Root 'web'); Args = @("`"$NextBin`"", 'start', '-H', '127.0.0.1', '-p', "$WebPort") }
     }
+    foreach ($s in $servers) { $s.Proc = Start-NodeServer $s.Name $s.Dir $s.Args }
+    $started = @($servers | ForEach-Object { $_.Proc })
   }
 
   # The window opens now, on a page that moves to the app as soon as it
@@ -297,15 +300,30 @@ try {
   if ($started.Count -gt 0) { Set-ServersEfficient @($started | ForEach-Object { $_.Id }) }
   Complete-Update $fetch
 
-  # Wait for the app window to appear, then until every window is closed.
+  # Wait for the app window to appear, then until every window is closed. A
+  # server that stops meanwhile is started again (the open windows reconnect
+  # by themselves), and its log is kept as <name>.crash.err.log.
   $appeared = (Get-Date).AddSeconds(20)
   while (-not (Get-AppBrowserProcesses) -and (Get-Date) -lt $appeared) { Start-Sleep -Milliseconds 500 }
-  do {
-    $procs = @(Get-AppBrowserProcesses)
-    foreach ($p in $procs) { Wait-Process -Id $p.ProcessId -ErrorAction SilentlyContinue }
-  } while ($procs.Count -gt 0)
+  $restarts = 0
+  while ($true) {
+    $browser = @(Get-AppBrowserProcesses | ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue } | Where-Object { $_ })
+    if ($browser.Count -eq 0) { break }
+    while (-not $browser[0].HasExited) {
+      [void]$browser[0].WaitForExit(2000)
+      foreach ($s in $servers) {
+        if (-not $s.Proc.HasExited -or $restarts -ge 20) { continue }
+        $restarts++
+        Write-Timing "$($s.Name) server stopped (exit $($s.Proc.ExitCode)); starting it again"
+        $errLog = Join-Path $LogDir "$($s.Name).err.log"
+        if (Test-Path $errLog) { Copy-Item $errLog (Join-Path $LogDir "$($s.Name).crash.err.log") -Force }
+        $s.Proc = Start-NodeServer $s.Name $s.Dir $s.Args
+        Set-ServersEfficient @($s.Proc.Id)
+      }
+    }
+  }
 } finally {
-  foreach ($p in $started) {
-    if (-not $p.HasExited) { & taskkill.exe /PID $p.Id /T /F | Out-Null }
+  foreach ($p in (@($servers | ForEach-Object { $_.Proc }) + $started)) {
+    if ($p -and -not $p.HasExited) { & taskkill.exe /PID $p.Id /T /F | Out-Null }
   }
 }

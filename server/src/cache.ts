@@ -27,14 +27,27 @@ export function staleGet<T>(key: string): T | undefined {
   return staleStore.get(key) as T | undefined;
 }
 
+// Loads in progress, by key: requests for the same data that arrive while it's being fetched
+// (the same chart or quotes in several app windows) wait for that one fetch instead of each
+// asking the provider again, which is what gets an app rate-limited.
+const inflight = new Map<string, Promise<unknown>>();
+
 export async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
   const hit = cacheGet<T>(key);
   if (hit !== undefined) return hit;
+  let load = inflight.get(key) as Promise<T> | undefined;
+  if (!load) {
+    load = fn()
+      .then((value) => {
+        cacheSet(key, value, ttlMs);
+        staleSet(key, value);
+        return value;
+      })
+      .finally(() => inflight.delete(key));
+    inflight.set(key, load);
+  }
   try {
-    const value = await fn();
-    cacheSet(key, value, ttlMs);
-    staleSet(key, value);
-    return value;
+    return await load;
   } catch (err) {
     const stale = staleGet<T>(key);
     if (stale !== undefined) return stale;

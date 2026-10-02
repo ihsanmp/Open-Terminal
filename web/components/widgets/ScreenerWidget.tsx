@@ -69,7 +69,7 @@ export default function ScreenerWidget() {
         <input className="w-24" placeholder="Vol min (M)" value={volumeMinM} onChange={(e) => setVolumeMinM(e.target.value)} />
         <span className="dim ml-auto">{isLoading ? "…" : `${data.length} results`}</span>
       </div>
-      {error && <div className="p-2 down">Error: {(error as Error).message}</div>}
+      {error && data.length === 0 && <div className="p-2 down">Error: {(error as Error).message}</div>}
       <table className="data-table">
         <thead>
           <tr>

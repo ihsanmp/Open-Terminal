@@ -21,12 +21,21 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
 
   const hasBody = req.method !== "GET" && req.method !== "HEAD" && req.method !== "DELETE";
 
-  const upstream = await fetch(url, {
-    method: req.method,
-    headers,
-    body: hasBody ? await req.text() : undefined,
-    cache: "no-store",
-  });
+  // A GET that the API hasn't answered in 40 s is given up with a 504 (the page retries it),
+  // rather than holding the connection; other methods (an AI answer) may take longer.
+  let upstream: Response;
+  try {
+    upstream = await fetch(url, {
+      method: req.method,
+      headers,
+      body: hasBody ? await req.text() : undefined,
+      cache: "no-store",
+      signal: req.method === "GET" ? AbortSignal.timeout(40_000) : undefined,
+    });
+  } catch (err) {
+    const timedOut = err instanceof Error && err.name === "TimeoutError";
+    return NextResponse.json({ error: timedOut ? "The API took too long to answer." : "The API is not reachable." }, { status: timedOut ? 504 : 502 });
+  }
 
   const body = upstream.status === 204 ? null : await upstream.arrayBuffer();
   const out = new Headers({ "content-type": upstream.headers.get("content-type") ?? "application/json" });

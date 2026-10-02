@@ -81,7 +81,7 @@ export default function CryptoWidget() {
           className="ml-auto w-36 !py-0.5"
         />
       </div>
-      {error && <div className="p-2 down">Error: {(error as Error).message}</div>}
+      {error && data.length === 0 && <div className="p-2 down">Error: {(error as Error).message}</div>}
       <div className="flex-1 overflow-auto min-h-0">
         <table className="data-table">
           <thead>

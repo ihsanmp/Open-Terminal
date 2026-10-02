@@ -106,7 +106,8 @@ function LiveWire() {
       </div>
       <div className="px-2 pb-1 text-[10px] dim flex gap-2">
         <span>
-          <span className={error ? "down" : "up"}>●</span> {error ? "OFFLINE" : "LIVE"}
+          {/* With headlines on screen a failed refresh is "reconnecting", not offline. */}
+          <span className={!error ? "up" : data ? "amber" : "down"}>●</span> {!error ? "LIVE" : data ? "RECONNECTING" : "OFFLINE"}
         </span>
         {data && (
           <>

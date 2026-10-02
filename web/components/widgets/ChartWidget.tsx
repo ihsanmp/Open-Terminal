@@ -828,7 +828,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           ⚙
         </button>
       </div>
-      {error && <div className="p-2 down">Error: {(error as Error).message}</div>}
+      {/* A failed refresh keeps the chart that's on screen; the error shows only when there is none. */}
+      {error && !candles && <div className="p-2 down">Error: {(error as Error).message}</div>}
       <div
         className="relative flex-1 min-h-0"
         onPointerMove={(e) => {
