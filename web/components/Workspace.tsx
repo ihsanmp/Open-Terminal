@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import GridLayout, { WidthProvider } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
@@ -23,6 +24,8 @@ import TvWidget from "./widgets/TvWidget";
 import RecapWidget from "./widgets/RecapWidget";
 import IndicesWidget from "./widgets/IndicesWidget";
 import ResearchWidget from "./widgets/ResearchWidget";
+// Loaded when first shown: it carries 35 years of gold and bitcoin closes for its offline statistics.
+const AstroCalendarWidget = dynamic(() => import("./widgets/AstroCalendarWidget"), { ssr: false, loading: () => <div className="p-2 dim">Memuat kalender astrologi…</div> });
 
 const Grid = WidthProvider(GridLayout);
 
@@ -54,6 +57,7 @@ function WidgetContent({ widget }: { widget: WidgetInstance }) {
     case "recap": return <RecapWidget />;
     case "indices": return <IndicesWidget />;
     case "research": return <ResearchWidget widget={widget} />;
+    case "astrocal": return <AstroCalendarWidget />;
   }
 }
 

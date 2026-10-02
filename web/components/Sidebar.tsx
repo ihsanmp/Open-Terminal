@@ -18,6 +18,7 @@ export const MENU: Array<{ type: WidgetType; label: string; key: string }> = [
   { type: "watchlist", label: "WATCHLIST", key: "" },
   { type: "macro", label: "MACRO", key: "" },
   { type: "calendar", label: "CALENDAR", key: "" },
+  { type: "astrocal", label: "ASTRO CALENDAR", key: "" },
   { type: "insider", label: "INSIDER", key: "" },
   { type: "tv", label: "LIVE TV", key: "" },
   { type: "recap", label: "MARKET RECAP", key: "" },
