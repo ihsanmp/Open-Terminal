@@ -59,10 +59,12 @@ describe("tabs", () => {
     const b = st().duplicateTab();
     st().renameTab(b, "  Majors  ");
     st().moveTab(b, 0);
-    expect(st().tabs.map((t) => t.id)).toEqual([b, a]);
-    expect(tabLabel(st().tabs[0])).toBe("Majors");
+    // The order is this window's.
+    expect(st().windowTabs).toEqual([b, a]);
+    const tabB = () => st().tabs.find((t) => t.id === b)!;
+    expect(tabLabel(tabB())).toBe("Majors");
     st().renameTab(b, " ");
-    expect(st().tabs[0].title).toBeUndefined();
+    expect(tabB().title).toBeUndefined();
   });
 });
 

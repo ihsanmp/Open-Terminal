@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext } from "react";
 import { create } from "zustand";
 import { persist, type PersistStorage } from "zustand/middleware";
 import { createWorkspaceStorage, WORKSPACE_KEY } from "./workspace-storage";
+import { forgetWindowOnClose, holdWindowLock, saveWindowTabs, sessionTabs, tabsOfClosedWindows, tabsOfOtherWindows } from "./window-tabs";
 import type { IndicatorInstance } from "../lib/ta/types";
 import type { ChartStyle } from "../lib/chart-style";
 
@@ -69,9 +70,14 @@ export type TabData = {
 };
 
 type TerminalState = {
-  /** Every open tab, in tab-bar order (saved; the fields below mirror the active one). */
+  /** Every tab of every window (saved; the fields below mirror the active one). */
   tabs: TabData[];
-  /** The tab this window shows. Each window has its own, so tabs can be watched side by side. */
+  /**
+   * The tabs this window shows, in tab-bar order. Each window has its own, as browser windows do,
+   * so a tab is never shown in two windows at once (window-tabs.ts).
+   */
+  windowTabs: string[];
+  /** The tab this window shows. */
   activeTab: string;
   activeSymbol: string;
   view: View;
@@ -103,6 +109,8 @@ type TerminalState = {
   duplicateTab: (stay?: boolean) => string;
   switchTab: (id: string) => void;
   closeTab: (id: string) => void;
+  /** Takes a tab out of this window (to open it in another); the tab itself stays. */
+  releaseTab: (id: string) => void;
   renameTab: (id: string, title: string) => void;
   moveTab: (id: string, toIndex: number) => void;
 };
@@ -179,11 +187,18 @@ const isNewWindow = (() => {
     return false;
   }
 })();
+const urlTab = (() => {
+  try {
+    return typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("tab");
+  } catch {
+    return null;
+  }
+})();
 const windowTab = (() => {
   if (typeof window === "undefined") return null;
   try {
     if (isNewWindow) return window.localStorage.getItem(LAST_TAB_KEY);
-    return new URLSearchParams(window.location.search).get("tab") ?? window.sessionStorage.getItem(TAB_SESSION_KEY);
+    return urlTab ?? window.sessionStorage.getItem(TAB_SESSION_KEY);
   } catch {
     return null;
   }
@@ -196,6 +211,12 @@ function rememberLastTab(id: string) {
   } catch {
     // a new window then copies the first tab
   }
+}
+
+/** The tabs no other window shows (all of them when it's the only window), in saved order. */
+function unclaimed(tabs: TabData[]): string[] {
+  const taken = typeof window === "undefined" ? new Set<string>() : tabsOfOtherWindows();
+  return tabs.map((t) => t.id).filter((id) => !taken.has(id));
 }
 
 function rememberWindowTab(id: string) {
@@ -216,6 +237,7 @@ export const useTerminal = create<TerminalState>()(
   persist(
     (set, get) => ({
       tabs: [DEFAULT_TAB],
+      windowTabs: [DEFAULT_TAB.id],
       activeTab: windowTab ?? DEFAULT_TAB.id,
       ...pickTab(DEFAULT_TAB),
       watchlist: ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL", "META", "SPY"],
@@ -266,39 +288,53 @@ export const useTerminal = create<TerminalState>()(
         const at = st.tabs.findIndex((tab) => tab.id === st.activeTab);
         const tabs = [...st.tabs];
         tabs.splice(at + 1, 0, copy);
+        // Kept out of this window's tabs, for another window to take.
         if (stay) {
           set({ tabs });
           return id;
         }
-        set({ tabs, activeTab: id });
+        const windowTabs = [...st.windowTabs];
+        windowTabs.splice(windowTabs.indexOf(st.activeTab) + 1, 0, id);
+        set({ tabs, windowTabs, activeTab: id });
         rememberWindowTab(id);
         return id;
       },
       switchTab: (id) => {
         const tab = get().tabs.find((t) => t.id === id);
         if (!tab) return;
-        set({ activeTab: id, ...pickTab(tab) });
+        set((st) => ({ activeTab: id, ...pickTab(tab), windowTabs: st.windowTabs.includes(id) ? st.windowTabs : [...st.windowTabs, id] }));
         rememberWindowTab(id);
       },
       closeTab: (id) => {
         const st = get();
-        if (st.tabs.length <= 1) return;
-        const at = st.tabs.findIndex((t) => t.id === id);
+        const at = st.windowTabs.indexOf(id);
+        if (at < 0 || st.windowTabs.length <= 1) return;
+        const windowTabs = st.windowTabs.filter((t) => t !== id);
         const tabs = st.tabs.filter((t) => t.id !== id);
-        if (st.activeTab !== id) return set({ tabs });
-        const next = tabs[Math.min(at, tabs.length - 1)];
-        set({ tabs, activeTab: next.id, ...pickTab(next) });
+        if (st.activeTab !== id) return set({ tabs, windowTabs });
+        const next = tabs.find((t) => t.id === windowTabs[Math.min(at, windowTabs.length - 1)])!;
+        set({ tabs, windowTabs, activeTab: next.id, ...pickTab(next) });
+        rememberWindowTab(next.id);
+      },
+      releaseTab: (id) => {
+        const st = get();
+        const at = st.windowTabs.indexOf(id);
+        if (at < 0 || st.windowTabs.length <= 1) return;
+        const windowTabs = st.windowTabs.filter((t) => t !== id);
+        if (st.activeTab !== id) return set({ windowTabs });
+        const next = st.tabs.find((t) => t.id === windowTabs[Math.min(at, windowTabs.length - 1)])!;
+        set({ windowTabs, activeTab: next.id, ...pickTab(next) });
         rememberWindowTab(next.id);
       },
       renameTab: (id, title) => set((st) => ({ tabs: st.tabs.map((t) => (t.id === id ? { ...t, title: title.trim() || undefined } : t)) })),
       moveTab: (id, toIndex) =>
         set((st) => {
-          const from = st.tabs.findIndex((t) => t.id === id);
+          const from = st.windowTabs.indexOf(id);
           if (from < 0) return {};
-          const tabs = [...st.tabs];
-          const [tab] = tabs.splice(from, 1);
-          tabs.splice(Math.max(0, Math.min(toIndex, tabs.length)), 0, tab);
-          return { tabs };
+          const windowTabs = [...st.windowTabs];
+          windowTabs.splice(from, 1);
+          windowTabs.splice(Math.max(0, Math.min(toIndex, windowTabs.length)), 0, id);
+          return { windowTabs };
         }),
     }),
     {
@@ -323,11 +359,16 @@ export const useTerminal = create<TerminalState>()(
         return { tabs: [tab], watchlist: old.watchlist, favoriteIntervals: old.favoriteIntervals ?? [] } as unknown as TerminalState;
       },
       // Saved tabs, with this window staying on its own tab (the first if that one was closed).
+      // Saved tabs, with this window keeping its own tabs and staying on its tab (or the next of
+      // its own, if that one is gone).
       merge: (saved, current) => {
         const s = (saved ?? {}) as Partial<TerminalState>;
         const tabs = s.tabs?.length ? s.tabs : current.tabs;
-        const tab = tabs.find((t) => t.id === current.activeTab) ?? tabs[0];
-        return { ...current, ...s, tabs, activeTab: tab.id, ...pickTab(tab) };
+        const ids = new Set(tabs.map((t) => t.id));
+        let windowTabs = current.windowTabs.filter((id) => ids.has(id));
+        if (!windowTabs.length) windowTabs = unclaimed(tabs);
+        const tab = tabs.find((t) => t.id === current.activeTab && windowTabs.includes(t.id)) ?? tabs.find((t) => t.id === windowTabs[0]) ?? tabs[0];
+        return { ...current, ...s, tabs, windowTabs, activeTab: tab.id, ...pickTab(tab) };
       },
     }
   )
@@ -340,14 +381,72 @@ useTerminal.subscribe((st, prev) => {
   useTerminal.setState({ tabs: st.tabs.map((t) => (t.id === st.activeTab ? { ...t, ...pickTab(st) } : t)) });
 });
 
-// A "New window" copies the tab used last, once the saved tabs are loaded.
-if (isNewWindow) {
-  const start = () => void useTerminal.getState().duplicateTab();
-  if (useTerminal.persist.hasHydrated()) start();
+/** Adds the tabs no window shows to this one (after the workspace was restored from disk). */
+export function takeUnclaimedTabs() {
+  const st = useTerminal.getState();
+  const add = unclaimed(st.tabs).filter((id) => !st.windowTabs.includes(id));
+  if (add.length) useTerminal.setState({ windowTabs: [...st.windowTabs, ...add] });
+}
+
+/** Gives this window a copy of the tab used last (in any window) as its only tab. */
+function startOnCopyOfLastTab() {
+  const st = useTerminal.getState();
+  let last: string | null = null;
+  try {
+    last = window.localStorage.getItem(LAST_TAB_KEY);
+  } catch {
+    // the first tab then
+  }
+  const tab = st.tabs.find((t) => t.id === last) ?? st.tabs[0];
+  useTerminal.setState({ windowTabs: [], activeTab: tab.id, ...pickTab(tab) });
+  useTerminal.getState().duplicateTab();
+}
+
+/**
+ * Which tabs this window shows, once the saved tabs are loaded: after a reload, the same ones; a
+ * window a tab was moved to (?tab=…), that tab; a "New window" (?new), a copy of the tab used last;
+ * otherwise (the app starting, or started again while it runs) every tab no other window shows,
+ * or a copy of the tab used last when other windows show them all.
+ */
+function initWindow() {
+  const st = useTerminal.getState();
+  const exists = (id: string) => st.tabs.some((t) => t.id === id);
+  let mine: string[] = [];
+  let fresh = false;
+  if (sessionTabs?.some(exists)) mine = sessionTabs.filter(exists);
+  else if (isNewWindow) mine = [];
+  else if (urlTab && exists(urlTab)) mine = [urlTab];
+  else {
+    mine = unclaimed(st.tabs);
+    fresh = true;
+  }
+  if (mine.length) {
+    const tab = st.tabs.find((t) => t.id === (mine.includes(st.activeTab) ? st.activeTab : mine[0]))!;
+    useTerminal.setState({ windowTabs: mine, activeTab: tab.id, ...pickTab(tab) });
+    rememberWindowTab(tab.id);
+  } else startOnCopyOfLastTab();
+
+  saveWindowTabs(useTerminal.getState().windowTabs);
+  useTerminal.subscribe((s, prev) => {
+    if (s.windowTabs !== prev.windowTabs) saveWindowTabs(s.windowTabs);
+  });
+  holdWindowLock();
+  if (typeof window.addEventListener === "function") forgetWindowOnClose();
+  // Tabs of windows that were killed rather than closed come back here.
+  if (fresh)
+    void tabsOfClosedWindows().then((freed) => {
+      const s = useTerminal.getState();
+      const back = freed.filter((id) => s.tabs.some((t) => t.id === id) && !s.windowTabs.includes(id));
+      if (back.length) useTerminal.setState({ windowTabs: [...s.windowTabs, ...back] });
+    });
+}
+
+if (typeof window !== "undefined") {
+  if (useTerminal.persist.hasHydrated()) initWindow();
   else {
     const off = useTerminal.persist.onFinishHydration(() => {
       off();
-      start();
+      initWindow();
     });
   }
 }
