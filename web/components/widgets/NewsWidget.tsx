@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { apiGet } from "../../lib/api";
-import { useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
+import { useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 import { usePoll } from "../../lib/refresh";
 
 type NewsItem = { title: string; link: string; publisher: string; publishedAt: string | null };
@@ -44,9 +44,9 @@ function age(iso: string, now: number): string {
 }
 
 function LiveWire() {
-  const [category, setCategory] = useState<(typeof CATEGORIES)[number]>("ALL");
-  const [region, setRegion] = useState<(typeof REGIONS)[number]>("ALL");
-  const [search, setSearch] = useState("");
+  const [category, setCategory] = useWidgetSetting<(typeof CATEGORIES)[number]>("category", "ALL");
+  const [region, setRegion] = useWidgetSetting<(typeof REGIONS)[number]>("region", "ALL");
+  const [search, setSearch] = useWidgetSetting("search", "");
   const [q, setQ] = useState("");
   useEffect(() => {
     const id = setTimeout(() => setQ(search.trim()), 300);
@@ -173,7 +173,7 @@ function SymbolNews({ symbol }: { symbol: string }) {
 
 export default function NewsWidget({ widget }: { widget: WidgetInstance }) {
   const symbol = useWidgetSymbol(widget);
-  const [mode, setMode] = useState<"wire" | "symbol">("wire");
+  const [mode, setMode] = useWidgetSetting<"wire" | "symbol">("mode", "wire");
 
   return (
     <div>

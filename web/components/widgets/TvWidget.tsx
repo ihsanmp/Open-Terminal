@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
+import { useWidgetSetting } from "../../store/terminal";
 
 // Live business-news channels as HLS straight from each broadcaster's own CDN (no YouTube, so
 // no embed or consent walls). Each was checked live — the playlist advancing and its segment
@@ -33,7 +34,9 @@ function lagLabel(lag: Lag): string {
 }
 
 export default function TvWidget() {
-  const [channel, setChannel] = useState<Channel>(CHANNELS[0]);
+  const [channelId, setChannelId] = useWidgetSetting<string>("channel", CHANNELS[0].id);
+  const channel: Channel = CHANNELS.find((c) => c.id === channelId) ?? CHANNELS[0];
+  const setChannel = (c: Channel) => setChannelId(c.id);
   const [error, setError] = useState<string | null>(null);
   const [lag, setLag] = useState<Lag>(null);
   const [awayFromEdge, setAwayFromEdge] = useState(false);

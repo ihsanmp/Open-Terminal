@@ -1,9 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
 import { apiGet, fmt, fmtBig, pctClass } from "../../lib/api";
-import { useTerminal } from "../../store/terminal";
+import { useTerminal, useWidgetSetting } from "../../store/terminal";
 import Flash from "../Flash";
 import { sessionRefreshMs, usePoll } from "../../lib/refresh";
 
@@ -15,12 +14,12 @@ type Row = {
 
 export default function ScreenerWidget() {
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
-  const [sector, setSector] = useState("");
-  const [changeMin, setChangeMin] = useState("");
-  const [marketCapMinB, setMarketCapMinB] = useState("");
-  const [volumeMinM, setVolumeMinM] = useState("");
-  const [sort, setSort] = useState("marketCap");
-  const [dir, setDir] = useState<"asc" | "desc">("desc");
+  const [sector, setSector] = useWidgetSetting("sector", "");
+  const [changeMin, setChangeMin] = useWidgetSetting("changeMin", "");
+  const [marketCapMinB, setMarketCapMinB] = useWidgetSetting("marketCapMinB", "");
+  const [volumeMinM, setVolumeMinM] = useWidgetSetting("volumeMinM", "");
+  const [sort, setSort] = useWidgetSetting("sort", "marketCap");
+  const [dir, setDir] = useWidgetSetting<"asc" | "desc">("dir", "desc");
 
   const poll = usePoll(sessionRefreshMs(60_000, 600_000));
   const { data: sectors = [] } = useQuery({

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import GridLayout, { WidthProvider } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
-import { useTerminal, type WidgetInstance } from "../store/terminal";
+import { useTerminal, WidgetIdContext, type WidgetInstance } from "../store/terminal";
 import { WidgetVisibleContext } from "../lib/refresh";
 import QuoteWidget from "./widgets/QuoteWidget";
 import ChartWidget from "./widgets/ChartWidget";
@@ -26,7 +26,16 @@ import ResearchWidget from "./widgets/ResearchWidget";
 
 const Grid = WidthProvider(GridLayout);
 
+/** A widget, with its id available to useWidgetSetting so its choices are saved with it. */
 export function WidgetBody({ widget }: { widget: WidgetInstance }) {
+  return (
+    <WidgetIdContext.Provider value={widget.id}>
+      <WidgetContent widget={widget} />
+    </WidgetIdContext.Provider>
+  );
+}
+
+function WidgetContent({ widget }: { widget: WidgetInstance }) {
   switch (widget.type) {
     case "quote": return <QuoteWidget widget={widget} />;
     case "chart": return <ChartWidget widget={widget} />;

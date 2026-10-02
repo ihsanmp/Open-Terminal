@@ -17,6 +17,7 @@ data/logs/
 data/.built-commit
 data/.build-*
 data/.installed-lock
+data/workspace*.json
 data/cache/
 data/btc-heights.json
 data/btc-supply-pl.json

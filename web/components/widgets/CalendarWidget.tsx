@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Fragment, useMemo, useState } from "react";
 import { apiGet, fmt, pctClass } from "../../lib/api";
-import { useTerminal } from "../../store/terminal";
+import { useTerminal, useWidgetSetting } from "../../store/terminal";
 
 type EconEvent = {
   title: string;
@@ -41,8 +41,8 @@ const TIMEZONES: Array<{ label: string; zone: string | undefined }> = [
 ];
 
 function EconomicTab() {
-  const [minImpact, setMinImpact] = useState<"all" | "medium">("medium");
-  const [tz, setTz] = useState<string>("Local");
+  const [minImpact, setMinImpact] = useWidgetSetting<"all" | "medium">("minImpact", "medium");
+  const [tz, setTz] = useWidgetSetting<string>("tz", "Local");
 
   const { data = [], isLoading, error } = useQuery({
     queryKey: ["econ-calendar"],
@@ -250,7 +250,7 @@ function EarningsTab() {
 }
 
 export default function CalendarWidget() {
-  const [tab, setTab] = useState<"econ" | "earnings">("econ");
+  const [tab, setTab] = useWidgetSetting<"econ" | "earnings">("tab", "econ");
 
   return (
     <div>

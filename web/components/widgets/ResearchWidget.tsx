@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { apiGet, fmt, fmtBig, fmtPrice, pctClass } from "../../lib/api";
 import { discountedCashFlow } from "../../lib/dcf";
-import { useTerminal, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
+import { useTerminal, useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 
 type N = number | null;
 type Check = { name: string; passed: boolean | null; detail: string };
@@ -179,7 +179,7 @@ function Overview({ r }: { r: Research }) {
 }
 
 function Financials({ r }: { r: Research }) {
-  const [which, setWhich] = useState<"income" | "balance" | "cashflow">("income");
+  const [which, setWhich] = useWidgetSetting<"income" | "balance" | "cashflow">("statement", "income");
   const rows = r.statements[which];
   const years = r.statements.years;
   if (years.length === 0) return <div className="p-2 dim">No annual statements available for {r.symbol}.</div>;
@@ -495,7 +495,7 @@ function Peers({ r }: { r: Research }) {
 
 export default function ResearchWidget({ widget }: { widget: WidgetInstance }) {
   const symbol = useWidgetSymbol(widget);
-  const [tab, setTab] = useState<Tab>("Overview");
+  const [tab, setTab] = useWidgetSetting<Tab>("tab", "Overview");
   const { data, error, isLoading } = useQuery({
     queryKey: ["research", symbol],
     queryFn: () => apiGet<Research>(`/api/research/${encodeURIComponent(symbol)}`),

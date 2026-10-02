@@ -4,6 +4,7 @@ import { marketRouter } from "./routes/market.js";
 import { portfolioRouter } from "./routes/portfolio.js";
 import { aiRouter } from "./routes/ai.js";
 import { researchRouter } from "./routes/research.js";
+import { workspaceRouter } from "./routes/workspace.js";
 import { allStats } from "./providers/registry.js";
 import { requireApiKey } from "./auth.js";
 import { rateLimit } from "./rateLimit.js";
@@ -34,6 +35,8 @@ if (process.env.TRUST_PROXY === "1") {
 // origin.
 const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:3000";
 app.use(cors({ origin: webOrigin }));
+// Before the general body parser: the workspace backup has its own, larger limit.
+app.use("/api/workspace", requireApiKey, workspaceRouter);
 app.use(express.json());
 
 app.use("/api/research", researchRouter);
