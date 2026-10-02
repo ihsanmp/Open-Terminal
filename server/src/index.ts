@@ -8,6 +8,12 @@ import { allStats } from "./providers/registry.js";
 import { requireApiKey } from "./auth.js";
 import { rateLimit } from "./rateLimit.js";
 
+// One failed request must not take the API down for every open window: Express 4 doesn't catch
+// errors thrown by async handlers, and Node ends the process on an unhandled rejection by
+// default. They're logged and the server carries on.
+process.on("unhandledRejection", (err) => console.error("[unhandled rejection]", err instanceof Error ? err.stack : err));
+process.on("uncaughtException", (err) => console.error("[uncaught exception]", err.stack ?? err));
+
 const app = express();
 
 // Off by default: req.ip then falls back to the immediate socket address
@@ -55,6 +61,11 @@ const PORT = Number(process.env.API_PORT ?? 4000);
 // unauthenticated-by-default API to the network. Set API_HOST=0.0.0.0 (and
 // API_KEY + WEB_ORIGIN) to intentionally expose it beyond this machine.
 const HOST = process.env.API_HOST ?? "127.0.0.1";
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   console.log(`OpenTerminal API listening on http://${HOST}:${PORT}`);
+});
+// Not being able to listen (the port is taken) is fatal, though other errors aren't.
+server.on("error", (err) => {
+  console.error("[listen]", err.message);
+  process.exit(1);
 });

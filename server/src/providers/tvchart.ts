@@ -34,9 +34,33 @@ export function parseFrames(raw: string): string[] {
   return out;
 }
 
+// At most this many sockets to TradingView at once; more wait their turn, so many windows opening
+// charts at the same moment don't look like a flood (and get the app throttled).
+const MAX_SOCKETS = 6;
+let openSockets = 0;
+const waiting: Array<() => void> = [];
+
+async function socketSlot(): Promise<() => void> {
+  if (openSockets >= MAX_SOCKETS) await new Promise<void>((r) => waiting.push(r));
+  openSockets++;
+  return () => {
+    openSockets--;
+    waiting.shift()?.();
+  };
+}
+
 export async function bars(symbols: string[], resolution: string, count: number, timeoutMs = 12_000): Promise<Record<string, TvBar[] | null>> {
+  if (symbols.length === 0) return {};
+  const release = await socketSlot();
+  try {
+    return await barsOnSocket(symbols, resolution, count, timeoutMs);
+  } finally {
+    release();
+  }
+}
+
+function barsOnSocket(symbols: string[], resolution: string, count: number, timeoutMs: number): Promise<Record<string, TvBar[] | null>> {
   const result: Record<string, TvBar[] | null> = {};
-  if (symbols.length === 0) return result;
   const pending = new Map<string, string>(); // chart session → symbol
   const collected = new Map<string, TvBar[]>();
 

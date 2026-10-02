@@ -1,5 +1,10 @@
+// A GET gives up after 30 s (and is retried): all the app's windows share the browser's six
+// connections to the app, and one request stuck on a slow provider would otherwise hold one.
+const GET_TIMEOUT_MS = 30_000;
+const get = (path: string) => fetch(path, { signal: AbortSignal.timeout(GET_TIMEOUT_MS) });
+
 export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(path);
+  const res = await get(path);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error ?? `HTTP ${res.status}`);
@@ -9,7 +14,7 @@ export async function apiGet<T>(path: string): Promise<T> {
 
 /** apiGet that also tells whether the API answered from a saved copy (its x-stale header). */
 export async function apiGetWithStale<T>(path: string): Promise<{ data: T; stale: boolean }> {
-  const res = await fetch(path);
+  const res = await get(path);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error ?? `HTTP ${res.status}`);
