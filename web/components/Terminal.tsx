@@ -8,6 +8,7 @@ import PageView from "./PageView";
 import Workspace from "./Workspace";
 import CommandPalette from "./CommandPalette";
 import { followOtherWindows, useTerminal } from "../store/terminal";
+import { startWorkspaceBackup } from "../store/workspace-backup";
 
 export default function Terminal() {
   const setCommandOpen = useTerminal((s) => s.setCommandOpen);
@@ -15,8 +16,10 @@ export default function Terminal() {
   const setView = useTerminal((s) => s.setView);
   const activeTab = useTerminal((s) => s.activeTab);
 
-  // Tabs shown in other windows stay in step with this one.
+  // Tabs shown in other windows stay in step with this one, and every change also goes to a
+  // copy on disk that comes back if the browser's storage is ever cleared.
   useEffect(() => followOtherWindows(), []);
+  useEffect(() => startWorkspaceBackup(), []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

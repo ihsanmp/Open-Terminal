@@ -49,7 +49,7 @@ import { INTERVAL_LABEL, INTERVAL_SECONDS, latestBarsView, loadRange, orderedFav
 import { IntervalMenu } from "../chart/IntervalMenu";
 import { ChartSettings } from "../chart/ChartSettings";
 import { candleOptions, formatChartTime, formatTick, prevCloseColors, resolveChartStyle, resolveTimezone, risingBars } from "../../lib/chart-style";
-import { DEFAULT_CHART_INDICATORS, useTerminal, useWidgetSymbol, type ChartScaleMode, type WidgetInstance } from "../../store/terminal";
+import { DEFAULT_CHART_INDICATORS, useTerminal, useWidgetSetting, useWidgetSymbol, type ChartScaleMode, type WidgetInstance } from "../../store/terminal";
 import { isPinch, keyAction, panPrice, scalePrice, shiftSpan, wheelPixels, zoomFactor, zoomSpan, type Span } from "../../lib/chart-nav";
 import { IndicatorPicker, IndicatorSettings } from "../chart/IndicatorDialogs";
 import { PriceScaleMenu } from "../chart/PriceScaleMenu";
@@ -197,7 +197,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const chartRef = useRef<IChartApi | null>(null);
   /** A price range the user set by hand (dragging or wheeling the price axis), kept across data refreshes. */
   const savedPrice = useRef<{ key: string; range: { from: number; to: number } } | null>(null);
-  const [chartType, setChartType] = useState<ChartType>("candles");
+  const [chartType, setChartType] = useWidgetSetting<ChartType>("chartType", "candles");
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [paneTops, setPaneTops] = useState<number[]>([0]);
   // Price-scale width and time-scale height, so tables sit inside the plotting area like Pine's.

@@ -3,13 +3,16 @@
 import { useMutation } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { apiGet, apiPost, type Quote } from "../../lib/api";
-import { useTerminal } from "../../store/terminal";
+import { useTerminal, useWidgetSetting } from "../../store/terminal";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
 export default function AiWidget() {
   const activeSymbol = useTerminal((s) => s.activeSymbol);
-  const [messages, setMessages] = useState<Msg[]>([]);
+  // The conversation is saved with the widget (its last 100 messages).
+  const [saved, setSaved] = useWidgetSetting<Msg[]>("messages", []);
+  const messages = saved;
+  const setMessages = (next: Msg[] | ((m: Msg[]) => Msg[])) => setSaved((m) => (typeof next === "function" ? next(m) : next).slice(-100));
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 

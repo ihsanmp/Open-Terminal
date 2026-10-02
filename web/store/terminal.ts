@@ -1,7 +1,9 @@
 "use client";
 
+import { createContext, useCallback, useContext } from "react";
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, type PersistStorage } from "zustand/middleware";
+import { createWorkspaceStorage, WORKSPACE_KEY } from "./workspace-storage";
 import type { IndicatorInstance } from "../lib/ta/types";
 import type { ChartStyle } from "../lib/chart-style";
 
@@ -36,6 +38,8 @@ export type WidgetInstance = {
   chartScale?: ChartScaleMode; // chart widgets: price scale mode (TradingView's Regular / Percent / Indexed to 100 / Logarithmic)
   chartInvert?: boolean; // chart widgets: inverted price scale
   chartStyle?: Partial<ChartStyle>; // chart widgets: the Settings dialog (candles, precision, timezone, canvas)
+  /** A widget's own choices (filters, tabs, chart type, channel …), saved with it; see useWidgetSetting. */
+  settings?: Record<string, unknown>;
 };
 
 export const DEFAULT_CHART_INDICATORS: IndicatorInstance[] = [
@@ -89,6 +93,7 @@ type TerminalState = {
   setWidgetIndicators: (id: string, indicators: IndicatorInstance[]) => void;
   setWidgetChart: (id: string, patch: { chartInterval?: string; chartScale?: ChartScaleMode; chartInvert?: boolean; chartStyle?: Partial<ChartStyle> }) => void;
   toggleFavoriteInterval: (interval: string) => void;
+  setWidgetSetting: (id: string, key: string, value: unknown) => void;
   setLayout: (layout: LayoutItem[]) => void;
   addToWatchlist: (s: string) => void;
   removeFromWatchlist: (s: string) => void;
@@ -216,6 +221,7 @@ export const useTerminal = create<TerminalState>()(
       toggleLinked: (id) => set((st) => patchWidget(st, id, (w) => ({ ...w, linked: !w.linked }))),
       setWidgetIndicators: (id, indicators) => set((st) => patchWidget(st, id, (w) => ({ ...w, indicators }))),
       setWidgetChart: (id, patch) => set((st) => patchWidget(st, id, (w) => ({ ...w, ...patch }))),
+      setWidgetSetting: (id, key, value) => set((st) => patchWidget(st, id, (w) => ({ ...w, settings: { ...w.settings, [key]: value } }))),
       setLayout: (layout) => set({ layout }),
       addToWatchlist: (s) =>
         set((st) => ({
@@ -273,7 +279,9 @@ export const useTerminal = create<TerminalState>()(
         }),
     }),
     {
-      name: "openterminal-workspace",
+      name: WORKSPACE_KEY,
+      // Saved per tab, so windows editing different tabs can't overwrite each other.
+      storage: createWorkspaceStorage() as PersistStorage<unknown> | undefined,
       // v1: tabs. The window's own tab and the transient UI aren't saved.
       version: 1,
       partialize: (st) => ({ tabs: st.tabs, watchlist: st.watchlist, favoriteIntervals: st.favoriteIntervals }),
@@ -311,11 +319,18 @@ useTerminal.subscribe((st, prev) => {
 
 /** Other windows' changes (another tab, or this one shown twice) arrive through localStorage. */
 export function followOtherWindows(): () => void {
+  // One save can touch several entries (a tab and the tab list): read them all once it's done.
+  let pending: ReturnType<typeof setTimeout> | undefined;
   const onStorage = (e: StorageEvent) => {
-    if (e.key === "openterminal-workspace") void useTerminal.persist.rehydrate();
+    if (!e.key?.startsWith(WORKSPACE_KEY)) return;
+    clearTimeout(pending);
+    pending = setTimeout(() => void useTerminal.persist.rehydrate(), 30);
   };
   window.addEventListener("storage", onStorage);
-  return () => window.removeEventListener("storage", onStorage);
+  return () => {
+    clearTimeout(pending);
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 /** What a tab is called on the tab bar: its name, or its symbol and page. */
@@ -329,4 +344,36 @@ export function tabLabel(tab: TabData): string {
 export function useWidgetSymbol(widget: WidgetInstance): string {
   const active = useTerminal((s) => s.activeSymbol);
   return widget.linked ? active : widget.symbol ?? active;
+}
+
+/** The widget being rendered, for useWidgetSetting (set by WidgetBody). */
+export const WidgetIdContext = createContext<string | null>(null);
+
+/**
+ * Like useState, but saved with the widget (and its tab), so a choice made in it — a filter, a
+ * tab, the chart type — is still there after switching tabs or restarting the app.
+ */
+export function useWidgetSetting<T>(key: string, fallback: T): [T, (value: T | ((current: T) => T)) => void] {
+  const id = useContext(WidgetIdContext);
+  const read = useCallback(
+    (s: TerminalState): T | undefined => {
+      if (!id) return undefined;
+      const w = s.widgets.find((x) => x.id === id) ?? s.pages.find((x) => x.id === id);
+      return w?.settings?.[key] as T | undefined;
+    },
+    [id, key]
+  );
+  const stored = useTerminal(read);
+  const set = useCallback(
+    (value: T | ((current: T) => T)) => {
+      if (!id) return;
+      const st = useTerminal.getState();
+      const current = read(st) ?? fallback;
+      st.setWidgetSetting(id, key, typeof value === "function" ? (value as (c: T) => T)(current) : value);
+    },
+    // fallback is a constant at each call site
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [id, key, read]
+  );
+  return [stored === undefined ? fallback : stored, set];
 }
