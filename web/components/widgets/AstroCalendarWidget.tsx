@@ -5,12 +5,13 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { apiGet, type Candle } from "../../lib/api";
 import { buildEvents, type AstroEvent, type EventKind } from "../../lib/astro-calendar/events";
-import { ASSETS, describeKey, extendSeries, impactOf, indexByKey, MIN_SAMPLES, type Asset, type Impact, type Verdict } from "../../lib/astro-calendar/impact";
+import { ASSETS, describeKey, describeState, extendSeries, impactOf, indexByKey, MIN_SAMPLES, pricesVersion, trackRecord, verdictTrail, type Asset, type Impact, type Verdict } from "../../lib/astro-calendar/impact";
 import { useWidgetSetting } from "../../store/terminal";
 
 // The astrology calendar: the month's sky events, each with its offline verdict on GOLD and BTC
 // (lib/astro-calendar). Clicking an event opens its details: what happens, and the impact with
-// the statistics behind it.
+// the statistics behind it. The verdict follows the latest close until the day before the event,
+// so it is recomputed whenever the prices change.
 
 const DAY = 86_400;
 const FIRST_DAY = Math.floor(Date.UTC(1990, 0, 1) / 1000 / DAY);
@@ -47,6 +48,8 @@ const localDay = (time: number) => {
 };
 const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 const fmtDate = (time: number) => localDay(time).toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" });
+const fmtUtcDay = (day: number, month: "long" | "short" = "long") =>
+  new Date(day * DAY * 1000).toLocaleDateString("id-ID", { day: "2-digit", month, year: month === "long" ? "numeric" : undefined, timeZone: "UTC" });
 const fmtTime = (time: number) => new Date(time * 1000).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
 const signed = (v: number, digits = 2) => `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%`;
 
@@ -73,12 +76,13 @@ function Badge({ verdict }: { verdict: Verdict }) {
 function Bars({ impact }: { impact: Impact }) {
   const recent = impact.samples.slice(-40);
   const max = Math.max(0.01, ...recent.map((s) => Math.abs(s.ret)));
+  const maxW = Math.max(1e-9, ...recent.map((s) => s.w));
   return (
-    <div className="flex items-center gap-[2px] h-10" title="Return setelah tiap kejadian sebelumnya (terbaru di kanan)">
+    <div className="flex items-center gap-[2px] h-10" title="Return setelah tiap kejadian sebelumnya (terbaru di kanan; makin terang, makin diperhitungkan)">
       {recent.map((s) => {
         const h = Math.max(1, (Math.abs(s.ret) / max) * 18);
         return (
-          <div key={s.time} className="flex flex-col justify-center h-full w-[5px]">
+          <div key={s.time} className="flex flex-col justify-center h-full w-[5px]" style={{ opacity: 0.25 + 0.75 * Math.min(1, s.w / maxW) }}>
             <div style={{ height: 18 }} className="flex items-end">
               {s.ret > 0 && <div style={{ height: h }} className="w-full bg-[#2ecc8f]" />}
             </div>
@@ -92,7 +96,28 @@ function Bars({ impact }: { impact: Impact }) {
   );
 }
 
-function ImpactRow({ impact }: { impact: Impact }) {
+const VERDICT_COLOR: Record<Verdict, string> = { Bullish: "#2ecc8f", Bearish: "#e05555", Netral: "#555" };
+type TrailPoint = { day: number; verdict: Verdict; t: number };
+
+/** The verdict as of each recent trading day up to H-1, oldest on the left. */
+function Trail({ trail }: { trail: TrailPoint[] }) {
+  if (!trail.length) return null;
+  return (
+    <div className="flex items-center gap-2">
+      <span className="dim">Perubahan kesimpulan</span>
+      <span className="flex gap-[2px]">
+        {trail.map((x) => (
+          <span key={x.day} className="w-[9px] h-[9px] rounded-[2px]" style={{ background: VERDICT_COLOR[x.verdict] }} title={`${fmtUtcDay(x.day)}: ${x.verdict} (t ${x.t.toFixed(2)})`} />
+        ))}
+      </span>
+      <span className="dim">
+        {fmtUtcDay(trail[0].day, "short")} → {fmtUtcDay(trail[trail.length - 1].day, "short")}
+      </span>
+    </div>
+  );
+}
+
+function ImpactRow({ impact, trail, record }: { impact: Impact; trail: TrailPoint[]; record: { calls: number; right: number } }) {
   const [open, setOpen] = useState(false);
   const enough = impact.n >= MIN_SAMPLES;
   return (
@@ -119,15 +144,28 @@ function ImpactRow({ impact }: { impact: Impact }) {
                 <span>{signed(impact.baselinePct)}</span>
                 <span className="dim">Selisih dari biasanya</span>
                 <span className={impact.excessPct >= 0 ? "up" : "down"}>{signed(impact.excessPct)}</span>
+                <span className="dim pl-2">· dari kondisi pasar</span>
+                <span className={impact.marketPct >= 0 ? "up" : "down"}>{signed(impact.marketPct)}</span>
+                <span className="dim pl-2">· dari kejadian astro</span>
+                <span className={impact.astroPct >= 0 ? "up" : "down"}>{signed(impact.astroPct)}</span>
                 <span className="dim">Naik setelah kejadian</span>
                 <span>
                   {(impact.upRate * 100).toFixed(0)}% <span className="dim">(biasanya {(impact.baselineUpRate * 100).toFixed(0)}%)</span>
                 </span>
                 <span className="dim">Jumlah kejadian sebelumnya</span>
-                <span>{impact.n}</span>
+                <span>
+                  {impact.n} <span className="dim">(bobot efektif {impact.neff.toFixed(1)})</span>
+                </span>
                 <span className="dim">Kekuatan statistik (t)</span>
                 <span>{impact.t.toFixed(2)}</span>
+                <span className="dim">Kondisi pasar per {fmtUtcDay(impact.asOfDay, "short")}</span>
+                <span>{describeState(impact.state)}</span>
+                <span className="dim">Rekam jejak jenis ini</span>
+                <span>
+                  {record.calls ? `${record.right} dari ${record.calls} kesimpulan benar (${Math.round((record.right / record.calls) * 100)}%)` : "belum ada kesimpulan sebelumnya"}
+                </span>
               </div>
+              <Trail trail={trail} />
               <Bars impact={impact} />
               <div className="dim">
                 Dasar: {describeKey(impact.basis)}
@@ -135,7 +173,12 @@ function ImpactRow({ impact }: { impact: Impact }) {
               </div>
             </>
           ) : (
-            <div className="dim">Belum cukup kejadian serupa di data ({impact.n} dari minimal {MIN_SAMPLES}) untuk menarik kesimpulan.</div>
+            <>
+              <div className="dim">
+                Belum cukup kejadian serupa di data ({impact.n} dari minimal {MIN_SAMPLES}) untuk menarik kesimpulan.
+              </div>
+              <Trail trail={trail} />
+            </>
           )}
         </div>
       )}
@@ -143,8 +186,13 @@ function ImpactRow({ impact }: { impact: Impact }) {
   );
 }
 
-function EventDialog({ event, byKey, onClose }: { event: AstroEvent; byKey: Map<string, number[]>; onClose: () => void }) {
-  const impacts = useMemo(() => ASSETS.map((a) => impactOf(event, byKey, a)), [event, byKey]);
+function EventDialog({ event, events, byKey, version, onClose }: { event: AstroEvent; events: AstroEvent[]; byKey: Map<string, number[]>; version: number; onClose: () => void }) {
+  const rows = useMemo(
+    () => ASSETS.map((a) => ({ impact: impactOf(event, byKey, a), trail: verdictTrail(event, byKey, a), record: trackRecord(event, byKey, events, a) })),
+    [event, events, byKey, version] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const final = rows.every((r) => r.impact.final);
+  const asOf = Math.max(...rows.map((r) => r.impact.asOfDay));
   const [info, setInfo] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -186,18 +234,27 @@ function EventDialog({ event, byKey, onClose }: { event: AstroEvent; byKey: Map<
               i
             </button>
           </div>
+          <div className="text-[10px] dim px-1">
+            Kesimpulan per data {fmtUtcDay(asOf)}
+            {final ? " · final (H-1)" : ` · sementara, ikut berubah dengan harga terbaru sampai H-1 (${fmtUtcDay(Math.floor(event.time / DAY) - 1)})`}
+          </div>
           {info && (
             <div className="text-[11px] dim px-1 space-y-1">
               <p>
                 Dihitung offline dari riwayat harga (gold sejak 1990, BTC sejak 2011): untuk setiap kejadian yang sama di masa lalu, diukur pergerakan harga
-                beberapa hari bursa sesudahnya, lalu dibandingkan dengan pergerakan biasa pada periode yang sama panjang. Bullish/Bearish bila selisihnya
-                cukup konsisten (t ≥ 1), selain itu Netral.
+                beberapa hari bursa sesudahnya (dari penutupan H-1), lalu dibandingkan dengan pergerakan biasa pada periode yang sama panjang.
+                Bullish/Bearish bila selisihnya cukup konsisten (t ≥ 1), selain itu Netral.
+              </p>
+              <p>
+                Adaptif sampai H-1: hanya harga sampai hari itu yang dipakai. Kejadian lampau yang terjadi saat kondisi pasar mirip dengan sekarang
+                (momentum 20 hari dan posisi terhadap rata-rata 50 hari) serta yang lebih baru diberi bobot lebih besar, jadi kesimpulan bisa berubah
+                setiap ada harga penutupan baru. Mulai H-1 kesimpulannya tetap.
               </p>
               <p>Ini pola masa lalu, bukan ramalan: astrologi belum terbukti bisa memprediksi pasar, dan sebagian pola bisa muncul karena kebetulan.</p>
             </div>
           )}
-          {impacts.map((im) => (
-            <ImpactRow key={im.asset} impact={im} />
+          {rows.map((r) => (
+            <ImpactRow key={r.impact.asset} {...r} />
           ))}
         </div>
       </div>
@@ -207,9 +264,9 @@ function EventDialog({ event, byKey, onClose }: { event: AstroEvent; byKey: Map<
 }
 
 /** A dot per asset on a calendar chip: green bullish, red bearish, grey neutral. */
-function Dots({ event, byKey }: { event: AstroEvent; byKey: Map<string, number[]> }) {
-  const v = useMemo(() => ASSETS.map((a) => impactOf(event, byKey, a).verdict), [event, byKey]);
-  const color = (x: Verdict) => (x === "Bullish" ? "#2ecc8f" : x === "Bearish" ? "#e05555" : "#555");
+function Dots({ event, byKey, version }: { event: AstroEvent; byKey: Map<string, number[]>; version: number }) {
+  const v = useMemo(() => ASSETS.map((a) => impactOf(event, byKey, a).verdict), [event, byKey, version]); // eslint-disable-line react-hooks/exhaustive-deps
+  const color = (x: Verdict) => VERDICT_COLOR[x];
   return (
     <span className="flex gap-[2px] shrink-0" title={ASSETS.map((a, i) => `${a}: ${v[i]}`).join(", ")}>
       {v.map((x, i) => (
@@ -234,13 +291,15 @@ export default function AstroCalendarWidget() {
   }, [data]);
 
   // Newer closes than the bundled ones, when the app's API is reachable (optional: it works offline).
-  const [, setPricesVersion] = useState(0);
-  const gold = useQuery({ queryKey: ["astro-prices", "GOLD"], queryFn: () => apiGet<Candle[]>("/api/history/XAUUSD=X?range=1Y&interval=1D"), staleTime: 3_600_000, retry: 0 });
-  const btc = useQuery({ queryKey: ["astro-prices", "BTC"], queryFn: () => apiGet<Candle[]>("/api/history/BTC-USD?range=1Y&interval=1D"), staleTime: 3_600_000, retry: 0 });
+  // Refreshed every quarter of an hour: the verdicts follow the latest close until H-1.
+  const [version, setVersion] = useState(pricesVersion);
+  const live = { staleTime: 10 * 60_000, refetchInterval: 15 * 60_000, retry: 0 } as const;
+  const gold = useQuery({ queryKey: ["astro-prices", "GOLD"], queryFn: () => apiGet<Candle[]>("/api/history/XAUUSD=X?range=1Y&interval=1D"), ...live });
+  const btc = useQuery({ queryKey: ["astro-prices", "BTC"], queryFn: () => apiGet<Candle[]>("/api/history/BTC-USD?range=1Y&interval=1D"), ...live });
   useEffect(() => {
     if (gold.data) extendSeries("GOLD", gold.data);
     if (btc.data) extendSeries("BTC", btc.data);
-    setPricesVersion((v) => v + 1);
+    setVersion(pricesVersion());
   }, [gold.data, btc.data]);
 
   const first = new Date(month.y, month.m, 1);
@@ -324,7 +383,7 @@ export default function AstroCalendarWidget() {
                   >
                     <span className="shrink-0">{e.glyph}</span>
                     <span className="truncate flex-1">{e.title}</span>
-                    {data && <Dots event={e} byKey={data.byKey} />}
+                    {data && <Dots event={e} byKey={data.byKey} version={version} />}
                   </button>
                 ))}
                 {events.length > 5 && <span className="dim text-[9px] px-1">+{events.length - 5} lainnya</span>}
@@ -340,11 +399,11 @@ export default function AstroCalendarWidget() {
             <span className="w-14 dim shrink-0">{localDay(e.time).toLocaleDateString("id-ID", { day: "2-digit", month: "short" })}</span>
             <span className="shrink-0">{e.glyph}</span>
             <span className="truncate flex-1">{e.title}</span>
-            {data && <Dots event={e} byKey={data.byKey} />}
+            {data && <Dots event={e} byKey={data.byKey} version={version} />}
           </button>
         ))}
       </aside>
-      {selected && data && <EventDialog event={selected} byKey={data.byKey} onClose={() => setSelected(null)} />}
+      {selected && data && <EventDialog event={selected} events={data.events} byKey={data.byKey} version={version} onClose={() => setSelected(null)} />}
     </div>
   );
 }

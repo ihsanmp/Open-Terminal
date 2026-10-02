@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildEvents } from "./events";
-import { ASSETS, extendSeries, impactOf, indexByKey, MIN_SAMPLES } from "./impact";
+import { ASSETS, extendSeries, impactOf, indexByKey, lastPriceDay, MIN_SAMPLES, pricesVersion, seriesOf, trackRecord, verdictTrail } from "./impact";
 
 const day = (iso: string) => Math.floor(Date.parse(iso) / 86_400_000);
 // The reference sheet's times are WIB (UTC+7).
@@ -56,9 +56,51 @@ describe("market impact", () => {
     expect(im.basisLevel).toBeGreaterThan(0);
   });
 
-  it("takes newer closes from the API after the bundled ones", () => {
+  it("adapts until the day before the event, using only what was known then", () => {
+    // A past event: its verdict is fixed at H-1 and only uses outcomes over by then.
+    const past = find("Venus Retrograde", wib("2025-03-02T00:00"), 5)!;
+    const h1 = Math.floor(past.time / 86_400) - 1;
+    for (const a of ASSETS) {
+      const im = impactOf(past, byKey, a);
+      expect(im.final).toBe(true);
+      expect(im.asOfDay).toBeLessThanOrEqual(h1);
+      expect(im.samples.every((s) => Math.floor(s.time / 86_400) + im.horizon <= im.asOfDay)).toBe(true);
+      // A month earlier fewer outcomes were known.
+      expect(impactOf(past, byKey, a, h1 - 30).n).toBeLessThanOrEqual(im.n);
+    }
+    // An event still ahead is provisional; once its H-1 close is in, final.
+    const eventDay = Math.floor(venusRx.time / 86_400);
+    expect(impactOf(venusRx, byKey, "BTC", undefined, eventDay - 5).final).toBe(false);
+    expect(impactOf(venusRx, byKey, "BTC", undefined, eventDay).final).toBe(true);
+    // Over its last 15 trading days the answer moves with the market's state.
+    const trail = verdictTrail(past, byKey, "GOLD");
+    expect(trail.length).toBe(15);
+    expect(trail.every((x, i) => i === 0 || x.day > trail[i - 1].day)).toBe(true);
+    expect(new Set(trail.map((x) => x.t.toFixed(6))).size).toBeGreaterThan(1);
+  });
+
+  it("keeps a track record of its earlier H-1 verdicts", () => {
+    // Full moons in one sign: frequent enough for several non-neutral calls.
+    const full = find("Full Moon in Taurus", wib("2026-10-26T11:11"))!;
+    for (const a of ASSETS) {
+      const r = trackRecord(full, byKey, events, a);
+      expect(r.calls).toBeGreaterThan(0);
+      expect(r.right).toBeLessThanOrEqual(r.calls);
+    }
+  });
+
+  it("takes newer closes from the API, the latest replacing the previous", () => {
     const before = impactOf(venusRx, byKey, "GOLD");
+    const v = pricesVersion();
     extendSeries("GOLD", [{ time: Date.parse("2000-01-01") / 1000, close: 1 }]); // older than the bundle: ignored
+    expect(pricesVersion()).toBe(v);
     expect(impactOf(venusRx, byKey, "GOLD").meanPct).toBe(before.meanPct);
+    const last = lastPriceDay("GOLD");
+    const next = (last + 1) * 86_400 - 3600; // stamped an hour before midnight UTC
+    extendSeries("GOLD", [{ time: next, close: 4000 }]);
+    extendSeries("GOLD", [{ time: next, close: 4100 }]);
+    expect(lastPriceDay("GOLD")).toBe(last + 1);
+    expect(seriesOf("GOLD").close.at(-1)).toBe(4100);
+    expect(pricesVersion()).toBe(v + 2);
   });
 });
