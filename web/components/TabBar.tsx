@@ -3,13 +3,24 @@
 import { useEffect, useRef, useState } from "react";
 import { tabLabel, useTerminal, type TabData } from "../store/terminal";
 
-/** Opens a tab in its own app window (a popup, so it has no browser toolbar either). */
+/**
+ * Opens a tab (one no window shows) in its own app window: a popup, so it has no browser toolbar
+ * either. `noopener`, or the browser would hand it this window's session, and with it this
+ * window's identity and tabs.
+ */
 export function openTabWindow(id: string) {
   const url = new URL(window.location.href);
   url.search = "";
   url.searchParams.set("tab", id);
-  const w = window.open(url, `openterminal-${id}`, `popup,width=${window.outerWidth},height=${window.outerHeight},left=${window.screenX + 40},top=${window.screenY + 40}`);
-  w?.focus();
+  window.open(url, `openterminal-${id}`, `popup,noopener,width=${window.outerWidth},height=${window.outerHeight},left=${window.screenX + 40},top=${window.screenY + 40}`);
+}
+
+/** Moves a tab out of this window into a new one (a copy when it's this window's only tab). */
+export function moveTabToWindow(id: string) {
+  const st = useTerminal.getState();
+  if (st.windowTabs.length <= 1) return openTabWindow(st.duplicateTab(true));
+  st.releaseTab(id);
+  openTabWindow(id);
 }
 
 function Tab({ tab, active, only }: { tab: TabData; active: boolean; only: boolean }) {
@@ -17,7 +28,7 @@ function Tab({ tab, active, only }: { tab: TabData; active: boolean; only: boole
   const closeTab = useTerminal((s) => s.closeTab);
   const renameTab = useTerminal((s) => s.renameTab);
   const moveTab = useTerminal((s) => s.moveTab);
-  const tabs = useTerminal((s) => s.tabs);
+  const windowTabs = useTerminal((s) => s.windowTabs);
   const [editing, setEditing] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const label = tabLabel(tab);
@@ -36,7 +47,7 @@ function Tab({ tab, active, only }: { tab: TabData; active: boolean; only: boole
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         const id = e.dataTransfer.getData("text/openterminal-tab");
-        if (id && id !== tab.id) moveTab(id, tabs.findIndex((t) => t.id === tab.id));
+        if (id && id !== tab.id) moveTab(id, windowTabs.indexOf(tab.id));
       }}
       onMouseDown={(e) => {
         // Middle click closes, as in a browser.
@@ -71,11 +82,11 @@ function Tab({ tab, active, only }: { tab: TabData; active: boolean; only: boole
       )}
       <button
         className="opacity-0 group-hover:opacity-100 px-1 hover:text-[var(--amber)]"
-        title="Open this tab in a new window"
-        aria-label="Open in a new window"
+        title="Move this tab to a new window"
+        aria-label="Move to a new window"
         onClick={(e) => {
           e.stopPropagation();
-          openTabWindow(tab.id);
+          moveTabToWindow(tab.id);
         }}
       >
         ⧉
@@ -98,11 +109,14 @@ function Tab({ tab, active, only }: { tab: TabData; active: boolean; only: boole
 }
 
 /**
- * Tabs like a browser's: each has its own symbol, page, workspace and chart settings. "+" copies
- * the current tab; ⧉ opens a tab in its own window, so several can be watched side by side.
+ * Tabs like a browser's: each has its own symbol, page, workspace and chart settings, and each
+ * window has its own tabs. "+" copies the current tab; ⧉ moves a tab into a window of its own, so
+ * several can be watched side by side.
  */
 export default function TabBar() {
-  const tabs = useTerminal((s) => s.tabs);
+  const allTabs = useTerminal((s) => s.tabs);
+  const windowTabs = useTerminal((s) => s.windowTabs);
+  const tabs = windowTabs.map((id) => allTabs.find((t) => t.id === id)).filter((t): t is TabData => Boolean(t));
   const activeTab = useTerminal((s) => s.activeTab);
   const duplicateTab = useTerminal((s) => s.duplicateTab);
   const active = tabs.find((t) => t.id === activeTab);

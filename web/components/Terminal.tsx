@@ -39,9 +39,9 @@ export default function Terminal() {
         else if (key === "w") st.closeTab(st.activeTab);
         else if (key === "n") openTabWindow(st.duplicateTab(true));
         else {
-          const at = st.tabs.findIndex((t) => t.id === st.activeTab);
-          const next = st.tabs[(at + (key === "]" ? 1 : -1) + st.tabs.length) % st.tabs.length];
-          st.switchTab(next.id);
+          const at = st.windowTabs.indexOf(st.activeTab);
+          const n = st.windowTabs.length;
+          st.switchTab(st.windowTabs[(at + (key === "]" ? 1 : -1) + n) % n]);
         }
         return;
       }

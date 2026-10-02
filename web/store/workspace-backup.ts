@@ -2,7 +2,7 @@
 // and when a window closes, and read back when the browser has nothing saved — its storage
 // cleared, or a new browser profile — so changes outlive the browser's own copy.
 
-import { useTerminal } from "./terminal";
+import { takeUnclaimedTabs, useTerminal } from "./terminal";
 import { createWorkspaceStorage, localSavedAt, readWorkspace, SAVED_AT_START, WORKSPACE_KEY } from "./workspace-storage";
 
 const URL_PATH = "/api/workspace";
@@ -28,6 +28,8 @@ async function restoreIfNewer(): Promise<boolean> {
         if ((workspace.savedAt ?? 0) > local || !SAVED_AT_START) {
           createWorkspaceStorage()?.setItem(WORKSPACE_KEY, workspace as never);
           await useTerminal.persist.rehydrate();
+          takeUnclaimedTabs(); // the restored tabs show in this window
+
         }
         return true;
       }
