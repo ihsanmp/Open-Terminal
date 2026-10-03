@@ -17,6 +17,7 @@ import type {
   SeriesType,
   Time,
 } from "lightweight-charts";
+import { fontPx } from "../font-scale";
 
 type Attached = { chart: IChartApi; series: ISeriesApi<SeriesType>; requestUpdate: () => void };
 
@@ -185,7 +186,7 @@ export type DrawingsSpec = {
 };
 
 // Pine's size.* for label text and for a text-less style_circle dot, in CSS pixels.
-const FONT_PX = { tiny: 9, small: 11, normal: 13, large: 16, huge: 22 } as const;
+const FONT_PX = { tiny: fontPx(9), small: fontPx(11), normal: fontPx(13), large: fontPx(16), huge: fontPx(22) } as const;
 const DOT_PX = { tiny: 8, small: 12, normal: 16, large: 22, huge: 30 } as const;
 const FONT = "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif";
 const DASH: Record<LineDash, number[]> = { solid: [], dashed: [4, 3], dotted: [1, 3] };

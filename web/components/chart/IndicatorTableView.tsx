@@ -2,9 +2,10 @@
 
 import type { CSSProperties, ReactElement } from "react";
 import type { DrawSize, IndicatorTable } from "../../lib/ta/types";
+import { fontPx } from "../../lib/font-scale";
 
 // Pine's size.* for table text, in CSS pixels.
-const TEXT_PX: Record<DrawSize, number> = { tiny: 9, small: 11, normal: 13, large: 16, huge: 22 };
+const TEXT_PX: Record<DrawSize, number> = { tiny: fontPx(9), small: fontPx(11), normal: fontPx(13), large: fontPx(16), huge: fontPx(22) };
 
 /** A Pine table.new() drawn over the price pane. Cells that were never set take no space,
  *  as in Pine, so the grid is filled with zero-width placeholders. */

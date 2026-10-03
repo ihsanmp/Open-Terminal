@@ -99,7 +99,7 @@ export default function TvWidget() {
             {c.label}
           </button>
         ))}
-        <span className="ml-auto flex items-center gap-2 text-[11px]">
+        <span className="ml-auto flex items-center gap-2 text-fs-11">
           {!error && (
             <span className={lag && lag.seconds >= 90 ? "amber" : "down"} title={lag?.fromClock ? "From the broadcast's own clock" : "Behind the stream's live edge"}>
               ● {lagLabel(lag)}

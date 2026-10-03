@@ -69,7 +69,7 @@ function Stat({ label, value, className = "" }: { label: string; value: string; 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-3">
-      <div className="amber text-[10px] uppercase tracking-wider mb-1">{title}</div>
+      <div className="amber text-fs-10 uppercase tracking-wider mb-1">{title}</div>
       {children}
     </div>
   );
@@ -78,8 +78,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function ScoreBadge({ label, value, tone, hint }: { label: string; value: string; tone: "up" | "down" | "amber" | "dim"; hint: string }) {
   return (
     <div className="border border-[var(--border)] px-2 py-1 min-w-[110px]" title={hint}>
-      <div className="dim text-[10px] uppercase">{label}</div>
-      <div className={`${tone} font-bold text-[13px]`}>{value}</div>
+      <div className="dim text-fs-10 uppercase">{label}</div>
+      <div className={`${tone} font-bold text-fs-13`}>{value}</div>
     </div>
   );
 }
@@ -172,7 +172,7 @@ function Overview({ r }: { r: Research }) {
         </div>
       )}
       {r.warnings.map((w) => (
-        <div key={w} className="amber text-[11px] mt-1">⚠ {w}</div>
+        <div key={w} className="amber text-fs-11 mt-1">⚠ {w}</div>
       ))}
     </div>
   );
@@ -191,7 +191,7 @@ function Financials({ r }: { r: Research }) {
             {k === "income" ? "INCOME" : k === "balance" ? "BALANCE SHEET" : "CASH FLOW"}
           </button>
         ))}
-        <span className="dim ml-auto text-[10px]">{r.statementCurrency} · fiscal years</span>
+        <span className="dim ml-auto text-fs-10">{r.statementCurrency} · fiscal years</span>
       </div>
       <table className="data-table">
         <thead>
@@ -245,7 +245,7 @@ function Ratios({ r }: { r: Research }) {
   let lastGroup = "";
   return (
     <div className="p-1">
-      <div className="dim text-[10px] px-1 mb-1">DuPont: ROE = net margin × asset turnover × equity multiplier (average balances).</div>
+      <div className="dim text-fs-10 px-1 mb-1">DuPont: ROE = net margin × asset turnover × equity multiplier (average balances).</div>
       <table className="data-table">
         <thead>
           <tr>
@@ -260,7 +260,7 @@ function Ratios({ r }: { r: Research }) {
               lastGroup = row.group;
               out.push(
                 <tr key={row.group} className="pointer-events-none">
-                  <td colSpan={r.ratios.length + 1} className="!text-left amber text-[10px] uppercase tracking-wider pt-2">{row.group}</td>
+                  <td colSpan={r.ratios.length + 1} className="!text-left amber text-fs-10 uppercase tracking-wider pt-2">{row.group}</td>
                 </tr>
               );
             }
@@ -332,7 +332,7 @@ function Valuation({ r }: { r: Research }) {
               <NumberField label="Projection years" value={inputs.years} onChange={(v) => setInputs((s) => ({ ...s, years: Math.max(1, Math.min(20, Math.round(v))) }))} />
               <NumberField label="Discount rate" value={inputs.discountRate} suffix="%" onChange={(v) => setInputs((s) => ({ ...s, discountRate: v }))} />
               <NumberField label="Terminal growth" value={inputs.terminalGrowth} suffix="%" onChange={(v) => setInputs((s) => ({ ...s, terminalGrowth: v }))} />
-              <div className="dim text-[10px] my-1">
+              <div className="dim text-fs-10 my-1">
                 Defaults: growth = revenue CAGR {pct(d.revenueCagr)} (capped −5…25%); discount = CAPM {pct(d.riskFree)} + β {fmt(d.beta)} × {pct(d.equityRiskPremium)} ERP.
               </div>
               {result ? (
@@ -416,7 +416,7 @@ function Analysts({ r }: { r: Research }) {
   return (
     <div className="p-2">
       <div className="flex items-baseline gap-3 mb-2">
-        <span className="text-xl font-bold">{a.consensus ?? "—"}</span>
+        <span className="text-fs-15 font-bold">{a.consensus ?? "—"}</span>
         <span className="dim">score {fmt(a.score, 2)} (1 strong buy … 5 strong sell) · {a.total} analysts</span>
       </div>
       <Section title="Recommendations">
@@ -443,7 +443,7 @@ function Analysts({ r }: { r: Research }) {
             <div className="absolute top-3.5 h-1 bg-[var(--amber-dim)]" style={{ left: `${pos(lo)}%`, width: `${(pos(hi) ?? 0) - (pos(lo) ?? 0)}%` }} />
             <div className="absolute top-1.5 w-0.5 h-5 bg-[var(--amber)]" style={{ left: `${pos(a.targetAverage)}%` }} title="Average target" />
             {r.price !== null && (
-              <div className="absolute top-0 -translate-x-1/2 text-[10px]" style={{ left: `${pos(r.price)}%` }} title="Current price">
+              <div className="absolute top-0 -translate-x-1/2 text-fs-10" style={{ left: `${pos(r.price)}%` }} title="Current price">
                 ▼<div className="text-center -mt-0.5">{fmtPrice(r.price)}</div>
               </div>
             )}
@@ -465,7 +465,7 @@ function Peers({ r }: { r: Research }) {
   if (error) return <div className="p-2 down">Error: {(error as Error).message}</div>;
   return (
     <div className="p-1">
-      <div className="dim text-[10px] px-1 mb-1">
+      <div className="dim text-fs-10 px-1 mb-1">
         Largest companies in {r.profile?.industry ?? "the same industry"} on the same market · market cap in USD · click to open
       </div>
       <table className="data-table">
@@ -528,7 +528,7 @@ export default function ResearchWidget({ widget }: { widget: WidgetInstance }) {
         {data && tab === "Analysts" && <Analysts r={data} />}
         {data && tab === "Peers" && <Peers r={data} />}
       </div>
-      <div className="dim text-[9px] px-2 py-0.5 border-t border-[var(--border)] shrink-0">
+      <div className="dim text-fs-9 px-2 py-0.5 border-t border-[var(--border)] shrink-0">
         Statements: Yahoo Finance / SEC EDGAR · Profile, analysts & peers: TradingView · Models are screens, not investment advice.
       </div>
     </div>

@@ -66,7 +66,7 @@ function Tab({ tab, active, only }: { tab: TabData; active: boolean; only: boole
         <input
           ref={input}
           defaultValue={label}
-          className="h-5 w-full text-[11px] px-1"
+          className="h-5 w-full text-fs-11 px-1"
           onBlur={(e) => {
             renameTab(tab.id, e.currentTarget.value === tabLabel({ ...tab, title: undefined }) ? "" : e.currentTarget.value);
             setEditing(false);
@@ -136,7 +136,7 @@ export default function TabBar() {
   }, [active]);
 
   return (
-    <nav role="tablist" className="flex items-stretch h-7 bg-[var(--panel-2)] border-b border-[var(--border)] text-[11px] shrink-0 overflow-hidden">
+    <nav role="tablist" className="flex items-stretch h-7 bg-[var(--panel-2)] border-b border-[var(--border)] text-fs-11 shrink-0 overflow-hidden">
       {tabs.map((t) => (
         <Tab key={t.id} tab={t} active={t.id === activeTab} only={tabs.length === 1} />
       ))}

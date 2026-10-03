@@ -108,7 +108,7 @@ export function SymbolTag({ widget, activeSymbol }: { widget: WidgetInstance; ac
           if (e.key === "Escape") setEditing(false);
         }}
         onBlur={() => setEditing(false)}
-        className="ml-2 w-16 !border-0 !border-b !border-[var(--amber-dim)] bg-transparent text-[var(--text)] px-0 py-0 text-[13px] leading-none"
+        className="ml-2 w-16 !border-0 !border-b !border-[var(--amber-dim)] bg-transparent text-[var(--text)] px-0 py-0 text-fs-13 leading-none"
       />
     );
   }

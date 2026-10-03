@@ -63,7 +63,7 @@ export default function TopBar() {
   const healthy = status?.providers.filter((p) => p.ok > 0) ?? [];
 
   return (
-    <header className="flex items-center gap-4 px-3 h-8 bg-[var(--panel-2)] border-b border-[var(--border)] text-[11px] shrink-0">
+    <header className="flex items-center gap-4 px-3 h-8 bg-[var(--panel-2)] border-b border-[var(--border)] text-fs-11 shrink-0">
       <span className="amber font-bold tracking-widest">OPENTERMINAL</span>
       <span className={market.open ? "up" : "down"}>● {market.label}</span>
       <Clocks />

@@ -34,7 +34,7 @@ export default function IndicesWidget() {
           if (rows.length === 0) return null;
           return [
             <tr key={region} className="pointer-events-none">
-              <td colSpan={3} className="!text-left amber text-[10px] uppercase tracking-wider pt-2">{region}</td>
+              <td colSpan={3} className="!text-left amber text-fs-10 uppercase tracking-wider pt-2">{region}</td>
             </tr>,
             ...rows.map((r) => (
               <tr
@@ -44,7 +44,7 @@ export default function IndicesWidget() {
                 title={`${r.symbol} · ${r.change !== null && r.change >= 0 ? "+" : ""}${fmt(r.change)} — open chart`}
               >
                 <td className="!text-left">
-                  <span className="dim inline-block w-6 text-[10px]">{r.country}</span>
+                  <span className="dim inline-block w-6 text-fs-10">{r.country}</span>
                   {r.name}
                 </td>
                 <td><Flash value={r.price}>{fmt(r.price)}</Flash></td>

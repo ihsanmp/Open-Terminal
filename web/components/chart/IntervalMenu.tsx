@@ -50,10 +50,10 @@ export function IntervalMenu({ interval, favorites, onSelect, onToggleFavorite }
       </button>
       {open &&
         createPortal(
-          <div ref={menuRef} style={place} className="z-[60] bg-[#1a1a1a] border border-[var(--border)] py-1 text-[12px] shadow-lg max-h-[70vh] overflow-auto">
+          <div ref={menuRef} style={place} className="z-[60] bg-[#1a1a1a] border border-[var(--border)] py-1 text-fs-12 shadow-lg max-h-[70vh] overflow-auto">
             {INTERVAL_GROUPS.map(([group, list]) => (
               <div key={group}>
-                <div className="dim text-[10px] tracking-wider px-2 pt-2 pb-1">{group}</div>
+                <div className="dim text-fs-10 tracking-wider px-2 pt-2 pb-1">{group}</div>
                 {list.map((i) => {
                   const starred = favorites.includes(i);
                   return (
@@ -69,7 +69,7 @@ export function IntervalMenu({ interval, favorites, onSelect, onToggleFavorite }
                       <span className="flex-1">{INTERVAL_NAME[i]}</span>
                       <button
                         title={starred ? "Remove from favorites" : "Add to favorites"}
-                        className={`w-5 text-[14px] leading-none ${starred ? "text-[#f5c518]" : "dim opacity-0 group-hover:opacity-100 hover:text-[#f5c518]"}`}
+                        className={`w-5 text-fs-14 leading-none ${starred ? "text-[#f5c518]" : "dim opacity-0 group-hover:opacity-100 hover:text-[#f5c518]"}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           onToggleFavorite(i);

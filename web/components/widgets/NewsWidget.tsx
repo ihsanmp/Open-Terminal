@@ -104,7 +104,7 @@ function LiveWire() {
         </select>
         <input className="flex-1 min-w-[90px]" placeholder="filter headlines…" value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
-      <div className="px-2 pb-1 text-[10px] dim flex gap-2">
+      <div className="px-2 pb-1 text-fs-10 dim flex gap-2">
         <span>
           {/* With headlines on screen a failed refresh is "reconnecting", not offline. */}
           <span className={!error ? "up" : data ? "amber" : "down"}>●</span> {!error ? "LIVE" : data ? "RECONNECTING" : "OFFLINE"}
@@ -133,10 +133,10 @@ function LiveWire() {
             className={`flex gap-2 px-2 py-1 border-b border-[#161616] hover:bg-[#161616] ${fresh ? "bg-[#1f1a0a]" : ""}`}
             style={fresh ? { boxShadow: "inset 2px 0 0 var(--amber)" } : undefined}
           >
-            <span className="dim w-7 shrink-0 text-right tabular-nums text-[10px] pt-[2px]">{age(n.publishedAt, now)}</span>
+            <span className="dim w-7 shrink-0 text-right tabular-nums text-fs-10 pt-[2px]">{age(n.publishedAt, now)}</span>
             <span className="min-w-0 flex-1">
               <span className="block truncate">{n.title}</span>
-              <span className="dim text-[10px]">
+              <span className="dim text-fs-10">
                 <span style={{ color: CATEGORY_COLOR[n.category] }}>{n.category}</span> · {n.publisher}
                 {n.region !== "GLOBAL" ? ` · ${n.region}` : ""} · {new Date(n.publishedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </span>
@@ -161,7 +161,7 @@ function SymbolNews({ symbol }: { symbol: string }) {
       {data.map((n, i) => (
         <a key={i} href={n.link} target="_blank" rel="noreferrer" className="block px-2 py-1 border-b border-[#161616] hover:bg-[#161616]">
           <div className="truncate">{n.title}</div>
-          <div className="dim text-[10px]">
+          <div className="dim text-fs-10">
             {n.publisher}
             {n.publishedAt ? " · " + new Date(n.publishedAt).toLocaleString() : ""}
           </div>
