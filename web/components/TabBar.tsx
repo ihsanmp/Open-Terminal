@@ -110,15 +110,15 @@ function Tab({ tab, active, only }: { tab: TabData; active: boolean; only: boole
 
 /**
  * Tabs like a browser's: each has its own symbol, page, workspace and chart settings, and each
- * window has its own tabs. "+" copies the current tab; ⧉ moves a tab into a window of its own, so
- * several can be watched side by side.
+ * window has its own tabs; ⧉ moves a tab into a window of its own, so several can be watched side
+ * by side. Shown once the window has more than one tab: a single tab would only repeat the symbol
+ * and page the top bar already shows (its "+ Tab" and "⧉ Window" open more).
  */
 export default function TabBar() {
   const allTabs = useTerminal((s) => s.tabs);
   const windowTabs = useTerminal((s) => s.windowTabs);
   const tabs = windowTabs.map((id) => allTabs.find((t) => t.id === id)).filter((t): t is TabData => Boolean(t));
   const activeTab = useTerminal((s) => s.activeTab);
-  const duplicateTab = useTerminal((s) => s.duplicateTab);
   const active = tabs.find((t) => t.id === activeTab);
 
   // The window's title names its tab, to tell windows apart on the taskbar. Next.js writes its
@@ -135,21 +135,12 @@ export default function TabBar() {
     return () => observer.disconnect();
   }, [active]);
 
+  if (tabs.length < 2) return null;
   return (
     <nav role="tablist" className="flex items-stretch h-7 bg-[var(--panel-2)] border-b border-[var(--border)] text-fs-11 shrink-0 overflow-hidden">
       {tabs.map((t) => (
-        <Tab key={t.id} tab={t} active={t.id === activeTab} only={tabs.length === 1} />
+        <Tab key={t.id} tab={t} active={t.id === activeTab} only={false} />
       ))}
-      <button className="px-2.5 dim hover:text-[var(--amber)] shrink-0" title="Duplicate this tab (Alt+T)" aria-label="Duplicate tab" onClick={() => duplicateTab()}>
-        +
-      </button>
-      <button
-        className="ml-auto px-3 dim hover:text-[var(--amber)] shrink-0 border-l border-[var(--border)]"
-        title="Copy this tab into a new window (Alt+N)"
-        onClick={() => openTabWindow(duplicateTab(true))}
-      >
-        ⧉ New window
-      </button>
     </nav>
   );
 }
