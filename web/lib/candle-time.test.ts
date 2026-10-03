@@ -93,6 +93,23 @@ describe("candle close times", () => {
     expect(secondsUntilClose(bar, 14_400, us, at("2026-09-24T17:00Z") * 1000)).toBeNull(); // before it opened
   });
 
+  it("counts down the clock's candle on crypto and forex even before it has traded", () => {
+    const crypto = { type: "crypto" as const, timezone: "Etc/UTC" };
+    const fx = { type: "forex" as const, timezone: "America/New_York" };
+    // A quiet pair: the last 1m bar is from 10:03, it's now 10:05:20 → 40 s left of the 10:05 bar.
+    expect(secondsUntilClose(at("2026-10-01T10:03Z"), 60, crypto, at("2026-10-01T10:05:20Z") * 1000)).toBe(40);
+    // Daily data a moment old (yesterday's bar), just after midnight UTC: today's bar, 23:59:30 left.
+    expect(secondsUntilClose(at("2026-10-02T00:00Z"), 86_400, crypto, at("2026-10-03T00:00:30Z") * 1000)).toBe(86_370);
+    // Monthly: to the 1st of next month.
+    expect(secondsUntilClose(at("2026-09-01T00:00Z"), 2_592_000, crypto, at("2026-10-31T23:00Z") * 1000)).toBe(3600);
+    // Gold / forex 4h bar from Thursday, now Friday 12:00 New York (16:00 UTC): on the 4h grid.
+    expect(secondsUntilClose(at("2026-10-01T14:00Z"), 14_400, fx, at("2026-10-02T16:00Z") * 1000)).toBe(7200);
+    // … but nothing over the weekend (Saturday), when forex is shut.
+    expect(secondsUntilClose(at("2026-10-02T18:00Z"), 14_400, fx, at("2026-10-03T12:00Z") * 1000)).toBeNull();
+    // Stocks keep their session: nothing after the close.
+    expect(secondsUntilClose(at("2026-09-24T17:30Z"), 14_400, us, at("2026-09-24T23:00Z") * 1000)).toBeNull();
+  });
+
   it("formats the axis countdown like TradingView", () => {
     expect(formatAxisCountdown(708)).toBe("11:48");
     expect(formatAxisCountdown(3 * 3600 + 5 * 60 + 12)).toBe("3:05:12");
