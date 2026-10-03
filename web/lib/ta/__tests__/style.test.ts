@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { INDICATOR_BY_ID, candlesToBars, defaultParams, type IndicatorResult } from "../index";
-import { drawingKinds, remap, styleResult, usedColors } from "../style";
+import { drawingKinds, levelTitles, movedBound, remap, styledLevels, styleResult, usedColors } from "../style";
 import fixture from "./fixtures/tradingview-daily.json";
 
 type Row = { time: number[]; open: number[]; high: number[]; low: number[]; close: number[]; volume: number[] };
@@ -57,5 +57,37 @@ describe("indicator drawing styles", () => {
       const editable = drawingKinds(r).length > 0 || usedColors(r).length > 0 || (r.fills?.length ?? 0) > 0;
       expect(editable, def.id).toBe(true);
     }
+  });
+});
+
+describe("levels on the Style tab", () => {
+  const def = INDICATOR_BY_ID.get("stoch")!;
+  const stoch = def.compute(bars, defaultParams(def));
+
+  it("names Stochastic's levels as TradingView does, and others' by height", () => {
+    expect(levelTitles(stoch.hlines!)).toEqual(["Upper Band", "Middle Band", "Lower Band"]);
+    expect(levelTitles([{ price: -100, color: "#000" }, { price: 100, color: "#000" }, { price: 0, color: "#000" }])).toEqual(["Lower Band", "Upper Band", "Middle Band"]);
+    expect(levelTitles([{ price: 0, color: "#000" }])).toEqual(["Zero Line"]);
+    expect(levelTitles([1, 2, 3, 4].map((price) => ({ price, color: "#000" })))[0]).toBe("Level 1");
+  });
+
+  it("styles and moves each level on its own; the background follows its bands", () => {
+    const style = { hlines: { 0: { price: 75, color: "#ff0000", width: 2 as const }, 1: { visible: false } } };
+    const levels = styledLevels(stoch, style);
+    expect(levels.map((l) => [l.title, l.price, l.visible])).toEqual([
+      ["Upper Band", 75, true],
+      ["Middle Band", 50, false],
+      ["Lower Band", 20, true],
+    ]);
+    expect(levels[0]).toMatchObject({ color: "#ff0000", width: 2, dash: "dashed" });
+    const fill = stoch.fills![0];
+    expect([movedBound(fill.a, stoch, style), movedBound(fill.b, stoch, style)]).toEqual([75, 20]);
+    expect(movedBound("k", stoch, style)).toBe("k");
+  });
+
+  it("still honours the older all-levels setting", () => {
+    const levels = styledLevels(stoch, { levels: { visible: false, color: "#00ff00" }, hlines: { 2: { visible: true } } });
+    expect(levels.map((l) => l.visible)).toEqual([false, false, true]);
+    expect(levels.every((l) => l.color === "#00ff00")).toBe(true);
   });
 });

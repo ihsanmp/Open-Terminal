@@ -4,7 +4,7 @@
 // with drawings, so this is what makes them restylable like a plotted EMA.
 
 import { parseColor, toHex } from "../color";
-import type { Color, DrawingKind, IndicatorResult, IndicatorStyle } from "./types";
+import type { Color, DrawingKind, IndicatorResult, IndicatorStyle, LineDash } from "./types";
 
 export type { DrawingKind };
 
@@ -101,4 +101,50 @@ export function styleResult(r: IndicatorResult, style: IndicatorStyle | undefine
     bgColors: off("background") ? undefined : cs(r.bgColors),
     table: off("table") || !r.table ? undefined : { ...r.table, cells: r.table.cells.map((cell) => ({ ...cell, color: c(cell.color), bg: c(cell.bg) })) },
   };
+}
+
+/**
+ * What each horizontal level is called on the Style tab: its own title, or as TradingView names
+ * a band indicator's levels (Upper / Middle / Lower Band, by height), or "Level <price>".
+ */
+export function levelTitles(hlines: NonNullable<IndicatorResult["hlines"]>): string[] {
+  const byHeight = [...hlines.map((h) => h.price)].sort((a, b) => b - a);
+  const rank = (price: number) => byHeight.indexOf(price);
+  return hlines.map((h) => {
+    if (h.title) return h.title;
+    if (hlines.length === 3) return ["Upper Band", "Middle Band", "Lower Band"][rank(h.price)] ?? `Level ${h.price}`;
+    if (hlines.length === 2) return rank(h.price) === 0 ? "Upper Band" : "Lower Band";
+    if (hlines.length === 1 && h.price === 0) return "Zero Line";
+    return `Level ${h.price}`;
+  });
+}
+
+export type StyledLevel = { title: string; price: number; color: string; width: 1 | 2 | 3 | 4; dash: LineDash; visible: boolean };
+
+/** Each level as drawn: the indicator's, with the Style tab's row for it (or the older group setting). */
+export function styledLevels(r: IndicatorResult | undefined, style: IndicatorStyle | undefined): StyledLevel[] {
+  const hlines = r?.hlines ?? [];
+  const titles = levelTitles(hlines);
+  const group = style?.levels ?? {};
+  return hlines.map((h, i) => {
+    const o = style?.hlines?.[i] ?? {};
+    return {
+      title: titles[i],
+      price: o.price ?? h.price,
+      color: o.color ?? group.color ?? h.color,
+      width: o.width ?? 1,
+      dash: o.dash ?? group.dash ?? (h.dashed ? "dashed" : "solid"),
+      visible: o.visible ?? group.visible ?? true,
+    };
+  });
+}
+
+/**
+ * A fill's bound at a constant level, after the levels were moved on the Style tab: a fill between
+ * the 80 and 20 bands follows them to 75 and 25, as TradingView's fill(hline, hline) does.
+ */
+export function movedBound(ref: string | number, r: IndicatorResult | undefined, style: IndicatorStyle | undefined): string | number {
+  if (typeof ref !== "number") return ref;
+  const i = (r?.hlines ?? []).findIndex((h) => h.price === ref);
+  return i >= 0 ? style?.hlines?.[i]?.price ?? ref : ref;
 }

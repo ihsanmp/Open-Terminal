@@ -13,12 +13,14 @@ import {
   type IndicatorInstance,
   type IndicatorResult,
   type IndicatorStyle,
+  type LevelOverride,
   type Params,
   type PlotStyleOverride,
   type TimeframeKind,
 } from "../../lib/ta";
 import { ColorPicker } from "./ColorPicker";
-import { DRAWING_KINDS, drawingKinds, usedColors } from "../../lib/ta/style";
+import { DRAWING_KINDS, drawingKinds, styledLevels, usedColors } from "../../lib/ta/style";
+import { PlotTypeMenu } from "./PlotTypeMenu";
 
 function Modal({ title, onClose, width, children }: { title: string; onClose: () => void; width: number; children: React.ReactNode }) {
   useEffect(() => {
@@ -244,6 +246,32 @@ type SetStyle = (update: (s: IndicatorStyle) => IndicatorStyle) => void;
 
 const firstColor = (c: string | Array<string | undefined>) => (typeof c === "string" ? c : c.find(Boolean) ?? "#787B86");
 
+/** A level's value: typed freely (an empty or partial number doesn't move the level), and back
+ *  in step when it changes from outside (Defaults). */
+function LevelValue({ label, value, onValue }: { label: string; value: number; onValue: (v: number) => void }) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => {
+    setText((t) => (Number(t) === value && t.trim() !== "" ? t : String(value)));
+  }, [value]);
+  return (
+    <input
+      type="number"
+      step="any"
+      className="w-24"
+      aria-label={`${label} value`}
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        const v = e.target.valueAsNumber;
+        if (Number.isFinite(v)) onValue(v);
+      }}
+    />
+  );
+}
+
+/** The name column of a Style row, as wide as TradingView's so the swatches line up. */
+const LABEL = "w-32 shrink-0";
+
 function Row({ children }: { children: React.ReactNode }) {
   return <div className="flex items-center gap-2 text-fs-12 min-h-[28px]">{children}</div>;
 }
@@ -254,9 +282,15 @@ function StyleTab({ def, result, style, setStyle }: { def: IndicatorDef; result?
     setStyle((s) => ({ ...s, plots: { ...s.plots, [key]: { ...s.plots?.[key], ...patch } } }));
   const title = (ref: string | number) => (typeof ref === "number" ? String(ref) : def.plots.find((p) => p.key === ref)?.title ?? ref);
   const fills = result?.fills ?? [];
-  const hasLevels = (result?.hlines?.length ?? 0) > 0;
+  const levels = styledLevels(result, style);
+  const setLevel = (i: number, patch: LevelOverride) =>
+    setStyle((s) => ({ ...s, hlines: { ...s.hlines, [i]: { ...s.hlines?.[i], ...patch } } }));
   const kinds = drawingKinds(result);
-  const colors = usedColors(result).slice(0, 24);
+  // Levels and fills have rows of their own above; this lists colors nothing else lets you change.
+  const colors = usedColors(result)
+    .map((c) => ({ ...c, uses: c.uses.filter((u) => u !== "Levels" && u !== "Fills") }))
+    .filter((c) => c.uses.length > 0)
+    .slice(0, 24);
   const setColor = (key: string, color: string | undefined) =>
     setStyle((s) => {
       const next = { ...s.colors };
@@ -267,27 +301,45 @@ function StyleTab({ def, result, style, setStyle }: { def: IndicatorDef; result?
 
   return (
     <div className="overflow-auto px-3 py-2 flex flex-col">
-      {plots.length === 0 && fills.length === 0 && !hasLevels && kinds.length === 0 && colors.length === 0 && (
+      {plots.length === 0 && fills.length === 0 && levels.length === 0 && kinds.length === 0 && colors.length === 0 && (
         <div className="dim py-2">This indicator draws nothing that can be restyled.</div>
       )}
       {plots.map((p) => {
         const o = style.plots?.[p.key] ?? {};
-        const lineLike = !p.style || p.style === "line" || p.style === "step";
+        const kind = o.style ?? p.style ?? "line";
+        const lineLike = kind === "line" || kind === "step";
+        const thin = kind === "histogram" || kind === "circles";
         return (
           <Row key={p.key}>
             <input type="checkbox" checked={o.visible ?? true} onChange={(e) => setPlot(p.key, { visible: e.target.checked })} />
-            <span className="flex-1 dim truncate">{p.title}</span>
+            <span className={`${LABEL} dim truncate`}>{p.title}</span>
             <ColorPicker
               color={o.color ?? p.color}
               onColor={(color) => setPlot(p.key, { color })}
-              width={p.style === "histogram" || p.style === "circles" ? undefined : o.width ?? p.width ?? 1}
-              onWidth={p.style === "histogram" || p.style === "circles" ? undefined : (width) => setPlot(p.key, { width })}
+              width={thin ? undefined : o.width ?? p.width ?? 1}
+              onWidth={thin ? undefined : (width) => setPlot(p.key, { width })}
               dash={lineLike ? o.dash ?? (p.dotted ? "dotted" : p.dashed ? "dashed" : "solid") : undefined}
               onDash={lineLike ? (dash) => setPlot(p.key, { dash }) : undefined}
             />
+            <PlotTypeMenu type={kind} onType={(t) => setPlot(p.key, { style: t === (p.style ?? "line") ? undefined : t })} />
           </Row>
         );
       })}
+      {levels.map((l, i) => (
+        <Row key={`level${i}`}>
+          <input type="checkbox" checked={l.visible} onChange={(e) => setLevel(i, { visible: e.target.checked })} />
+          <span className={`${LABEL} dim truncate`}>{l.title}</span>
+          <ColorPicker
+            color={l.color}
+            onColor={(color) => setLevel(i, { color })}
+            width={l.width}
+            onWidth={(width) => setLevel(i, { width })}
+            dash={l.dash}
+            onDash={(dash) => setLevel(i, { dash })}
+          />
+          <LevelValue label={l.title} value={l.price} onValue={(v) => setLevel(i, { price: v === result!.hlines![i].price ? undefined : v })} />
+        </Row>
+      ))}
       {fills.map((fl, i) => {
         const o = style.fills?.[i] ?? {};
         return (
@@ -297,26 +349,13 @@ function StyleTab({ def, result, style, setStyle }: { def: IndicatorDef; result?
               checked={o.visible ?? true}
               onChange={(e) => setStyle((s) => ({ ...s, fills: { ...s.fills, [i]: { ...s.fills?.[i], visible: e.target.checked } } }))}
             />
-            <span className="flex-1 dim truncate">
+            <span className={`${LABEL} dim truncate`}>
               Background{fills.length > 1 ? ` (${title(fl.a)} – ${title(fl.b)})` : ""}
             </span>
             <ColorPicker color={o.color ?? firstColor(fl.color)} onColor={(color) => setStyle((s) => ({ ...s, fills: { ...s.fills, [i]: { ...s.fills?.[i], color } } }))} />
           </Row>
         );
       })}
-      {hasLevels && (
-        <Row>
-          <input type="checkbox" checked={style.levels?.visible ?? true} onChange={(e) => setStyle((s) => ({ ...s, levels: { ...s.levels, visible: e.target.checked } }))} />
-          <span className="flex-1 dim">Levels</span>
-          <ColorPicker
-            color={style.levels?.color ?? result!.hlines![0].color}
-            onColor={(color) => setStyle((s) => ({ ...s, levels: { ...s.levels, color } }))}
-            width={1}
-            dash={style.levels?.dash ?? (result!.hlines![0].dashed ? "dashed" : "solid")}
-            onDash={(dash) => setStyle((s) => ({ ...s, levels: { ...s.levels, dash } }))}
-          />
-        </Row>
-      )}
       {kinds.length > 0 && (
         <>
           <div className="dim text-fs-10 tracking-wider mt-3 mb-1">DRAWINGS</div>

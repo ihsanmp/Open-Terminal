@@ -41,7 +41,7 @@ import {
   type Params,
 } from "../../lib/ta";
 import { barSpacing } from "../../lib/ta/core";
-import { styleResult } from "../../lib/ta/style";
+import { movedBound, styledLevels, styleResult } from "../../lib/ta/style";
 import { BackgroundPrimitive, CountdownPrimitive, DrawingsPrimitive, FillPrimitive, type DrawingsSpec } from "../../lib/ta/chart-primitives";
 import { IndicatorTableView } from "../chart/IndicatorTableView";
 import { chartContext } from "../../lib/chart-context";
@@ -463,10 +463,11 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           const color = barColors?.[i];
           data.push(color ? { time: times[i], value: v, color } : { time: times[i], value: v });
         }
+        const kind = o.style ?? plot.style;
         let series: ISeriesApi<SeriesType>;
-        if (plot.style === "histogram") {
+        if (kind === "histogram") {
           series = chart.addSeries(HistogramSeries, { ...common, color: baseColor }, paneIndex);
-        } else if (plot.style === "area") {
+        } else if (kind === "area") {
           series = chart.addSeries(AreaSeries, { ...common, lineColor: baseColor, topColor: baseColor, bottomColor: "rgba(0,0,0,0)", lineWidth, lineStyle }, paneIndex);
         } else {
           series = chart.addSeries(
@@ -476,11 +477,11 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
               color: baseColor,
               lineWidth,
               lineStyle,
-              lineType: plot.style === "step" ? LineType.WithSteps : LineType.Simple,
-              lineVisible: plot.style !== "circles",
-              pointMarkersVisible: plot.style === "circles",
+              lineType: kind === "step" ? LineType.WithSteps : LineType.Simple,
+              lineVisible: kind !== "circles",
+              pointMarkersVisible: kind === "circles",
               pointMarkersRadius: 1.5,
-              crosshairMarkerVisible: plot.style !== "circles",
+              crosshairMarkerVisible: kind !== "circles",
             },
             paneIndex
           );
@@ -491,15 +492,18 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       }
       if (!anchor) continue;
 
-      for (const h of style.levels?.visible === false ? [] : it.result.hlines ?? []) {
-        const dash = style.levels?.dash ?? (h.dashed ? "dashed" : "solid");
-        anchor.createPriceLine({ price: h.price, color: style.levels?.color ?? h.color, lineWidth: 1, lineStyle: LINE_STYLE[dash], axisLabelVisible: false, title: "" });
+      for (const h of styledLevels(it.result, style)) {
+        if (!h.visible) continue;
+        anchor.createPriceLine({ price: h.price, color: h.color, lineWidth: h.width, lineStyle: LINE_STYLE[h.dash], axisLabelVisible: false, title: "" });
       }
       for (const [fi, f0] of (it.result.fills ?? []).entries()) {
         const fs = style.fills?.[fi];
         if (fs?.visible === false) continue;
         const f = fs?.color ? { ...f0, color: fs.color } : f0;
-        const side = (ref: string | number) => (typeof ref === "number" ? new Array<number>(total).fill(ref) : it.plots[ref]?.values);
+        const side = (ref: string | number) => {
+          const at = movedBound(ref, it.result, style);
+          return typeof at === "number" ? new Array<number>(total).fill(at) : it.plots[at]?.values;
+        };
         const a = side(f.a);
         const b = side(f.b);
         if (!a || !b) continue;

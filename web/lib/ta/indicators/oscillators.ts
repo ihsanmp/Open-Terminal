@@ -4,6 +4,12 @@ import { C, alpha, b, bool, float, int, n, s, select, src, type Color, type Indi
 
 const bandFill = (upper: number, lower: number, color: string) => ({ a: upper, b: lower, color: alpha(color, 0.1) });
 const lines = (color: string, ...prices: number[]) => prices.map((price) => ({ price, color, dashed: true }));
+/** TradingView's three bands: Upper and Lower in gray, the Middle one half transparent. */
+const bands = (upper: number, middle: number, lower: number, prefix = "") => [
+  { price: upper, color: C.gray, dashed: true, title: `${prefix}Upper Band` },
+  { price: middle, color: alpha(C.gray, 0.5), dashed: true, title: `${prefix}Middle Band` },
+  { price: lower, color: C.gray, dashed: true, title: `${prefix}Lower Band` },
+];
 
 /** MACD-style histogram coloring: strong/weak shades by sign and slope. */
 function histColors(h: Series): Color[] {
@@ -44,7 +50,7 @@ export const oscillators: IndicatorDef[] = [
       const r = ta.rsi(ta.source(bars, s(p, "source")), n(p, "length"));
       const plots: Record<string, Series> = { rsi: r };
       if (s(p, "maType") !== "None") plots.ma = ta.maByType(s(p, "maType"), r, n(p, "maLength"));
-      return { plots, hlines: lines(C.gray, 70, 50, 30), fills: [bandFill(70, 30, C.purple)] };
+      return { plots, hlines: bands(70, 50, 30, "RSI "), fills: [bandFill(70, 30, C.purple)] };
     },
   },
   {
@@ -56,7 +62,7 @@ export const oscillators: IndicatorDef[] = [
     ],
     compute: (bars, p) => {
       const k = ta.sma(ta.stoch(bars.close, bars.high, bars.low, n(p, "periodK")), n(p, "smoothK"));
-      return { plots: { k, d: ta.sma(k, n(p, "periodD")) }, hlines: lines(C.gray, 80, 50, 20), fills: [bandFill(80, 20, C.lightBlue)] };
+      return { plots: { k, d: ta.sma(k, n(p, "periodD")) }, hlines: bands(80, 50, 20), fills: [bandFill(80, 20, C.lightBlue)] };
     },
   },
   {
@@ -69,7 +75,7 @@ export const oscillators: IndicatorDef[] = [
     compute: (bars, p) => {
       const r = ta.rsi(ta.source(bars, s(p, "source")), n(p, "lengthRsi"));
       const k = ta.sma(ta.stoch(r, r, r, n(p, "lengthStoch")), n(p, "smoothK"));
-      return { plots: { k, d: ta.sma(k, n(p, "smoothD")) }, hlines: lines(C.gray, 80, 50, 20), fills: [bandFill(80, 20, C.lightBlue)] };
+      return { plots: { k, d: ta.sma(k, n(p, "smoothD")) }, hlines: bands(80, 50, 20), fills: [bandFill(80, 20, C.lightBlue)] };
     },
   },
   {
