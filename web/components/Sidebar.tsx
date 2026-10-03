@@ -1,28 +1,34 @@
 "use client";
 
+import { useAiAvailable } from "../lib/status";
 import { useTerminal, type View, type WidgetType } from "../store/terminal";
 
-/** The menu: each item opens its feature full-page; ⌥ + number jumps to the first nine. */
-export const MENU: Array<{ type: WidgetType; label: string; key: string }> = [
-  { type: "chart", label: "CHART", key: "⌥1" },
-  { type: "quote", label: "QUOTE", key: "⌥2" },
-  { type: "news", label: "NEWS", key: "⌥3" },
-  { type: "screener", label: "SCREENER", key: "⌥4" },
-  { type: "heatmap", label: "HEATMAP", key: "⌥5" },
-  { type: "crypto", label: "CRYPTO", key: "⌥6" },
-  { type: "options", label: "OPTIONS", key: "⌥7" },
-  { type: "portfolio", label: "PORTFOLIO", key: "⌥8" },
-  { type: "ai", label: "AI ASSIST", key: "⌥9" },
-  { type: "research", label: "EQUITY RESEARCH", key: "" },
-  { type: "indices", label: "WORLD INDICES", key: "" },
-  { type: "watchlist", label: "WATCHLIST", key: "" },
-  { type: "macro", label: "MACRO", key: "" },
-  { type: "calendar", label: "CALENDAR", key: "" },
-  { type: "astrocal", label: "ASTRO CALENDAR", key: "" },
-  { type: "insider", label: "INSIDER", key: "" },
-  { type: "tv", label: "LIVE TV", key: "" },
-  { type: "recap", label: "MARKET RECAP", key: "" },
+/** The menu: each item opens its feature full-page; ⌥ + number jumps to the first nine shown. */
+export const MENU: Array<{ type: WidgetType; label: string }> = [
+  { type: "chart", label: "CHART" },
+  { type: "quote", label: "QUOTE" },
+  { type: "news", label: "NEWS" },
+  { type: "screener", label: "SCREENER" },
+  { type: "heatmap", label: "HEATMAP" },
+  { type: "crypto", label: "CRYPTO" },
+  { type: "options", label: "OPTIONS" },
+  { type: "portfolio", label: "PORTFOLIO" },
+  { type: "ai", label: "AI ASSIST" },
+  { type: "research", label: "EQUITY RESEARCH" },
+  { type: "indices", label: "WORLD INDICES" },
+  { type: "watchlist", label: "WATCHLIST" },
+  { type: "macro", label: "MACRO" },
+  { type: "calendar", label: "CALENDAR" },
+  { type: "astrocal", label: "ASTRO CALENDAR" },
+  { type: "insider", label: "INSIDER" },
+  { type: "tv", label: "LIVE TV" },
+  { type: "recap", label: "MARKET RECAP" },
 ];
+
+/** The menu as shown: AI ASSIST only once the server has an AI key (it can't answer without). */
+export function shownMenu(aiAvailable: boolean) {
+  return MENU.filter((item) => item.type !== "ai" || aiAvailable);
+}
 
 function Item({ view, current, label, hint, onAdd }: { view: View; current: View; label: string; hint: string; onAdd?: () => void }) {
   const setView = useTerminal((s) => s.setView);
@@ -60,16 +66,17 @@ export default function Sidebar() {
   const setView = useTerminal((s) => s.setView);
   const addWidget = useTerminal((s) => s.addWidget);
   const resetWorkspace = useTerminal((s) => s.resetWorkspace);
+  const menu = shownMenu(useAiAvailable());
 
   return (
     <nav className="w-[calc(8rem*var(--font-scale))] bg-[var(--panel)] border-r border-[var(--border)] flex flex-col shrink-0 overflow-auto">
-      {MENU.map((item) => (
+      {menu.map((item, i) => (
         <Item
           key={item.type}
           view={item.type}
           current={view}
           label={item.label}
-          hint={item.key}
+          hint={i < 9 ? `⌥${i + 1}` : ""}
           onAdd={() => {
             addWidget(item.type);
             setView("workspace");
