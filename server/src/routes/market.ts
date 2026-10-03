@@ -185,7 +185,7 @@ async function getQuotes(symbols: string[]): Promise<yahoo.Quote[]> {
   if (tvSymbols.length > 0) {
     try {
       const found = await tradingview.batchQuotes(tvSymbols, (s) =>
-        INDEX_TV_TICKER.has(s) ? [INDEX_TV_TICKER.get(s)!] : tradingview.tvTickers(s)
+        INDEX_TV_TICKER.has(s) ? [INDEX_TV_TICKER.get(s)!] : s === "DX-Y.NYB" ? ["TVC:DXY"] : tradingview.tvTickers(s)
       );
       for (const [s, q] of found) fetched.set(s, q);
     } catch {

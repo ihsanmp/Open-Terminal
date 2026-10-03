@@ -6,6 +6,7 @@ import { apiGet, fmt, fmtBig, pctClass, type Candle, type Quote } from "../../li
 import { listRefreshMs, quoteRefreshMs, usePoll } from "../../lib/refresh";
 import {
   MARKET_DEFAULTS,
+  benchmarkOf,
   MARKET_KINDS,
   PERF_PERIODS,
   badgeOf,
@@ -25,12 +26,13 @@ import Flash from "../Flash";
 import { technicals, type Group, type Rating } from "../../lib/technicals";
 
 // TradingView's right-hand Watchlist on the chart page: the watchlist by section (indices, stocks,
-// futures, forex, crypto), each row loading its symbol into the chart, and under it the details of
-// the symbol on the chart: price, market status, key stats and performance.
+// futures, forex, crypto), each row loading its symbol into the chart, and under it the chart's
+// market by its benchmark (BTC for crypto, the S&P 500 for US stocks, gold for forex and
+// commodities): price, market status, key stats, performance and technicals.
 //
-// It follows the chart's kind of market: a Solana chart lists crypto, a stock chart stocks and
-// indices, gold or EURUSD commodities and forex (or one kind, or all, chosen in its header). Each
-// kind's list starts with the usual symbols the first time it shows; it is the user's from then on.
+// It lists every kind of market at once, as TradingView's: indices, stocks, futures, forex and
+// crypto (its header can narrow it to the chart's kind, or one kind). Each kind's list starts with
+// the usual symbols the first time it shows; it is the user's from then on.
 
 type SearchResult = { symbol: string; name: string; exchange: string; type: string };
 
@@ -156,7 +158,8 @@ function TechnicalsView({ t }: { t: { summary: Group; movingAverages: Group; osc
   );
 }
 
-function Details({ symbol }: { symbol: string }) {
+/** The chart's market, by its benchmark (BTC, the S&P 500 or the local index, gold). */
+function Details({ symbol, market, onOpen }: { symbol: string; market: string; onOpen: () => void }) {
   const poll = usePoll(() => quoteRefreshMs(symbol));
   const { data: q } = useQuery({
     queryKey: ["quote", symbol],
@@ -186,10 +189,11 @@ function Details({ symbol }: { symbol: string }) {
 
   return (
     <div className="p-2.5">
-      <div className="flex items-center gap-2">
+      <div className="dim text-fs-10 tracking-wider mb-1.5">{market.toUpperCase()} · BENCHMARK</div>
+      <button className="flex items-center gap-2 hover:text-[var(--amber)]" title="Open in the chart" onClick={onOpen}>
         <Badge symbol={symbol} size={26} />
         <span className="font-bold text-fs-14">{displaySymbol(symbol)}</span>
-      </div>
+      </button>
       <div className="mt-1.5 text-[var(--text)] truncate" title={q?.name ?? undefined}>
         {q?.name ?? symbol}
         {q?.exchange && <span className="dim"> · {q.exchange}</span>}
@@ -252,10 +256,14 @@ export default function WatchlistPanel({ symbol, onPick, onHide }: { symbol: str
   const addToWatchlist = useTerminal((s) => s.addToWatchlist);
   const removeFromWatchlist = useTerminal((s) => s.removeFromWatchlist);
   const [collapsed, setCollapsed] = useWidgetSetting<Section[]>("watchlistCollapsed", []);
-  const [choice, setChoice] = useWidgetSetting<MarketKind | "all" | "auto">("watchlistMarket", "auto");
-  const [seeded, setSeeded] = useWidgetSetting<MarketKind[]>("watchlistSeeded", []);
+  // A new key: the list used to follow the chart's market by default; everyone starts on All now.
+  const [choice, setChoice] = useWidgetSetting<MarketKind | "all" | "auto">("watchlistView", "all");
+  // v2: the starting lists gained TradingView's indices (NDQ, VIX, DXY) and futures; each kind is
+  // topped up once more with what it lacks.
+  const [seeded, setSeeded] = useWidgetSetting<MarketKind[]>("watchlistSeededV2", []);
   const [adding, setAdding] = useState(false);
   const kind = choice === "auto" ? marketOf(symbol) : choice;
+  const bench = benchmarkOf(symbol);
 
   // The first time a kind shows, its list starts with the usual symbols (once: what the user then
   // removes stays removed).
@@ -290,13 +298,13 @@ export default function WatchlistPanel({ symbol, onPick, onHide }: { symbol: str
           value={choice}
           onChange={(e) => setChoice(e.target.value as MarketKind | "all" | "auto")}
         >
-          <option value="auto">Auto · {MARKET_KINDS.find(([k]) => k === marketOf(symbol))?.[1]}</option>
+          <option value="all">All</option>
+          <option value="auto">Chart's market · {MARKET_KINDS.find(([k]) => k === marketOf(symbol))?.[1]}</option>
           {MARKET_KINDS.map(([k, label]) => (
             <option key={k} value={k}>
               {label}
             </option>
           ))}
-          <option value="all">All</option>
         </select>
         <button className="dim hover:text-[var(--amber)] px-1 text-fs-15" title="Add symbol" aria-label="Add symbol" onClick={() => setAdding((a) => !a)}>
           +
@@ -342,6 +350,10 @@ export default function WatchlistPanel({ symbol, onPick, onHide }: { symbol: str
                             <span className="flex items-center gap-1.5 min-w-0">
                               <Badge symbol={s} />
                               <span className="font-bold truncate">{displaySymbol(s)}</span>
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full shrink-0 ${marketOpen(s, q?.marketState) ? "bg-[var(--up)]" : "bg-[#555]"}`}
+                                title={marketOpen(s, q?.marketState) ? "Market open" : "Market closed"}
+                              />
                               <button
                                 className="ml-auto opacity-0 group-hover:opacity-100 dim hover:text-[var(--down)] px-0.5"
                                 title="Remove from watchlist"
@@ -370,7 +382,7 @@ export default function WatchlistPanel({ symbol, onPick, onHide }: { symbol: str
         {listed.length === 0 && <div className="dim p-3">Nothing listed here yet: “+” adds a symbol.</div>}
       </div>
       <div className="flex-1 min-h-[40%] overflow-auto border-t border-[var(--border)]">
-        <Details symbol={symbol} />
+        <Details symbol={bench.symbol} market={bench.market} onOpen={() => onPick(bench.symbol)} />
       </div>
     </div>
   );

@@ -17,7 +17,7 @@ export const SECTIONS: Array<[Section, string]> = [
 /** Which section a symbol is listed under. */
 export function sectionOf(symbol: string): Section {
   const s = symbol.toUpperCase();
-  if (s.startsWith("^")) return "indices";
+  if (s.startsWith("^") || s === "DX-Y.NYB") return "indices";
   if (s.endsWith("=F")) return "futures";
   if (s.endsWith("=X")) return "forex";
   if (isCryptoSymbol(s)) return "crypto";
@@ -29,8 +29,17 @@ export function groupBySection(symbols: string[]): Array<{ section: Section; lab
   return SECTIONS.map(([section, label]) => ({ section, label, symbols: symbols.filter((s) => sectionOf(s) === section) })).filter((g) => g.symbols.length > 0);
 }
 
-/** As TradingView writes it: BTC-USD → BTCUSD, EURUSD=X → EURUSD, GC=F → GC, ^GSPC → GSPC. */
+/** TradingView's names for the usual indices and futures. */
+const TV_NAMES: Record<string, string> = {
+  "^GSPC": "SPX", "^NDX": "NDQ", "^IXIC": "IXIC", "^DJI": "DJI", "^VIX": "VIX", "^RUT": "RUT", "DX-Y.NYB": "DXY",
+  "CL=F": "USOIL", "BZ=F": "UKOIL", "GC=F": "GOLD", "SI=F": "SILVER", "NG=F": "NATGAS", "HG=F": "COPPER",
+  "PL=F": "PLATINUM", "PA=F": "PALLADIUM",
+};
+
+/** As TradingView writes it: ^GSPC → SPX, GC=F → GOLD, BTC-USD → BTCUSD, EURUSD=X → EURUSD. */
 export function displaySymbol(symbol: string): string {
+  const named = TV_NAMES[symbol.toUpperCase()];
+  if (named) return named;
   // A token named by its pair: the pair without its pool id (PANCAKESWAP:SBCUSDT_4C0D3D → SBCUSDT).
   if (isTvPair(symbol)) return symbol.toUpperCase().split(":")[1].replace(/_[A-Z0-9]+/, "").replace(/\.USD$/, "");
   return symbol
@@ -134,11 +143,34 @@ export const marketOf = (symbol: string): MarketKind => SECTION_MARKET[sectionOf
 /** What a kind's list starts with the first time it is shown; it is the user's own list from then on. */
 export const MARKET_DEFAULTS: Record<MarketKind, string[]> = {
   crypto: ["BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD", "DOGE-USD", "ADA-USD", "AVAX-USD", "LINK-USD"],
-  stocks: ["^GSPC", "^IXIC", "^DJI", "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL", "META"],
-  commodities: ["GC=F", "SI=F", "CL=F", "NG=F", "HG=F", "EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X"],
+  stocks: ["^GSPC", "^NDX", "^DJI", "^VIX", "DX-Y.NYB", "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL", "META"],
+  commodities: ["CL=F", "GC=F", "SI=F", "NG=F", "HG=F", "EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X"],
 };
 
 /** The watchlist's sections for one kind of market (all of them for "all"). */
 export function sectionsFor(kind: MarketKind | "all"): Section[] {
   return SECTIONS.map(([s]) => s).filter((s) => kind === "all" || SECTION_MARKET[s] === kind);
+}
+
+/** A listing's home index, by Yahoo suffix (a .JK stock → IHSG). */
+const LOCAL_INDEX: Record<string, string> = {
+  JK: "^JKSE", T: "^N225", HK: "^HSI", L: "^FTSE", DE: "^GDAXI", F: "^GDAXI", PA: "^FCHI", AS: "^AEX", MI: "FTSEMIB.MI",
+  MC: "^IBEX", SW: "^SSMI", ST: "^OMX", TO: "^GSPTSE", V: "^GSPTSE", SA: "^BVSP", MX: "^MXX", KS: "^KS11", KQ: "^KS11",
+  TW: "^TWII", NS: "^NSEI", BO: "^BSESN", SI: "^STI", KL: "^KLSE", BK: "^SET.BK", AX: "^AXJO", NZ: "^NZ50",
+  SS: "000001.SS", SZ: "399001.SZ",
+};
+
+/**
+ * The market a chart's symbol belongs to, by its benchmark, which the watchlist's details show:
+ * crypto → BTC, US stocks and indices → S&P 500 (another exchange's stocks → its index),
+ * forex and commodities → gold.
+ */
+export function benchmarkOf(symbol: string): { symbol: string; market: string } {
+  const s = symbol.toUpperCase();
+  const kind = marketOf(s);
+  if (kind === "crypto") return { symbol: "BTC-USD", market: "Crypto" };
+  if (kind === "commodities") return { symbol: "GC=F", market: "Commodities & forex" };
+  const dot = s.lastIndexOf(".");
+  const local = sectionOf(s) === "stocks" && dot > 0 ? LOCAL_INDEX[s.slice(dot + 1)] : undefined;
+  return local ? { symbol: local, market: "Stocks" } : { symbol: "^GSPC", market: "US stocks" };
 }
