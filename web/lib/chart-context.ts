@@ -1,4 +1,4 @@
-import { isCryptoSymbol } from "./refresh";
+import { isCryptoSymbol, isTvPair } from "./refresh";
 import type { ChartContext } from "./ta/types";
 
 // Yahoo-style suffix → exchange time zone, for Pine's hour()/dayofweek() on the chart.
@@ -51,6 +51,7 @@ export function historyQuery(chart: Pick<ChartContext, "range" | "interval">): s
 
 function baseContext(symbol: string, intervalSeconds: number): ChartContext {
   const upper = symbol.toUpperCase();
+  if (isTvPair(upper)) return { symbol, ticker: upper.slice(upper.indexOf(":") + 1), type: "crypto", timezone: "Etc/UTC", intervalSeconds };
   if (isCryptoSymbol(upper)) {
     const base = upper.replace(/-USDT?$/, "");
     return { symbol, ticker: `${base}USDT`, type: "crypto", timezone: "Etc/UTC", intervalSeconds };

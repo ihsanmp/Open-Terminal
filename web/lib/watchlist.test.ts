@@ -71,3 +71,18 @@ describe("the watchlist follows the chart's market", () => {
     for (const [kind, list] of Object.entries(MARKET_DEFAULTS)) for (const s of list) expect(marketOf(s), s).toBe(kind);
   });
 });
+
+describe("tokens named by their TradingView pair", () => {
+  it("are crypto, shown without the pool id", async () => {
+    const { displaySymbol, sectionOf, marketOf } = await import("./watchlist");
+    const { chartContext } = await import("./chart-context");
+    for (const s of ["PANCAKESWAP:SBCUSDT_4C0D3D", "RAYDIUM:GOATSOL_9TB2OH.USD"]) {
+      expect(sectionOf(s)).toBe("crypto");
+      expect(marketOf(s)).toBe("crypto");
+      expect(chartContext(s, 86_400).type).toBe("crypto");
+    }
+    expect(displaySymbol("PANCAKESWAP:SBCUSDT_4C0D3D")).toBe("SBCUSDT");
+    expect(displaySymbol("RAYDIUM:GOATSOL_9TB2OH.USD")).toBe("GOATSOL");
+    expect(chartContext("PANCAKESWAP:SBCUSDT_4C0D3D", 86_400).ticker).toBe("SBCUSDT_4C0D3D");
+  });
+});

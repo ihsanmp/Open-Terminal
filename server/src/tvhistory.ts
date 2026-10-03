@@ -8,9 +8,9 @@
 // volume compete while any does: TradingView's CRYPTO index reaches furthest back but has none.
 
 import * as tvchart from "./providers/tvchart.js";
-import { tvTickers } from "./providers/tradingview.js";
+import { offBoardPair, tvTickers } from "./providers/tradingview.js";
 import { INDEX_TV_TICKER } from "./indices.js";
-import { cryptoBase } from "./symbols.js";
+import { cryptoBase, isTvPair } from "./symbols.js";
 import type { Interval } from "./intervals.js";
 
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number };
@@ -53,7 +53,8 @@ export function tvCandidates(symbol: string): string[] {
   const s = symbol.toUpperCase();
   const base = cryptoBase(s);
   let out: string[];
-  if (base) out = CRYPTO_VENUES.map((v) => v(base));
+  if (isTvPair(s)) out = [s];
+  else if (base) out = CRYPTO_VENUES.map((v) => v(base));
   else if (INDEX_TV_TICKER.has(s)) {
     // TVC's copy of an index often reaches much further back than the exchange's own.
     const tv = INDEX_TV_TICKER.get(s)!;
@@ -79,11 +80,24 @@ export function pickLongest(candidates: string[], found: Record<string, tvchart.
   return best;
 }
 
-export async function tvHistory(symbol: string, interval: Interval, fetchBars = tvchart.bars): Promise<Candle[]> {
+/** A token off the ranked board: the pair its quote comes from (see offBoardPair). */
+async function tokenCandidates(symbol: string): Promise<string[]> {
+  const base = cryptoBase(symbol);
+  if (!base) return [];
+  return (await offBoardPair(base)).filter((t) => tvchart.SYMBOL_RE.test(t));
+}
+
+export async function tvHistory(symbol: string, interval: Interval, fetchBars = tvchart.bars, tokenPairOf = tokenCandidates): Promise<Candle[]> {
   const candidates = tvCandidates(symbol);
   if (candidates.length === 0) throw new Error(`tradingview: no ticker for ${symbol}`);
-  const found = await fetchBars(candidates, TV_RESOLUTION[interval], TV_DEPTH[interval], 10_000);
-  const best = pickLongest(candidates, found, cryptoBase(symbol) !== null);
+  // A token off the ranked board is charted on its own pair first: on the big exchanges its
+  // ticker may belong to another token, and the chart must be of the token the quote is.
+  const own = await tokenPairOf(symbol);
+  let best: tvchart.TvBar[] | null = null;
+  for (const list of own.length ? [own, candidates] : [candidates]) {
+    best = pickLongest(list, await fetchBars(list, TV_RESOLUTION[interval], TV_DEPTH[interval], 10_000), cryptoBase(symbol) !== null);
+    if (best) break;
+  }
   if (!best) throw new Error(`tradingview: no bars for ${symbol}`);
   return best
     .filter((b) => [b.open, b.high, b.low, b.close].every(Number.isFinite))

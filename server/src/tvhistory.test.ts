@@ -46,6 +46,26 @@ describe("TradingView chart history", () => {
       { time: 100, open: 1, high: 2, low: 0.5, close: 1.5, volume: 0 },
       { time: 200, open: 1, high: 2, low: 0.5, close: 1.5, volume: 5 },
     ]);
-    await expect(tvHistory("ZZZ-USD", "1D", async (s) => Object.fromEntries(s.map((x) => [x, null])))).rejects.toThrow(/no bars/);
+    await expect(tvHistory("ZZZ-USD", "1D", async (s) => Object.fromEntries(s.map((x) => [x, null])), async () => [])).rejects.toThrow(/no bars/);
+  });
+
+  it("charts a token off the ranked board on its own pair, the exchanges only if that has nothing", async () => {
+    const dex = "PANCAKESWAP:SBCUSDT_4C0D3D";
+    const asked: string[][] = [];
+    const bars = (has: string[]) => async (symbols: string[]) => {
+      asked.push(symbols);
+      return Object.fromEntries(symbols.map((s) => [s, has.includes(s) ? [bar(100, 7)] : null]));
+    };
+    // Its pair answers: the exchanges (where "SBC" may be another token) aren't asked.
+    expect(await tvHistory("SBC-USD", "1D", bars([dex, "MEXC:SBCUSDT"]), async () => [dex])).toHaveLength(1);
+    expect(asked).toEqual([[dex]]);
+    // Its pair has nothing: the exchanges are.
+    asked.length = 0;
+    await tvHistory("SBC-USD", "1D", bars(["MEXC:SBCUSDT"]), async () => [dex]);
+    expect(asked[1]).toContain("MEXC:SBCUSDT");
+    // A ranked coin has no pair of its own here: straight to the exchanges.
+    asked.length = 0;
+    await tvHistory("ABC-USD", "1D", bars(["BINANCE:ABCUSDT"]), async () => []);
+    expect(asked).toHaveLength(1);
   });
 });

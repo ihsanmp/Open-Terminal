@@ -2,6 +2,7 @@
 //
 //  - Crypto uses Yahoo's "<BASE>-USD" form (BTC-USD, PEPE-USD), so a coin can
 //    never be confused with a stock that happens to share its ticker.
+//  - A token sharing its ticker with others is its TradingView pair (PANCAKESWAP:SBCUSDT_4C0D3D).
 //  - Indices start with "^" (^GSPC, ^JKSE), exactly as Yahoo spells them.
 //  - Everything else is an equity/ETF: bare US tickers, or Yahoo suffixes for
 //    other exchanges (BBCA.JK, 7203.T).
@@ -21,6 +22,12 @@ export function cryptoBase(symbol: string): string | null {
 }
 
 export const cryptoTicker = (base: string) => `${base.toUpperCase()}-USD`;
+
+/**
+ * A crypto pair spelled out as TradingView does (PANCAKESWAP:SBCUSDT_4C0D3D): how a token is named
+ * when its ticker alone would mean another token (DEX tokens often share one).
+ */
+export const isTvPair = (symbol: string) => /^[A-Z0-9_]{1,24}:[A-Z0-9._!\-]{1,40}$/.test(symbol.toUpperCase());
 
 export const isIndex = (symbol: string) => symbol.startsWith("^");
 
