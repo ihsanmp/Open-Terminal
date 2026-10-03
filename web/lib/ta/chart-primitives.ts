@@ -473,9 +473,15 @@ export class DrawingsPrimitive extends PrimitiveBase {
 export type CountdownState = { price: number; text: string; color: string } | null;
 
 /** The open candle's time to close, on the price axis right under the last-price label, as
- *  TradingView shows it. Refresh it once a second; it hides itself once the candle has closed. */
+ *  TradingView shows it. Refresh it once a second; it hides itself once the candle has closed.
+ *
+ *  Drawn by itself on top of the axis rather than as one more axis label: as a label it sank
+ *  behind an indicator's value whenever that was close to the price (a moving average), and
+ *  the countdown went missing. The label is still registered, see-through, so the axis keeps
+ *  room for its width. */
 export class CountdownPrimitive extends PrimitiveBase {
   private axisView: ISeriesPrimitiveAxisView;
+  private axisPaneView: IPrimitivePaneView;
 
   /** `labelHeight`: height of the series' own last-price label, so the two stack flush. */
   constructor(private state: () => CountdownState, private labelHeight: number) {
@@ -489,14 +495,33 @@ export class CountdownPrimitive extends PrimitiveBase {
       return c === null ? null : c + self.labelHeight;
     };
     this.axisView = {
-      // Placed like any other label so the axis re-stacks overlapping ones (a moving average
-      // priced near the last close) around it instead of drawing over it.
       coordinate: () => y() ?? -1e6,
       text: () => self.state()?.text ?? "",
-      textColor: () => "#ffffff",
-      backColor: () => self.state()?.color ?? "transparent",
+      textColor: () => "transparent",
+      backColor: () => "transparent",
       visible: () => y() !== null,
       tickVisible: () => false,
+    };
+    const fontSize = labelHeight * (12 / 17); // the axis label's height is its font size × 17/12
+    this.axisPaneView = {
+      zOrder: () => "top",
+      renderer: () => ({
+        draw(target: CanvasRenderingTarget2D) {
+          const s = self.state();
+          const mid = y();
+          if (!s || mid === null) return;
+          target.useMediaCoordinateSpace(({ context: ctx, mediaSize }) => {
+            const top = Math.round(mid - self.labelHeight / 2);
+            ctx.fillStyle = s.color;
+            ctx.fillRect(0, top, mediaSize.width, Math.ceil(self.labelHeight));
+            ctx.font = `${fontSize}px ${FONT}`;
+            ctx.fillStyle = "#ffffff";
+            ctx.textBaseline = "middle";
+            ctx.textAlign = "left";
+            ctx.fillText(s.text, Math.round(fontSize * 0.75), top + self.labelHeight / 2 + 0.5);
+          });
+        },
+      }),
     };
   }
 
@@ -506,6 +531,10 @@ export class CountdownPrimitive extends PrimitiveBase {
 
   priceAxisViews() {
     return [this.axisView];
+  }
+
+  priceAxisPaneViews() {
+    return [this.axisPaneView];
   }
 
   refresh() {

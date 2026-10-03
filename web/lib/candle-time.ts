@@ -136,12 +136,40 @@ export function candleCloseTime(barTime: number, intervalSeconds: number, market
   return closeOn(last.getUTCFullYear(), last.getUTCMonth() + 1, last.getUTCDate());
 }
 
-/** Seconds until the open candle closes; null when it already has (the market is shut) or
- *  hasn't opened yet. */
+/** Whether forex (and gold) is shut: from Friday 17:00 to Sunday 17:00 New York time. */
+export function forexClosed(t: number): boolean {
+  const ny = zonedDate(t, "America/New_York");
+  const weekday = new Date(Date.UTC(ny.year, ny.month - 1, ny.day)).getUTCDay();
+  return weekday === 6 || (weekday === 5 && ny.hour >= 17) || (weekday === 0 && ny.hour < 17);
+}
+
+/**
+ * When the candle running at `t` closes, on the grid of bars that opened at `barTime`: for markets
+ * that never pause within a period, the next candle starts at once whether or not it has traded.
+ */
+function clockCandleClose(barTime: number, intervalSeconds: number, t: number): number {
+  if (intervalSeconds >= 28 * 86_400) {
+    const d = new Date(t * 1000);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) / 1000;
+  }
+  return barTime + (Math.floor((t - barTime) / intervalSeconds) + 1) * intervalSeconds;
+}
+
+/**
+ * Seconds until the open candle closes; null when the market is shut or the candle hasn't opened
+ * yet. Crypto (round the clock) and forex (round the clock on weekdays) count down to the close of
+ * the candle the clock is in, as TradingView does, even when the data's last candle is older: a
+ * quiet pair that hasn't traded yet this minute, or data a moment old.
+ */
 export function secondsUntilClose(barTime: number, intervalSeconds: number, market: Market, now = Date.now()): number | null {
   const t = Math.floor(now / 1000);
   if (t < barTime) return null;
-  const left = candleCloseTime(barTime, intervalSeconds, market) - t;
+  let close = candleCloseTime(barTime, intervalSeconds, market);
+  if (close <= t && (market.type === "crypto" || market.type === "forex")) {
+    if (market.type === "forex" && forexClosed(t)) return null;
+    close = clockCandleClose(barTime, intervalSeconds, t);
+  }
+  const left = close - t;
   return left > 0 ? left : null;
 }
 
