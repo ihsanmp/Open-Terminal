@@ -1,16 +1,9 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { apiGet } from "../lib/api";
+import { useStatus } from "../lib/status";
 import { useTerminal } from "../store/terminal";
 import { openTabWindow } from "./TabBar";
-
-type Status = {
-  ok: boolean;
-  providers: Array<{ name: string; ok: number; failed: number; lastLatencyMs: number | null }>;
-  ai: boolean;
-};
 
 const CLOCKS = [
   { tz: "America/New_York", label: "NY" },
@@ -55,11 +48,7 @@ export default function TopBar() {
   const setCommandOpen = useTerminal((s) => s.setCommandOpen);
   const activeSymbol = useTerminal((s) => s.activeSymbol);
   const duplicateTab = useTerminal((s) => s.duplicateTab);
-  const { data: status } = useQuery({
-    queryKey: ["status"],
-    queryFn: () => apiGet<Status>("/api/status"),
-    refetchInterval: 60_000,
-  });
+  const { data: status } = useStatus();
 
   const market = marketStateNY();
   const healthy = status?.providers.filter((p) => p.ok > 0) ?? [];
@@ -90,7 +79,8 @@ export default function TopBar() {
           ? healthy.map((p) => `${p.name} ${p.lastLatencyMs ?? "—"}ms`).join(" · ")
           : "connecting…"}
       </span>
-      <span className={status?.ai ? "up" : "dim"}>AI {status?.ai ? "●" : "○"}</span>
+      {/* Only when the assistant is set up (an Anthropic key on the server); its menu item too. */}
+      {status?.ai && <span className="up">AI ●</span>}
     </header>
   );
 }

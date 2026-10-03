@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import TopBar from "./TopBar";
 import TabBar, { openTabWindow } from "./TabBar";
-import Sidebar, { MENU } from "./Sidebar";
+import Sidebar, { shownMenu } from "./Sidebar";
+import { useAiAvailable, useStatus } from "../lib/status";
 import PageView from "./PageView";
 import Workspace from "./Workspace";
 import CommandPalette from "./CommandPalette";
@@ -15,6 +16,15 @@ export default function Terminal() {
   const view = useTerminal((s) => s.view);
   const setView = useTerminal((s) => s.setView);
   const activeTab = useTerminal((s) => s.activeTab);
+  // ⌥1 … ⌥9 follow the menu as shown (AI ASSIST only when the server has an AI key).
+  const status = useStatus();
+  const aiAvailable = useAiAvailable();
+  const shownMenuRef = useRef(shownMenu(aiAvailable));
+  shownMenuRef.current = shownMenu(aiAvailable);
+  // A tab saved on the AI page, with no AI set up: back to the chart.
+  useEffect(() => {
+    if (status.data && !status.data.ai && view === "ai") setView("chart");
+  }, [status.data, view, setView]);
 
   // Tabs shown in other windows stay in step with this one, and every change also goes to a
   // copy on disk that comes back if the browser's storage is ever cleared.
@@ -49,7 +59,8 @@ export default function Terminal() {
       if (!e.shiftKey && /^[0-9]$/.test(e.key)) {
         const n = Number(e.key);
         e.preventDefault();
-        setView(n === 0 ? "workspace" : MENU[n - 1].type);
+        const item = shownMenuRef.current[n - 1];
+        if (n === 0 || item) setView(n === 0 ? "workspace" : item.type);
       }
     };
     window.addEventListener("keydown", onKey);
