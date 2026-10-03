@@ -31,7 +31,7 @@ function Item({ view, current, label, hint, onAdd }: { view: View; current: View
     <div
       role="button"
       onClick={() => setView(view)}
-      className={`group flex items-center justify-between px-2 py-1.5 text-[11px] cursor-pointer border-l-2 ${
+      className={`group flex items-center justify-between px-2 py-1.5 text-fs-11 cursor-pointer border-l-2 ${
         active ? "border-[var(--amber)] bg-[#1a1a1a] text-[var(--amber)]" : "border-transparent hover:bg-[#1a1a1a] hover:text-[var(--amber)]"
       }`}
     >
@@ -49,7 +49,7 @@ function Item({ view, current, label, hint, onAdd }: { view: View; current: View
             +
           </button>
         )}
-        <span className="dim text-[9px]">{hint}</span>
+        <span className="dim text-fs-9">{hint}</span>
       </span>
     </div>
   );
@@ -62,7 +62,7 @@ export default function Sidebar() {
   const resetWorkspace = useTerminal((s) => s.resetWorkspace);
 
   return (
-    <nav className="w-32 bg-[var(--panel)] border-r border-[var(--border)] flex flex-col shrink-0 overflow-auto">
+    <nav className="w-[calc(8rem*var(--font-scale))] bg-[var(--panel)] border-r border-[var(--border)] flex flex-col shrink-0 overflow-auto">
       {MENU.map((item) => (
         <Item
           key={item.type}
@@ -79,7 +79,7 @@ export default function Sidebar() {
       <div className="mt-auto border-t border-[var(--border)]">
         <Item view="workspace" current={view} label="WORKSPACE" hint="⌥0" />
         {view === "workspace" && (
-          <button onClick={resetWorkspace} className="w-full text-left px-2 py-1.5 text-[11px] dim hover:text-[var(--down)]">
+          <button onClick={resetWorkspace} className="w-full text-left px-2 py-1.5 text-fs-11 dim hover:text-[var(--down)]">
             RESET LAYOUT
           </button>
         )}

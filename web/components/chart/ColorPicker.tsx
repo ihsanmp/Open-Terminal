@@ -89,9 +89,9 @@ export function ColorPicker({ color, onColor, width, onWidth, dash, onDash }: Pr
               +
             </button>
             <input ref={customRef} type="color" className="w-0 h-0 opacity-0" value={hex.toLowerCase()} onChange={(e) => onColor(withOpacity(e.target.value, opacity))} />
-            <span className="dim text-[11px]">{hex}</span>
+            <span className="dim text-fs-11">{hex}</span>
           </div>
-          <div className="mt-2 text-[11px] dim">Opacity</div>
+          <div className="mt-2 text-fs-11 dim">Opacity</div>
           <div className="flex items-center gap-2">
             <input
               type="range"
@@ -110,11 +110,11 @@ export function ColorPicker({ color, onColor, width, onWidth, dash, onDash }: Pr
               onChange={(e) => onColor(withOpacity(hex, Math.max(0, Math.min(100, Number(e.target.value) || 0))))}
               className="w-14"
             />
-            <span className="dim text-[11px]">%</span>
+            <span className="dim text-fs-11">%</span>
           </div>
           {onWidth && (
             <>
-              <div className="mt-2 text-[11px] dim">Thickness</div>
+              <div className="mt-2 text-fs-11 dim">Thickness</div>
               <div className="flex gap-1">
                 {([1, 2, 3, 4] as const).map((w) => (
                   <button key={w} type="button" onClick={() => onWidth(w)} className={`flex-1 h-6 border ${width === w ? "border-[var(--amber)] bg-[#262626]" : "border-[var(--border)]"}`}>
@@ -128,7 +128,7 @@ export function ColorPicker({ color, onColor, width, onWidth, dash, onDash }: Pr
           )}
           {onDash && (
             <>
-              <div className="mt-2 text-[11px] dim">Line style</div>
+              <div className="mt-2 text-fs-11 dim">Line style</div>
               <div className="flex gap-1">
                 {(["solid", "dashed", "dotted"] as const).map((d) => (
                   <button key={d} type="button" title={d} onClick={() => onDash(d)} className={`flex-1 h-6 border ${(dash ?? "solid") === d ? "border-[var(--amber)] bg-[#262626]" : "border-[var(--border)]"}`}>

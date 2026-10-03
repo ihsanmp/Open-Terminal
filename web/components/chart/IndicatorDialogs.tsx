@@ -77,7 +77,7 @@ export function IndicatorPicker({ onAdd, onClose }: { onAdd: (def: IndicatorDef)
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && results[0] && add(results[0])}
         placeholder={`Search ${INDICATORS.length} indicators…`}
-        className="!border-0 !border-b !border-[var(--border)] px-3 py-2 text-[13px]"
+        className="!border-0 !border-b !border-[var(--border)] px-3 py-2 text-fs-13"
       />
       <div className="flex min-h-0 flex-1">
         <div className="w-44 shrink-0 border-r border-[var(--border)] py-1 overflow-auto">
@@ -85,7 +85,7 @@ export function IndicatorPicker({ onAdd, onClose }: { onAdd: (def: IndicatorDef)
             <div
               key={c}
               onClick={() => setCategory(c)}
-              className={`px-3 py-1 cursor-pointer text-[12px] ${category === c ? "bg-[#1f1a10] text-[var(--amber)]" : "hover:bg-[#161616]"}`}
+              className={`px-3 py-1 cursor-pointer text-fs-12 ${category === c ? "bg-[#1f1a10] text-[var(--amber)]" : "hover:bg-[#161616]"}`}
             >
               {c}
             </div>
@@ -100,14 +100,14 @@ export function IndicatorPicker({ onAdd, onClose }: { onAdd: (def: IndicatorDef)
               className={`px-3 py-1.5 flex gap-3 cursor-pointer items-baseline ${flash === d.id ? "bg-[#10261a]" : "hover:bg-[#161616]"}`}
             >
               <span className="flex-1 truncate">{d.name}</span>
-              <span className="dim text-[11px]">{d.overlay ? "overlay" : "pane"}</span>
-              <span className="dim text-[11px] w-32 text-right truncate">{d.category}</span>
+              <span className="dim text-fs-11">{d.overlay ? "overlay" : "pane"}</span>
+              <span className="dim text-fs-11 w-32 text-right truncate">{d.category}</span>
             </div>
           ))}
           {results.length === 0 && <div className="px-3 py-3 dim">No indicators match “{query}”</div>}
         </div>
       </div>
-      <div className="px-3 py-1.5 border-t border-[var(--border)] dim text-[11px]">
+      <div className="px-3 py-1.5 border-t border-[var(--border)] dim text-fs-11">
         Click to add (you can add the same indicator more than once) · Enter adds the first match · Esc closes
       </div>
     </Modal>
@@ -138,7 +138,7 @@ export function IndicatorSettings({
 
   return (
     <Modal title={def.short || def.name} onClose={onClose} width={420}>
-      <div className="flex gap-4 px-3 pt-2 border-b border-[var(--border)] text-[12px]">
+      <div className="flex gap-4 px-3 pt-2 border-b border-[var(--border)] text-fs-12">
         {(["inputs", "style", "visibility"] as const).map((t) => (
           <button
             key={t}
@@ -154,7 +154,7 @@ export function IndicatorSettings({
       <div className={`overflow-auto px-3 py-2 flex flex-col gap-1.5 ${tab === "inputs" ? "" : "hidden"}`}>
         {def.inputs.length === 0 && <div className="dim py-2">This indicator has no inputs.</div>}
         {def.inputs.map((input) => (
-          <label key={input.key} className="flex items-center justify-between gap-3 text-[12px]">
+          <label key={input.key} className="flex items-center justify-between gap-3 text-fs-12">
             <span className="dim">{input.label}</span>
             {input.type === "bool" ? (
               <input type="checkbox" checked={Boolean(draft[input.key])} onChange={(e) => set(input.key, e.target.checked)} />
@@ -245,7 +245,7 @@ type SetStyle = (update: (s: IndicatorStyle) => IndicatorStyle) => void;
 const firstColor = (c: string | Array<string | undefined>) => (typeof c === "string" ? c : c.find(Boolean) ?? "#787B86");
 
 function Row({ children }: { children: React.ReactNode }) {
-  return <div className="flex items-center gap-2 text-[12px] min-h-[28px]">{children}</div>;
+  return <div className="flex items-center gap-2 text-fs-12 min-h-[28px]">{children}</div>;
 }
 
 function StyleTab({ def, result, style, setStyle }: { def: IndicatorDef; result?: IndicatorResult; style: IndicatorStyle; setStyle: SetStyle }) {
@@ -319,7 +319,7 @@ function StyleTab({ def, result, style, setStyle }: { def: IndicatorDef; result?
       )}
       {kinds.length > 0 && (
         <>
-          <div className="dim text-[10px] tracking-wider mt-3 mb-1">DRAWINGS</div>
+          <div className="dim text-fs-10 tracking-wider mt-3 mb-1">DRAWINGS</div>
           {DRAWING_KINDS.filter(([k]) => kinds.includes(k)).map(([k, label]) => (
             <Row key={k}>
               <input
@@ -334,7 +334,7 @@ function StyleTab({ def, result, style, setStyle }: { def: IndicatorDef; result?
       )}
       {colors.length > 0 && (
         <>
-          <div className="dim text-[10px] tracking-wider mt-3 mb-1">COLORS</div>
+          <div className="dim text-fs-10 tracking-wider mt-3 mb-1">COLORS</div>
           {colors.map(({ key, uses }) => {
             const chosen = style.colors?.[key];
             return (
@@ -353,7 +353,7 @@ function StyleTab({ def, result, style, setStyle }: { def: IndicatorDef; result?
           })}
         </>
       )}
-      <div className="dim text-[10px] tracking-wider mt-3 mb-1">OUTPUT VALUES</div>
+      <div className="dim text-fs-10 tracking-wider mt-3 mb-1">OUTPUT VALUES</div>
       <Row>
         <span className="flex-1 dim">Precision</span>
         <select
@@ -377,7 +377,7 @@ function StyleTab({ def, result, style, setStyle }: { def: IndicatorDef; result?
         <input type="checkbox" checked={style.valuesInStatusLine ?? true} onChange={(e) => setStyle((s) => ({ ...s, valuesInStatusLine: e.target.checked }))} />
         <span className="dim">Values in status line</span>
       </Row>
-      <div className="dim text-[10px] tracking-wider mt-3 mb-1">INPUT VALUES</div>
+      <div className="dim text-fs-10 tracking-wider mt-3 mb-1">INPUT VALUES</div>
       <Row>
         <input type="checkbox" checked={style.inputsInStatusLine ?? true} onChange={(e) => setStyle((s) => ({ ...s, inputsInStatusLine: e.target.checked }))} />
         <span className="dim">Inputs in status line</span>
@@ -399,7 +399,7 @@ const TIMEFRAMES: Array<[TimeframeKind, string]> = [
 function VisibilityTab({ style, setStyle }: { style: IndicatorStyle; setStyle: SetStyle }) {
   return (
     <div className="overflow-auto px-3 py-2 flex flex-col">
-      <div className="dim text-[11px] mb-1">Show this indicator on these chart intervals:</div>
+      <div className="dim text-fs-11 mb-1">Show this indicator on these chart intervals:</div>
       {TIMEFRAMES.map(([kind, label]) => (
         <Row key={kind}>
           <input

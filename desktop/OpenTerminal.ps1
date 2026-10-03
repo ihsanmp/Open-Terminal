@@ -68,24 +68,24 @@ function New-Splash {
   $form.Text = 'OpenTerminal'
   $form.FormBorderStyle = 'None'
   $form.StartPosition = 'CenterScreen'
-  $form.Size = New-Object System.Drawing.Size 400, 120
+  $form.Size = New-Object System.Drawing.Size 500, 140
   $form.BackColor = [System.Drawing.Color]::FromArgb(12, 12, 12)
   $form.TopMost = $true
   if (Test-Path $IconPath) { $form.Icon = New-Object System.Drawing.Icon $IconPath }
 
   $title = New-Object System.Windows.Forms.Label
   $title.Text = 'OpenTerminal'
-  $title.Font = New-Object System.Drawing.Font 'Consolas', 18, ([System.Drawing.FontStyle]::Bold)
+  $title.Font = New-Object System.Drawing.Font 'Consolas', 22.5, ([System.Drawing.FontStyle]::Bold)
   $title.ForeColor = [System.Drawing.Color]::FromArgb(255, 153, 0)
   $title.AutoSize = $true
   $title.Location = New-Object System.Drawing.Point 24, 24
   $form.Controls.Add($title)
 
   $script:StatusLabel = New-Object System.Windows.Forms.Label
-  $StatusLabel.Font = New-Object System.Drawing.Font 'Consolas', 10
+  $StatusLabel.Font = New-Object System.Drawing.Font 'Consolas', 12.5
   $StatusLabel.ForeColor = [System.Drawing.Color]::FromArgb(150, 150, 150)
   $StatusLabel.AutoSize = $true
-  $StatusLabel.Location = New-Object System.Drawing.Point 26, 70
+  $StatusLabel.Location = New-Object System.Drawing.Point 26, 82
   $form.Controls.Add($StatusLabel)
 
   return $form

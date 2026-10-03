@@ -30,7 +30,7 @@ const PRECISIONS: Array<["default" | number, string]> = [
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <>
-      <div className="dim text-[10px] tracking-wider mt-3 mb-2 first:mt-0">{title}</div>
+      <div className="dim text-fs-10 tracking-wider mt-3 mb-2 first:mt-0">{title}</div>
       <div className="flex flex-col gap-2.5">{children}</div>
     </>
   );
@@ -53,7 +53,7 @@ export function ChartSettings({ style, exchangeZone, onApply, onClose }: Props) 
     const v: UpDown = draft[key];
     const set = (patch: Partial<UpDown>) => setDraft((d) => ({ ...d, [key]: { ...d[key], ...patch } }));
     return (
-      <div className="flex items-center gap-3 text-[12px]">
+      <div className="flex items-center gap-3 text-fs-12">
         <label className="flex items-center gap-2 w-24">
           <input type="checkbox" checked={v.visible} onChange={(e) => set({ visible: e.target.checked })} />
           {label}
@@ -65,7 +65,7 @@ export function ChartSettings({ style, exchangeZone, onApply, onClose }: Props) 
   };
 
   const grid = (key: "vertGrid" | "horzGrid", label: string) => (
-    <div className="flex items-center gap-3 text-[12px]">
+    <div className="flex items-center gap-3 text-fs-12">
       <label className="flex items-center gap-2 w-40">
         <input type="checkbox" checked={draft[key].visible} onChange={(e) => setDraft((d) => ({ ...d, [key]: { ...d[key], visible: e.target.checked } }))} />
         {label}
@@ -84,7 +84,7 @@ export function ChartSettings({ style, exchangeZone, onApply, onClose }: Props) 
           </button>
         </div>
         <div className="flex min-h-[300px] overflow-hidden">
-          <nav className="w-36 shrink-0 border-r border-[var(--border)] p-1.5 flex flex-col gap-0.5 text-[12px]">
+          <nav className="w-36 shrink-0 border-r border-[var(--border)] p-1.5 flex flex-col gap-0.5 text-fs-12">
             {(
               [
                 ["symbol", "Symbol"],
@@ -100,7 +100,7 @@ export function ChartSettings({ style, exchangeZone, onApply, onClose }: Props) 
             {tab === "symbol" && (
               <>
                 <Section title="CANDLES">
-                  <label className="flex items-center gap-2 text-[12px]">
+                  <label className="flex items-center gap-2 text-fs-12">
                     <input type="checkbox" checked={draft.colorByPrevClose} onChange={(e) => setDraft((d) => ({ ...d, colorByPrevClose: e.target.checked }))} />
                     Color bars based on previous close
                   </label>
@@ -109,7 +109,7 @@ export function ChartSettings({ style, exchangeZone, onApply, onClose }: Props) 
                   {upDown("wick", "Wick")}
                 </Section>
                 <Section title="DATA MODIFICATION">
-                  <label className="flex items-center gap-3 text-[12px]">
+                  <label className="flex items-center gap-3 text-fs-12">
                     <span className="w-24">Precision</span>
                     <select
                       className="w-48"
@@ -123,7 +123,7 @@ export function ChartSettings({ style, exchangeZone, onApply, onClose }: Props) 
                       ))}
                     </select>
                   </label>
-                  <label className="flex items-center gap-3 text-[12px]">
+                  <label className="flex items-center gap-3 text-fs-12">
                     <span className="w-24">Timezone</span>
                     <select className="w-48" value={draft.timezone} onChange={(e) => setDraft((d) => ({ ...d, timezone: e.target.value }))}>
                       <option value="exchange">Exchange {utcOffsetLabel(exchangeZone)}</option>
@@ -139,7 +139,7 @@ export function ChartSettings({ style, exchangeZone, onApply, onClose }: Props) 
             )}
             {tab === "canvas" && (
               <Section title="CHART BASIC STYLES">
-                <div className="flex items-center gap-3 text-[12px]">
+                <div className="flex items-center gap-3 text-fs-12">
                   <span className="w-40 pl-6">Background</span>
                   <ColorPicker color={draft.background} onColor={(background) => setDraft((d) => ({ ...d, background }))} />
                 </div>
@@ -155,7 +155,7 @@ export function ChartSettings({ style, exchangeZone, onApply, onClose }: Props) 
               Template ▾
             </button>
             {templateOpen && (
-              <div className="absolute bottom-full mb-1 left-0 bg-[#1a1a1a] border border-[var(--border)] py-1 text-[12px] w-40 shadow-lg">
+              <div className="absolute bottom-full mb-1 left-0 bg-[#1a1a1a] border border-[var(--border)] py-1 text-fs-12 w-40 shadow-lg">
                 <button
                   className="w-full text-left px-2 h-7 hover:bg-[#262626]"
                   onClick={() => {

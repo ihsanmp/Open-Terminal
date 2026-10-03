@@ -55,6 +55,7 @@ import { IndicatorPicker, IndicatorSettings } from "../chart/IndicatorDialogs";
 import { PriceScaleMenu } from "../chart/PriceScaleMenu";
 import { isCryptoSymbol, usePoll, usSessionActive } from "../../lib/refresh";
 import { formatAxisCountdown, formatCountdown, intervalLabel, isIntradayInterval, secondsUntilClose, type Market } from "../../lib/candle-time";
+import { fontPx } from "../../lib/font-scale";
 
 
 const CHART_TYPES = ["candles", "bars", "line", "area"] as const;
@@ -63,7 +64,7 @@ const CHART_TYPES = ["candles", "bars", "line", "area"] as const;
 type ChartType = (typeof CHART_TYPES)[number];
 
 /** Axis font size; the countdown label is stacked by the height it gives the price label. */
-const AXIS_FONT_SIZE = 10;
+const AXIS_FONT_SIZE = fontPx(10);
 
 type PreparedPlot = { values: number[]; colors?: Color[] };
 
@@ -841,7 +842,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         onKeyDown={onChartKey}
       >
         {candle && (
-          <div className="absolute top-1 left-2 z-10 flex flex-col gap-0.5 text-[11px] pointer-events-none max-w-[85%]">
+          <div className="absolute top-1 left-2 z-10 flex flex-col gap-0.5 text-fs-11 pointer-events-none max-w-[85%]">
             <div className="flex gap-3 bg-[rgba(10,10,10,0.7)] w-fit px-1">
               <span className="dim">
                 <span className="amber">{intervalLabel(intervalSeconds)}</span> {formatChartTime(candle.time, isIntradayInterval(intervalSeconds), timezone)}
@@ -861,7 +862,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           .map((it) => (
             <div
               key={it.inst.uid}
-              className="absolute left-2 z-10 text-[11px] pointer-events-none max-w-[85%]"
+              className="absolute left-2 z-10 text-fs-11 pointer-events-none max-w-[85%]"
               style={{ top: (paneTops[paneOf.get(it.inst.uid)!] ?? -9999) + 2 }}
             >
               {legendRow(it)}
@@ -934,7 +935,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         )}
         {candle && (
           // TradingView's price scale buttons, in the corner under the price axis.
-          <div className="absolute right-0 bottom-0 z-10 flex items-center justify-center gap-0.5 text-[10px]" style={{ width: axes.right, height: axes.bottom }}>
+          <div className="absolute right-0 bottom-0 z-10 flex items-center justify-center gap-0.5 text-fs-10" style={{ width: axes.right, height: axes.bottom }}>
             <button
               title="Auto (fits data to screen)"
               onMouseDown={keepChartFocus}

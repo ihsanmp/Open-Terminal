@@ -62,14 +62,14 @@ function AssetIcon({ asset }: { asset: Asset }) {
       </svg>
     </span>
   ) : (
-    <span className="w-8 h-8 rounded-full bg-[#f7931a] flex items-center justify-center shrink-0 text-white font-bold text-[15px]" aria-hidden>
+    <span className="w-8 h-8 rounded-full bg-[#f7931a] flex items-center justify-center shrink-0 text-white font-bold text-fs-15" aria-hidden>
       ₿
     </span>
   );
 }
 
 function Badge({ verdict }: { verdict: Verdict }) {
-  return <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${VERDICT_STYLE[verdict]}`}>{verdict}</span>;
+  return <span className={`px-2 py-0.5 rounded-md text-fs-11 font-bold ${VERDICT_STYLE[verdict]}`}>{verdict}</span>;
 }
 
 /** The returns after each past event, as small bars (newest on the right). */
@@ -124,15 +124,15 @@ function ImpactRow({ impact, trail, record }: { impact: Impact; trail: TrailPoin
     <div className="rounded-xl border border-[#2a2a2a] bg-[#151515]">
       <div className="flex items-center gap-3 px-4 py-3">
         <AssetIcon asset={impact.asset} />
-        <span className="text-[14px] text-[var(--text)]">{ASSET_LABEL[impact.asset]}</span>
+        <span className="text-fs-14 text-[var(--text)]">{ASSET_LABEL[impact.asset]}</span>
         <Badge verdict={impact.verdict} />
-        {impact.confidence && <span className="dim text-[10px]">keyakinan {impact.confidence}</span>}
-        <button className="ml-auto text-[12px] text-[#ff6a3d] hover:underline" onClick={() => setOpen(!open)}>
+        {impact.confidence && <span className="dim text-fs-10">keyakinan {impact.confidence}</span>}
+        <button className="ml-auto text-fs-12 text-[#ff6a3d] hover:underline" onClick={() => setOpen(!open)}>
           {open ? "Tutup" : "Lihat Detail"} {open ? "↑" : "→"}
         </button>
       </div>
       {open && (
-        <div className="px-4 pb-4 text-[11px] space-y-2">
+        <div className="px-4 pb-4 text-fs-11 space-y-2">
           {enough ? (
             <>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1">
@@ -209,37 +209,37 @@ function EventDialog({ event, events, byKey, version, onClose }: { event: AstroE
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center mb-4">
-          <h2 className="text-[20px] font-bold text-white">Astrology Calendar Details</h2>
-          <button className="ml-auto dim hover:text-white text-[18px]" onClick={onClose} aria-label="Tutup">
+          <h2 className="text-fs-20 font-bold text-white">Astrology Calendar Details</h2>
+          <button className="ml-auto dim hover:text-white text-fs-18" onClick={onClose} aria-label="Tutup">
             ×
           </button>
         </div>
         <div className="rounded-xl border border-[#2a2a2a] border-l-[3px] border-l-[#7c6cf0] bg-[#141414] px-4 py-3 mb-3">
           <div className="flex items-center gap-3">
-            <span className="w-11 h-11 rounded-full bg-[#3b2a7a] border-2 border-white/70 flex items-center justify-center text-white text-[15px] shrink-0">{event.glyph}</span>
+            <span className="w-11 h-11 rounded-full bg-[#3b2a7a] border-2 border-white/70 flex items-center justify-center text-white text-fs-15 shrink-0">{event.glyph}</span>
             <div>
-              <div className="text-[17px] font-bold text-white">{event.title}</div>
-              <div className="dim text-[11px]">
+              <div className="text-fs-17 font-bold text-white">{event.title}</div>
+              <div className="dim text-fs-11">
                 {fmtDate(event.time)}, {fmtTime(event.time)}
               </div>
             </div>
           </div>
-          <p className="mt-2 text-[12px] text-[var(--text)]">{event.detail}</p>
+          <p className="mt-2 text-fs-12 text-[var(--text)]">{event.detail}</p>
         </div>
         <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3 space-y-3">
           <div className="flex items-center px-1">
-            <span className="text-[15px] text-white">Dampak</span>
-            <span className="ml-auto text-[13px] text-white">{day.toLocaleDateString("id-ID", { day: "2-digit", month: "long" })}</span>
-            <button className="ml-2 w-5 h-5 rounded-full border border-[#4a7dff] text-[#4a7dff] text-[11px] leading-none" onClick={() => setInfo(!info)} aria-label="Cara menghitung">
+            <span className="text-fs-15 text-white">Dampak</span>
+            <span className="ml-auto text-fs-13 text-white">{day.toLocaleDateString("id-ID", { day: "2-digit", month: "long" })}</span>
+            <button className="ml-2 w-5 h-5 rounded-full border border-[#4a7dff] text-[#4a7dff] text-fs-11 leading-none" onClick={() => setInfo(!info)} aria-label="Cara menghitung">
               i
             </button>
           </div>
-          <div className="text-[10px] dim px-1">
+          <div className="text-fs-10 dim px-1">
             Kesimpulan per data {fmtUtcDay(asOf)}
             {final ? " · final (H-1)" : ` · sementara, ikut berubah dengan harga terbaru sampai H-1 (${fmtUtcDay(Math.floor(event.time / DAY) - 1)})`}
           </div>
           {info && (
-            <div className="text-[11px] dim px-1 space-y-1">
+            <div className="text-fs-11 dim px-1 space-y-1">
               <p>
                 Dihitung offline dari riwayat harga (gold sejak 1990, BTC sejak 2011): untuk setiap kejadian yang sama di masa lalu, diukur pergerakan harga
                 beberapa hari bursa sesudahnya (dari penutupan H-1), lalu dibandingkan dengan pergerakan biasa pada periode yang sama panjang.
@@ -324,13 +324,13 @@ export default function AstroCalendarWidget() {
   const toggle = (kind: EventKind) => setShown(shown.includes(kind) ? shown.filter((k) => k !== kind) : [...shown, kind]);
 
   return (
-    <div className="flex h-full min-h-0 text-[11px]">
+    <div className="flex h-full min-h-0 text-fs-11">
       <div className="flex-1 min-w-0 flex flex-col p-2 gap-2">
         <div className="flex items-center gap-2 flex-wrap">
           <button className="term-btn" onClick={() => step(-1)} aria-label="Bulan sebelumnya">
             ‹
           </button>
-          <span className="amber font-bold w-36 text-center text-[13px]">
+          <span className="amber font-bold w-36 text-center text-fs-13">
             {MONTHS[month.m]} {month.y}
           </span>
           <button className="term-btn" onClick={() => step(1)} aria-label="Bulan berikutnya">
@@ -347,7 +347,7 @@ export default function AstroCalendarWidget() {
             ))}
           </span>
         </div>
-        <div className="flex items-center gap-3 dim text-[10px]">
+        <div className="flex items-center gap-3 dim text-fs-10">
           <span>Titik: GOLD · BTC —</span>
           <span className="flex items-center gap-1">
             <span className="w-[6px] h-[6px] rounded-full bg-[#2ecc8f]" /> Bullish
@@ -362,7 +362,7 @@ export default function AstroCalendarWidget() {
         </div>
         <div className="grid grid-cols-7 gap-px bg-[var(--border)] border border-[var(--border)] flex-1 min-h-0 auto-rows-fr">
           {WEEKDAYS.map((w) => (
-            <div key={w} className="bg-[var(--panel-2)] text-center dim py-1 text-[10px]">
+            <div key={w} className="bg-[var(--panel-2)] text-center dim py-1 text-fs-10">
               {w}
             </div>
           ))}
@@ -373,7 +373,7 @@ export default function AstroCalendarWidget() {
             const today = inMonth && sameDay(date, now);
             return (
               <div key={i} className={`bg-[var(--bg)] p-1 min-h-[70px] overflow-hidden flex flex-col gap-[2px] ${inMonth ? "" : "opacity-30"}`}>
-                <span className={`text-[10px] ${today ? "amber font-bold" : "dim"}`}>{inMonth ? d : ""}</span>
+                <span className={`text-fs-10 ${today ? "amber font-bold" : "dim"}`}>{inMonth ? d : ""}</span>
                 {events.slice(0, 5).map((e) => (
                   <button
                     key={e.id}
@@ -386,7 +386,7 @@ export default function AstroCalendarWidget() {
                     {data && <Dots event={e} byKey={data.byKey} version={version} />}
                   </button>
                 ))}
-                {events.length > 5 && <span className="dim text-[9px] px-1">+{events.length - 5} lainnya</span>}
+                {events.length > 5 && <span className="dim text-fs-9 px-1">+{events.length - 5} lainnya</span>}
               </div>
             );
           })}

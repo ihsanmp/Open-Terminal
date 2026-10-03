@@ -37,13 +37,13 @@ export default function RecapWidget() {
   return (
     <div>
       <div className="px-2 py-1 flex justify-between items-baseline">
-        <span className="dim text-[10px] uppercase">Market Recap</span>
-        <span className="dim text-[9px]">
+        <span className="dim text-fs-10 uppercase">Market Recap</span>
+        <span className="dim text-fs-9">
           Updated {new Date(data.updatedAt).toLocaleTimeString()}
         </span>
       </div>
 
-      <div className="px-2 pb-2 text-[12px] leading-relaxed border-b border-[#161616]">{data.summary}</div>
+      <div className="px-2 pb-2 text-fs-12 leading-relaxed border-b border-[#161616]">{data.summary}</div>
 
       <table className="data-table">
         <thead>
@@ -80,7 +80,7 @@ export default function RecapWidget() {
 
       <div className="grid grid-cols-2 gap-x-2 px-2 py-1">
         <div>
-          <div className="dim text-[10px] uppercase mb-1">Top gainers</div>
+          <div className="dim text-fs-10 uppercase mb-1">Top gainers</div>
           {data.gainers.map((r) => (
             <div key={r.symbol} className="flex justify-between cursor-pointer hover:bg-[#161616]" onClick={() => setActiveSymbol(r.symbol)}>
               <span className="truncate mr-1">{r.symbol}</span>
@@ -91,7 +91,7 @@ export default function RecapWidget() {
           ))}
         </div>
         <div>
-          <div className="dim text-[10px] uppercase mb-1">Top losers</div>
+          <div className="dim text-fs-10 uppercase mb-1">Top losers</div>
           {data.losers.map((r) => (
             <div key={r.symbol} className="flex justify-between cursor-pointer hover:bg-[#161616]" onClick={() => setActiveSymbol(r.symbol)}>
               <span className="truncate mr-1">{r.symbol}</span>
@@ -104,7 +104,7 @@ export default function RecapWidget() {
       </div>
 
       <div className="px-2 py-1 border-t border-[#161616]">
-        <div className="dim text-[10px] uppercase mb-1">Sector performance</div>
+        <div className="dim text-fs-10 uppercase mb-1">Sector performance</div>
         {data.sectors.map((s) => (
           <div key={s.sector} className="flex justify-between">
             <span className="truncate mr-1">{s.sector}</span>
@@ -114,7 +114,7 @@ export default function RecapWidget() {
       </div>
 
       <div className="border-t border-[#161616]">
-        <div className="dim text-[10px] uppercase px-2 pt-1">Headlines</div>
+        <div className="dim text-fs-10 uppercase px-2 pt-1">Headlines</div>
         {data.news.map((n, i) => (
           <a
             key={i}
@@ -124,7 +124,7 @@ export default function RecapWidget() {
             className="block px-2 py-1 border-b border-[#161616] hover:bg-[#161616]"
           >
             <div className="truncate">{n.title}</div>
-            <div className="dim text-[10px]">{n.publisher}</div>
+            <div className="dim text-fs-10">{n.publisher}</div>
           </a>
         ))}
       </div>

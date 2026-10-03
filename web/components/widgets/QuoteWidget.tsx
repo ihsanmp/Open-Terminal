@@ -49,16 +49,16 @@ export default function QuoteWidget({ widget }: { widget: WidgetInstance }) {
   return (
     <div className="p-2">
       <div className="flex items-baseline gap-3 mb-1">
-        <Flash value={data.price} className="text-xl font-bold">{fmtPrice(data.price)}</Flash>
-        <Flash value={data.changePercent} className={`${pctClass(data.changePercent)} text-sm`}>
+        <Flash value={data.price} className="text-fs-15 font-bold">{fmtPrice(data.price)}</Flash>
+        <Flash value={data.changePercent} className={`${pctClass(data.changePercent)} text-fs-11`}>
           {data.change !== null && data.change >= 0 ? "+" : ""}
           {fmt(data.change)} ({fmt(data.changePercent)}%)
         </Flash>
-        <span className="dim text-[10px] ml-auto">
+        <span className="dim text-fs-10 ml-auto">
           {data.exchange ?? ""} · {data.currency ?? ""} · {data.source}
         </span>
       </div>
-      <div className="dim text-[11px] mb-2 truncate">{data.name}</div>
+      <div className="dim text-fs-11 mb-2 truncate">{data.name}</div>
       <div className="grid grid-cols-2 gap-x-4">
         {rows.map(([label, value]) => (
           <div key={label} className="flex justify-between border-b border-[#161616] py-0.5">

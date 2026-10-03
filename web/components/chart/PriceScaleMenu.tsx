@@ -55,7 +55,7 @@ export function PriceScaleMenu({ at, autoScale, mode, invert, onAuto, onInvert, 
     >
       <span className="w-3 amber">{checked ? "✓" : ""}</span>
       <span className="flex-1">{label}</span>
-      {hotkey && <span className="dim text-[10px]">{hotkey}</span>}
+      {hotkey && <span className="dim text-fs-10">{hotkey}</span>}
     </button>
   );
 
@@ -63,7 +63,7 @@ export function PriceScaleMenu({ at, autoScale, mode, invert, onAuto, onInvert, 
     <div
       ref={ref}
       style={{ position: "fixed", left, top, width: W }}
-      className="z-[60] bg-[#1a1a1a] border border-[var(--border)] py-1 text-[12px] shadow-lg"
+      className="z-[60] bg-[#1a1a1a] border border-[var(--border)] py-1 text-fs-12 shadow-lg"
       onContextMenu={(e) => e.preventDefault()}
     >
       {item(autoScale, "Auto (fits data to screen)", undefined, onAuto)}

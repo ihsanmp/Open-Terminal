@@ -11,8 +11,26 @@
   --down: #ff3d3d;
   --text: #d9d9d9;
   --text-dim: #808080;
+  /* Every text is drawn this much larger than designed (lib/font-scale.ts is the same for the
+     canvases). Sizes below and the text-fs-* classes are the designed sizes times this. */
+  --font-scale: 1.25;
 }
 
+/* The designed text sizes, as classes (text-fs-11 …), at the app's text scale. */
+@theme {
+  --text-fs-9: calc(9px * var(--font-scale));
+  --text-fs-10: calc(10px * var(--font-scale));
+  --text-fs-11: calc(11px * var(--font-scale));
+  --text-fs-12: calc(12px * var(--font-scale));
+  --text-fs-13: calc(13px * var(--font-scale));
+  --text-fs-14: calc(14px * var(--font-scale));
+  --text-fs-15: calc(15px * var(--font-scale));
+  --text-fs-17: calc(17px * var(--font-scale));
+  --text-fs-18: calc(18px * var(--font-scale));
+  --text-fs-20: calc(20px * var(--font-scale));
+}
+
+/* The root size stays (it is the unit of the rem spacing); the text starts at the body. */
 html,
 body {
   background: var(--bg);
@@ -20,6 +38,9 @@ body {
   font-family: "SF Mono", "Menlo", "Consolas", "Liberation Mono", monospace;
   font-size: 12px;
   overflow: hidden;
+}
+body {
+  font-size: calc(12px * var(--font-scale));
 }
 
 ::-webkit-scrollbar {
@@ -52,7 +73,7 @@ body {
   font-weight: 700;
   letter-spacing: 0.08em;
   padding: 3px 8px;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   text-transform: uppercase;
   display: flex;
   align-items: center;
@@ -78,7 +99,7 @@ body {
 table.data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
 }
 table.data-table th {
   color: var(--text-dim);
@@ -87,7 +108,7 @@ table.data-table th {
   border-bottom: 1px solid var(--border);
   font-weight: 400;
   text-transform: uppercase;
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   white-space: nowrap;
   cursor: pointer;
 }
@@ -122,7 +143,7 @@ select {
   border: 1px solid var(--border);
   color: var(--text);
   padding: 2px 6px;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   font-family: inherit;
   outline: none;
 }
@@ -135,7 +156,7 @@ button.term-btn {
   border: 1px solid var(--border);
   color: var(--text);
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   font-family: inherit;
   cursor: pointer;
 }
