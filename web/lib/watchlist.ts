@@ -114,3 +114,29 @@ export function priceDigits(symbol: string, price: number | null | undefined): n
   if (abs >= 0.01) return 4;
   return Math.min(10, Math.ceil(-Math.log10(abs)) + 3);
 }
+
+/** The kinds of market the watchlist follows: the chart's decides which list shows. */
+export type MarketKind = "crypto" | "stocks" | "commodities";
+
+export const MARKET_KINDS: Array<[MarketKind, string]> = [
+  ["crypto", "Crypto"],
+  ["stocks", "Stocks & indices"],
+  ["commodities", "Commodities & forex"],
+];
+
+const SECTION_MARKET: Record<Section, MarketKind> = { crypto: "crypto", stocks: "stocks", indices: "stocks", futures: "commodities", forex: "commodities" };
+
+/** Which kind of market a symbol belongs to (a Solana chart → crypto, gold or EURUSD → commodities). */
+export const marketOf = (symbol: string): MarketKind => SECTION_MARKET[sectionOf(symbol)];
+
+/** What a kind's list starts with the first time it is shown; it is the user's own list from then on. */
+export const MARKET_DEFAULTS: Record<MarketKind, string[]> = {
+  crypto: ["BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD", "DOGE-USD", "ADA-USD", "AVAX-USD", "LINK-USD"],
+  stocks: ["^GSPC", "^IXIC", "^DJI", "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL", "META"],
+  commodities: ["GC=F", "SI=F", "CL=F", "NG=F", "HG=F", "EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X"],
+};
+
+/** The watchlist's sections for one kind of market (all of them for "all"). */
+export function sectionsFor(kind: MarketKind | "all"): Section[] {
+  return SECTIONS.map(([s]) => s).filter((s) => kind === "all" || SECTION_MARKET[s] === kind);
+}
