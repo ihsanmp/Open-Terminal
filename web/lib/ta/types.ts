@@ -137,7 +137,8 @@ export type IndicatorResult = {
   offsets?: Record<string, number>;
   /** Filled area between two plots (plot key) or constant levels (number). */
   fills?: Array<{ a: string | number; b: string | number; color: string | Color[] }>;
-  hlines?: Array<{ price: number; color: string; dashed?: boolean }>;
+  /** Horizontal levels (Pine's hline); `title` names its row on the Style tab ("Upper Band"). */
+  hlines?: Array<{ price: number; color: string; dashed?: boolean; title?: string }>;
   markers?: Marker[];
   /** Recolors the main price candles, like Pine's barcolor(). */
   barColors?: Color[];
@@ -211,6 +212,18 @@ export type PlotStyleOverride = {
   color?: string;
   width?: 1 | 2 | 3 | 4;
   dash?: LineDash;
+  /** Drawn as another plot type (the Style tab's ∿ menu). */
+  style?: PlotStyle;
+};
+
+/** A user's change to one horizontal level (its own row on the Style tab, as on TradingView). */
+export type LevelOverride = {
+  visible?: boolean;
+  color?: string;
+  width?: 1 | 2 | 3 | 4;
+  dash?: LineDash;
+  /** Moves the level (a band at 75 instead of 80); fills bounded by it follow. */
+  price?: number;
 };
 
 /** Style tab + Visibility tab settings of one indicator instance. */
@@ -218,7 +231,9 @@ export type IndicatorStyle = {
   plots?: Record<string, PlotStyleOverride>;
   /** Fills by index in the result's fills list (TradingView's "Background" rows). */
   fills?: Record<number, { visible?: boolean; color?: string }>;
-  /** Horizontal levels (hline) as a group. */
+  /** Horizontal levels (hline), each by index in the result's hlines list. */
+  hlines?: Record<number, LevelOverride>;
+  /** All levels at once (settings saved before each level had its own row); `hlines` wins. */
   levels?: { visible?: boolean; color?: string; dash?: LineDash };
   /** Decimal places for values, or undefined for the indicator's own. */
   precision?: number;
