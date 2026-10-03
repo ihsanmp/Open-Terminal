@@ -14,7 +14,10 @@ describe("watchlist panel", () => {
   });
 
   it("writes symbols as TradingView does, with a steady badge", () => {
-    expect(["BTC-USD", "EURUSD=X", "GC=F", "^GSPC", "BRK.B"].map(displaySymbol)).toEqual(["BTCUSD", "EURUSD", "GC", "GSPC", "BRK.B"]);
+    expect(["BTC-USD", "EURUSD=X", "GC=F", "^GSPC", "^NDX", "DX-Y.NYB", "CL=F", "ZC=F", "^FTSE", "BRK.B"].map(displaySymbol)).toEqual([
+      "BTCUSD", "EURUSD", "GOLD", "SPX", "NDQ", "DXY", "USOIL", "ZC", "FTSE", "BRK.B",
+    ]);
+    expect(sectionOf("DX-Y.NYB")).toBe("indices");
     expect(badgeOf("BTC-USD")).toEqual(badgeOf("BTC-USD"));
     expect(badgeOf("BTC-USD").text).toBe("B");
     expect(badgeOf("AAPL").text).toBe("AA");
@@ -84,5 +87,14 @@ describe("tokens named by their TradingView pair", () => {
     expect(displaySymbol("PANCAKESWAP:SBCUSDT_4C0D3D")).toBe("SBCUSDT");
     expect(displaySymbol("RAYDIUM:GOATSOL_9TB2OH.USD")).toBe("GOATSOL");
     expect(chartContext("PANCAKESWAP:SBCUSDT_4C0D3D", 86_400).ticker).toBe("SBCUSDT_4C0D3D");
+  });
+});
+
+describe("the details follow the chart's market", () => {
+  it("shows the market's benchmark: BTC, the S&P 500 (or the local index), gold", async () => {
+    const { benchmarkOf } = await import("./watchlist");
+    expect(["SOL-USD", "PANCAKESWAP:SBCUSDT_4C0D3D.USD", "NVDA", "^NDX", "BBCA.JK", "7203.T", "BRK.B", "EURUSD=X", "CL=F"].map((s) => benchmarkOf(s).symbol)).toEqual([
+      "BTC-USD", "BTC-USD", "^GSPC", "^GSPC", "^JKSE", "^N225", "^GSPC", "GC=F", "GC=F",
+    ]);
   });
 });
