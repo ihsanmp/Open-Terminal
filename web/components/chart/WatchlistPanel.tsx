@@ -22,6 +22,7 @@ import {
 } from "../../lib/watchlist";
 import { useTerminal, useWidgetSetting } from "../../store/terminal";
 import Flash from "../Flash";
+import { technicals, type Group, type Rating } from "../../lib/technicals";
 
 // TradingView's right-hand Watchlist on the chart page: the watchlist by section (indices, stocks,
 // futures, forex, crypto), each row loading its symbol into the chart, and under it the details of
@@ -90,6 +91,71 @@ function AddSymbol({ kind, onAdd, onClose }: { kind: MarketKind | "all"; onAdd: 
   );
 }
 
+/** A low–high range with the price marked on it, as TradingView draws Day's and 52-week range. */
+function RangeBar({ label, low, high, price, digits }: { label: string; low: number; high: number; price: number | null | undefined; digits: number }) {
+  const at = price != null && high > low ? Math.max(0, Math.min(1, (price - low) / (high - low))) : null;
+  return (
+    <div className="py-1">
+      <div className="dim mb-1">{label}</div>
+      <div className="relative h-1 rounded bg-[#2a2a2a]">
+        {at !== null && (
+          <>
+            <div className="absolute inset-y-0 left-0 rounded bg-[var(--amber-dim)]" style={{ width: `${at * 100}%` }} />
+            <div className="absolute -top-[3px] w-2.5 h-2.5 rounded-full bg-[var(--amber)] -translate-x-1/2" style={{ left: `${at * 100}%` }} />
+          </>
+        )}
+      </div>
+      <div className="flex justify-between mt-1 tabular-nums">
+        <span>{fmt(low, digits)}</span>
+        <span>{fmt(high, digits)}</span>
+      </div>
+    </div>
+  );
+}
+
+const RATING_COLOR: Record<Rating, string> = {
+  "Strong sell": "#e05555",
+  Sell: "#e88080",
+  Neutral: "#a8a8a8",
+  Buy: "#4fd1a0",
+  "Strong buy": "#2ecc8f",
+};
+
+/** TradingView's Technicals: a gauge from Strong sell to Strong buy, and the votes behind it. */
+function TechnicalsView({ t }: { t: { summary: Group; movingAverages: Group; oscillators: Group } }) {
+  const needle = ((t.summary.score + 1) / 2) * 100;
+  const row = (label: string, g: Group) => (
+    <div className="flex items-center justify-between py-0.5">
+      <span className="dim">{label}</span>
+      <span>
+        <b style={{ color: RATING_COLOR[g.rating] }}>{g.rating}</b>
+        <span className="dim text-fs-10">
+          {" "}
+          · S {g.sell} · N {g.neutral} · B {g.buy}
+        </span>
+      </span>
+    </div>
+  );
+  return (
+    <>
+      <div className="text-center text-fs-15 font-bold mb-1" style={{ color: RATING_COLOR[t.summary.rating] }}>
+        {t.summary.rating}
+      </div>
+      <div className="relative h-2 rounded" style={{ background: "linear-gradient(90deg, #e05555, #e88080 30%, #555 50%, #4fd1a0 70%, #2ecc8f)" }}>
+        <div className="absolute -top-1 w-1 h-4 bg-white rounded -translate-x-1/2" style={{ left: `${needle}%` }} />
+      </div>
+      <div className="flex justify-between dim text-fs-9 mt-1 mb-2">
+        <span>Strong sell</span>
+        <span>Neutral</span>
+        <span>Strong buy</span>
+      </div>
+      {row("Moving averages", t.movingAverages)}
+      {row("Oscillators", t.oscillators)}
+      <div className="dim text-fs-9 mt-1">From daily candles: a reading of the indicators, not a forecast.</div>
+    </>
+  );
+}
+
 function Details({ symbol }: { symbol: string }) {
   const poll = usePoll(() => quoteRefreshMs(symbol));
   const { data: q } = useQuery({
@@ -103,6 +169,7 @@ function Details({ symbol }: { symbol: string }) {
     staleTime: 600_000,
   });
   const perf = useMemo(() => (candles ? performance(candles) : null), [candles]);
+  const tech = useMemo(() => (candles ? technicals(candles) : null), [candles]);
   const open = marketOpen(symbol, q?.marketState);
   const section = sectionOf(symbol);
   const digits = priceDigits(symbol, q?.price);
@@ -114,13 +181,11 @@ function Details({ symbol }: { symbol: string }) {
   add("Volume", q?.volume || null, fmtBig); // forex reports none (0)
   add("Average volume (3M)", q?.avgVolume, fmtBig);
   add("Market capitalization", q?.marketCap, fmtBig);
-  if (q?.low != null && q?.high != null) stats.push(["Day's range", `${fmt(q.low, digits)} – ${fmt(q.high, digits)}`]);
-  if (q?.week52Low != null && q?.week52High != null) stats.push(["52-week range", `${fmt(q.week52Low, digits)} – ${fmt(q.week52High, digits)}`]);
   add("P/E (TTM)", q?.pe, (n) => fmt(n));
   add("Dividend yield", q?.dividendYield, (n) => `${fmt(n * 100)}%`);
 
   return (
-    <div className="p-2.5 border-t border-[var(--border)]">
+    <div className="p-2.5">
       <div className="flex items-center gap-2">
         <Badge symbol={symbol} size={26} />
         <span className="font-bold text-fs-14">{displaySymbol(symbol)}</span>
@@ -143,7 +208,7 @@ function Details({ symbol }: { symbol: string }) {
       </div>
       <div className={`text-fs-10 mt-0.5 ${open ? "up" : "dim"}`}>● {open ? "Market open" : "Market closed"}</div>
 
-      {stats.length > 0 && (
+      {(stats.length > 0 || q?.low != null || q?.week52Low != null) && (
         <>
           <div className="font-bold mt-3 mb-1">Key stats</div>
           {stats.map(([label, value]) => (
@@ -152,6 +217,8 @@ function Details({ symbol }: { symbol: string }) {
               <span>{value}</span>
             </div>
           ))}
+          {q?.low != null && q?.high != null && <RangeBar label="Day's range" low={q.low} high={q.high} price={q.price} digits={digits} />}
+          {q?.week52Low != null && q?.week52High != null && <RangeBar label="52-week range" low={q.week52Low} high={q.week52High} price={q.price} digits={digits} />}
         </>
       )}
 
@@ -168,6 +235,13 @@ function Details({ symbol }: { symbol: string }) {
           );
         })}
       </div>
+
+      {tech && (
+        <>
+          <div className="font-bold mt-4 mb-1.5">Technicals</div>
+          <TechnicalsView t={tech} />
+        </>
+      )}
     </div>
   );
 }
@@ -232,7 +306,8 @@ export default function WatchlistPanel({ symbol, onPick, onHide }: { symbol: str
         </button>
       </div>
       {adding && <AddSymbol kind={kind} onAdd={addToWatchlist} onClose={() => setAdding(false)} />}
-      <div className="flex-1 min-h-0 overflow-auto">
+      {/* As tall as its rows (up to 60%, then it scrolls); the details fill the rest, right below. */}
+      <div className="shrink min-h-[5rem] max-h-[60%] overflow-auto">
         <table className="w-full border-collapse">
           <thead className="sticky top-0 bg-[var(--panel)] z-[1]">
             <tr className="dim text-fs-11">
@@ -294,7 +369,7 @@ export default function WatchlistPanel({ symbol, onPick, onHide }: { symbol: str
         </table>
         {listed.length === 0 && <div className="dim p-3">Nothing listed here yet: “+” adds a symbol.</div>}
       </div>
-      <div className="shrink-0 max-h-[55%] overflow-auto">
+      <div className="flex-1 min-h-[40%] overflow-auto border-t border-[var(--border)]">
         <Details symbol={symbol} />
       </div>
     </div>
