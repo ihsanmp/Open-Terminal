@@ -58,3 +58,16 @@ describe("watchlist prices", () => {
     expect(priceDigits("XRP-USD", 0.52)).toBe(4);
   });
 });
+
+describe("the watchlist follows the chart's market", () => {
+  it("lists the chart's kind of market", async () => {
+    const { marketOf, sectionsFor, MARKET_DEFAULTS } = await import("./watchlist");
+    expect(["SOL-USD", "BTC-USD", "AAPL", "^GSPC", "GC=F", "EURUSD=X"].map(marketOf)).toEqual(["crypto", "crypto", "stocks", "stocks", "commodities", "commodities"]);
+    expect(sectionsFor("crypto")).toEqual(["crypto"]);
+    expect(sectionsFor("stocks")).toEqual(["indices", "stocks"]);
+    expect(sectionsFor("commodities")).toEqual(["futures", "forex"]);
+    expect(sectionsFor("all")).toHaveLength(5);
+    // Each kind's starting list is of that kind.
+    for (const [kind, list] of Object.entries(MARKET_DEFAULTS)) for (const s of list) expect(marketOf(s), s).toBe(kind);
+  });
+});

@@ -4,13 +4,32 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, fmt, fmtBig, pctClass, type Candle, type Quote } from "../../lib/api";
 import { listRefreshMs, quoteRefreshMs, usePoll } from "../../lib/refresh";
-import { PERF_PERIODS, badgeOf, displaySymbol, groupBySection, marketOpen, performance, priceDigits, sectionOf, type Section } from "../../lib/watchlist";
+import {
+  MARKET_DEFAULTS,
+  MARKET_KINDS,
+  PERF_PERIODS,
+  badgeOf,
+  displaySymbol,
+  groupBySection,
+  marketOf,
+  marketOpen,
+  performance,
+  priceDigits,
+  sectionOf,
+  sectionsFor,
+  type MarketKind,
+  type Section,
+} from "../../lib/watchlist";
 import { useTerminal, useWidgetSetting } from "../../store/terminal";
 import Flash from "../Flash";
 
 // TradingView's right-hand Watchlist on the chart page: the watchlist by section (indices, stocks,
 // futures, forex, crypto), each row loading its symbol into the chart, and under it the details of
 // the symbol on the chart: price, market status, key stats and performance.
+//
+// It follows the chart's kind of market: a Solana chart lists crypto, a stock chart stocks and
+// indices, gold or EURUSD commodities and forex (or one kind, or all, chosen in its header). Each
+// kind's list starts with the usual symbols the first time it shows; it is the user's from then on.
 
 type SearchResult = { symbol: string; name: string; exchange: string; type: string };
 
@@ -30,16 +49,18 @@ function Badge({ symbol, size = 20 }: { symbol: string; size?: number }) {
 }
 
 /** The "+" button's search: a symbol typed, or picked from the suggestions. */
-function AddSymbol({ onAdd, onClose }: { onAdd: (symbol: string) => void; onClose: () => void }) {
+function AddSymbol({ kind, onAdd, onClose }: { kind: MarketKind | "all"; onAdd: (symbol: string) => void; onClose: () => void }) {
   const [q, setQ] = useState("");
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => input.current?.focus(), []);
-  const { data: results = [] } = useQuery({
+  const { data: found = [] } = useQuery({
     queryKey: ["search", q],
     queryFn: () => apiGet<SearchResult[]>(`/api/search?q=${encodeURIComponent(q)}`),
     enabled: q.trim().length > 0,
     staleTime: 300_000,
   });
+  // Suggestions of the kind on show, so what's added appears in the list.
+  const results = kind === "all" ? found : found.filter((r) => marketOf(r.symbol) === kind);
   const add = (s: string) => {
     if (s.trim()) onAdd(s.trim().toUpperCase());
     onClose();
@@ -54,7 +75,7 @@ function AddSymbol({ onAdd, onClose }: { onAdd: (symbol: string) => void; onClos
           if (e.key === "Enter") add(results[0]?.symbol ?? q);
           if (e.key === "Escape") onClose();
         }}
-        placeholder="Add symbol…"
+        placeholder={kind === "all" ? "Add symbol…" : `Add ${MARKET_KINDS.find(([k]) => k === kind)?.[1].toLowerCase()}…`}
         className="w-full"
       />
       {results.slice(0, 8).map((r) => (
@@ -157,21 +178,52 @@ export default function WatchlistPanel({ symbol, onPick, onHide }: { symbol: str
   const addToWatchlist = useTerminal((s) => s.addToWatchlist);
   const removeFromWatchlist = useTerminal((s) => s.removeFromWatchlist);
   const [collapsed, setCollapsed] = useWidgetSetting<Section[]>("watchlistCollapsed", []);
+  const [choice, setChoice] = useWidgetSetting<MarketKind | "all" | "auto">("watchlistMarket", "auto");
+  const [seeded, setSeeded] = useWidgetSetting<MarketKind[]>("watchlistSeeded", []);
   const [adding, setAdding] = useState(false);
-  const poll = usePoll(() => listRefreshMs(watchlist));
+  const kind = choice === "auto" ? marketOf(symbol) : choice;
+
+  // The first time a kind shows, its list starts with the usual symbols (once: what the user then
+  // removes stays removed).
+  useEffect(() => {
+    const kinds = kind === "all" ? MARKET_KINDS.map(([k]) => k) : [kind];
+    const fresh = kinds.filter((k) => !seeded.includes(k));
+    if (!fresh.length) return;
+    for (const k of fresh) for (const s of MARKET_DEFAULTS[k]) addToWatchlist(s);
+    setSeeded((done) => [...done, ...fresh.filter((k) => !done.includes(k))]);
+  }, [kind]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const shown = sectionsFor(kind);
+  const listed = watchlist.filter((s) => shown.includes(sectionOf(s)));
+  const poll = usePoll(() => listRefreshMs(listed));
   const { data: quotes = [] } = useQuery({
-    queryKey: ["watchlist", watchlist.join(",")],
-    queryFn: () => apiGet<Quote[]>(`/api/quotes?symbols=${watchlist.join(",")}`),
-    enabled: watchlist.length > 0,
+    queryKey: ["watchlist", listed.join(",")],
+    queryFn: () => apiGet<Quote[]>(`/api/quotes?symbols=${listed.join(",")}`),
+    enabled: listed.length > 0,
     refetchInterval: poll,
   });
-  const groups = groupBySection(watchlist);
+  const groups = groupBySection(listed);
   const toggle = (s: Section) => setCollapsed((c) => (c.includes(s) ? c.filter((x) => x !== s) : [...c, s]));
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-[var(--panel)]">
       <div className="flex items-center gap-1 px-2.5 h-9 border-b border-[var(--border)] shrink-0">
-        <span className="font-bold text-fs-13 flex-1">Watchlist</span>
+        <span className="font-bold text-fs-13">Watchlist</span>
+        <select
+          className="flex-1 min-w-0 ml-1 !bg-transparent !border-transparent hover:!border-[var(--border)] dim"
+          title="Which symbols to list: the chart's kind of market, one kind, or all"
+          aria-label="Watchlist market"
+          value={choice}
+          onChange={(e) => setChoice(e.target.value as MarketKind | "all" | "auto")}
+        >
+          <option value="auto">Auto · {MARKET_KINDS.find(([k]) => k === marketOf(symbol))?.[1]}</option>
+          {MARKET_KINDS.map(([k, label]) => (
+            <option key={k} value={k}>
+              {label}
+            </option>
+          ))}
+          <option value="all">All</option>
+        </select>
         <button className="dim hover:text-[var(--amber)] px-1 text-fs-15" title="Add symbol" aria-label="Add symbol" onClick={() => setAdding((a) => !a)}>
           +
         </button>
@@ -179,7 +231,7 @@ export default function WatchlistPanel({ symbol, onPick, onHide }: { symbol: str
           »
         </button>
       </div>
-      {adding && <AddSymbol onAdd={addToWatchlist} onClose={() => setAdding(false)} />}
+      {adding && <AddSymbol kind={kind} onAdd={addToWatchlist} onClose={() => setAdding(false)} />}
       <div className="flex-1 min-h-0 overflow-auto">
         <table className="w-full border-collapse">
           <thead className="sticky top-0 bg-[var(--panel)] z-[1]">
@@ -240,7 +292,7 @@ export default function WatchlistPanel({ symbol, onPick, onHide }: { symbol: str
             })}
           </tbody>
         </table>
-        {watchlist.length === 0 && <div className="dim p-3">The watchlist is empty: “+” adds a symbol.</div>}
+        {listed.length === 0 && <div className="dim p-3">Nothing listed here yet: “+” adds a symbol.</div>}
       </div>
       <div className="shrink-0 max-h-[55%] overflow-auto">
         <Details symbol={symbol} />
