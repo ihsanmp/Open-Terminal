@@ -18,7 +18,7 @@ import * as treasuries from "../providers/treasuries.js";
 import * as whales from "../providers/whales.js";
 import * as tvchart from "../providers/tvchart.js";
 import * as newsfeeds from "../providers/newsfeeds.js";
-import { cryptoBase, cryptoTicker, isIndex, isYahooOnly } from "../symbols.js";
+import { cryptoBase, cryptoTicker, isIndex, isTvPair, isYahooOnly } from "../symbols.js";
 import { INDEX_TV_TICKER, WORLD_INDICES, searchIndices } from "../indices.js";
 import { tvHistory } from "../tvhistory.js";
 import { cachedOnDisk } from "../diskcache.js";
@@ -123,6 +123,9 @@ async function cryptoQuote(symbol: string): Promise<yahoo.Quote> {
   const attempts: Array<[string, () => Promise<yahoo.Quote>]> = [];
   if (await onBinance(base)) attempts.push(["binance", () => binance.quote(base, symbol)]);
   attempts.push(["tradingview", () => tradingview.coinQuote(base, symbol)]);
+  // A token off the ranked board (a DEX or small-exchange listing): its best pair. Before
+  // CoinGecko, whose match by ticker alone may be another coin of the same name.
+  attempts.push(["tradingview-pairs", () => tradingview.tokenQuote(base, symbol)]);
   attempts.push(["coingecko", () => coingecko.quote(base, symbol)]);
   attempts.push(["yahoo", async () => ({ ...(await yahoo.quoteFromChart(cryptoTicker(base))), symbol })]);
   return withFallback(attempts);
@@ -166,6 +169,14 @@ async function getQuotes(symbols: string[]): Promise<yahoo.Quote[]> {
     });
     // Unresolvable coins stop here rather than being looked up as stocks.
     remaining = remaining.filter((s) => !cryptoBase(s));
+  }
+
+  // Tokens named by their pair (PANCAKESWAP:SBCUSDT_4C0D3D): one scanner request for all.
+  const pairSymbols = remaining.filter(isTvPair);
+  if (pairSymbols.length > 0) {
+    const found = await tradingview.pairQuotes(pairSymbols).catch(() => new Map<string, yahoo.Quote>());
+    for (const [s, q] of found) fetched.set(s, q);
+    remaining = remaining.filter((s) => !isTvPair(s));
   }
 
   // Indices and non-US listings: one TradingView scanner request covers all of them,
@@ -300,6 +311,8 @@ async function historyAtInterval(symbol: string, rangeKey: string, interval: Int
   // TradingView's chart feed first: the same depth of history TradingView shows, for
   // stocks, indices, FX, futures and coins alike. The others take over if it's unreachable.
   const attempts: Array<[string, () => Promise<yahoo.Candle[]>]> = [["tradingview", () => tvHistory(symbol, interval)]];
+  // A token named by its pair is only on TradingView.
+  if (isTvPair(symbol)) return withFallback(attempts);
   const nasdaqOk = !base && !isVix(symbol) && !isYahooOnly(symbol);
   if (base) {
     if (await onBinance(base)) attempts.push(["binance", () => binance.historyInterval(base, BINANCE_INTERVAL[interval], from, 5000)]);
@@ -346,7 +359,9 @@ marketRouter.get("/history/:symbol", async (req, res) => {
     const yahooHistory = () => yahoo.history(symbol, yahooRange(rangeKey).range, yahooRange(rangeKey).interval);
     const ttl = INTRADAY_RANGES.has(rangeKey) ? INTRADAY_HISTORY_TTL : HISTORY_TTL;
     const { value: data, fromDisk } = await cachedOnDisk(`history:${symbol}:${rangeKey}`, ttl, () =>
-      base
+      isTvPair(symbol)
+        ? tvHistory(symbol, rangeKey === "1D" ? "5m" : rangeKey === "5D" ? "15m" : rangeKey === "1M" ? "1h" : "1D")
+        : base
         ? cryptoHistory(base, symbol, rangeKey)
         : isVix(symbol)
         ? withFallback([
@@ -410,15 +425,21 @@ marketRouter.get("/search", async (req, res) => {
   if (!q) return res.json([]);
   try {
     const data = await cached(`search:${q.toLowerCase()}`, 300_000, async () => {
-      const [stocks, coins] = await Promise.allSettled([
+      const [stocks, coins, tokens] = await Promise.allSettled([
         withFallback([
           ["tradingview", () => tradingview.search(q)],
           ["yahoo", () => yahoo.search(q)],
         ]),
         searchCoins(q),
+        // Every other token TradingView lists (DEX and small exchanges), after the ranked coins.
+        q.length >= 2 ? tradingview.searchTokens(cryptoTerm(q).term, 6) : Promise.resolve([]),
       ]);
       const indices = searchIndices(q).map((i) => ({ symbol: i.symbol, name: i.name, exchange: i.country, type: "index" }));
-      const found = [indices, stocks.status === "fulfilled" ? stocks.value : [], coins.status === "fulfilled" ? coins.value : []];
+      const tokenResults =
+        tokens.status === "fulfilled"
+          ? await Promise.all(tokens.value.map(async (p) => ({ symbol: await tradingview.tokenSymbol(p), name: p.name, exchange: p.exchange, type: "crypto" })))
+          : [];
+      const found = [indices, stocks.status === "fulfilled" ? stocks.value : [], coins.status === "fulfilled" ? coins.value : [], tokenResults];
       if (found.every((l) => l.length === 0) && stocks.status === "rejected") throw stocks.reason;
       return rankResults(found, q);
     });
@@ -525,8 +546,16 @@ marketRouter.get("/crypto", async (req, res) => {
     const perPage = Math.max(10, Math.min(250, Number(req.query.perPage) || 100));
     const q = String(req.query.q ?? "").trim().toLowerCase();
     if (q) {
-      const rows = await tradingview.coinBoard();
-      return res.json(rows.filter((r) => r.symbol.toLowerCase().includes(q) || r.name.toLowerCase().includes(q)).slice(0, perPage));
+      const rows = (await tradingview.coinBoard()).filter((r) => r.symbol.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
+      // Then the tokens off the ranked board that match (DEX and small-exchange listings).
+      if (rows.length < perPage) {
+        const listed = new Set(rows.map((r) => r.symbol));
+        const tokens = await tradingview.searchTokens(q, perPage - rows.length).catch(() => []);
+        const extra = tokens.filter((t) => !listed.has(t.base));
+        const symbols = await Promise.all(extra.map((t) => tradingview.tokenSymbol(t)));
+        rows.push(...extra.map((t, i) => tradingview.pairAsRow(t, symbols[i])));
+      }
+      return res.json(rows.slice(0, perPage));
     }
     // TradingView's ranked coin universe (one request, ~2,500 coins) is sliced into pages;
     // CoinGecko and Binance's USDT board back it up.

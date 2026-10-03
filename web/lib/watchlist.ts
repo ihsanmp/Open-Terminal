@@ -2,7 +2,7 @@
 // how each is shown, its performance over the usual periods, and whether its market is open.
 
 import { forexClosed } from "./candle-time";
-import { isCryptoSymbol, usSessionActive } from "./refresh";
+import { isCryptoSymbol, isTvPair, usSessionActive } from "./refresh";
 
 export type Section = "indices" | "stocks" | "futures" | "forex" | "crypto";
 
@@ -31,6 +31,8 @@ export function groupBySection(symbols: string[]): Array<{ section: Section; lab
 
 /** As TradingView writes it: BTC-USD → BTCUSD, EURUSD=X → EURUSD, GC=F → GC, ^GSPC → GSPC. */
 export function displaySymbol(symbol: string): string {
+  // A token named by its pair: the pair without its pool id (PANCAKESWAP:SBCUSDT_4C0D3D → SBCUSDT).
+  if (isTvPair(symbol)) return symbol.toUpperCase().split(":")[1].replace(/_[A-Z0-9]+/, "").replace(/\.USD$/, "");
   return symbol
     .toUpperCase()
     .replace(/^\^/, "")

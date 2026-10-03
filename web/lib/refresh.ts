@@ -11,7 +11,10 @@ export const WidgetVisibleContext = createContext(true);
 
 const LEGACY_CRYPTO = new Set(["BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOGE", "AVAX", "DOT", "LINK", "LTC", "MATIC"]);
 
-export const isCryptoSymbol = (symbol: string) => /-USDT?$/i.test(symbol) || LEGACY_CRYPTO.has(symbol.toUpperCase());
+/** A token named by its TradingView pair (PANCAKESWAP:SBCUSDT_4C0D3D), when its ticker is shared. */
+export const isTvPair = (symbol: string) => /^[A-Z0-9_]{1,24}:[A-Z0-9._!-]{1,40}$/i.test(symbol);
+
+export const isCryptoSymbol = (symbol: string) => /-USDT?$/i.test(symbol) || isTvPair(symbol) || LEGACY_CRYPTO.has(symbol.toUpperCase());
 const isNonUsListing = (symbol: string) => /[\^.=]/.test(symbol);
 
 const nyParts = new Intl.DateTimeFormat("en-US", {

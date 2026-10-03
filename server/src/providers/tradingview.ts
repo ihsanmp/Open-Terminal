@@ -437,3 +437,179 @@ export async function fxRate(from: string, to: string): Promise<number> {
   if (inverse) return 1 / inverse;
   throw new Error(`tradingview: no fx rate ${a}->${b}`);
 }
+
+// ---- every coin and token TradingView lists: its ~64,000 crypto pairs ----
+//
+// The ranked board above holds ~2,500 coins. TradingView also lists thousands of tokens only
+// traded on a DEX (PancakeSwap, Uniswap, Raydium …) or on a smaller exchange; those are found
+// here, by their pairs, and each is quoted and charted on its best pair.
+
+const PAIR_COLUMNS = ["base_currency", "base_currency_desc", "currency", "exchange", "close", "change", "high", "low", "24h_vol|5", "type", "volume"];
+const USD_LIKE = new Set(["USD", "USDT", "USDC", "FDUSD", "USD1", "DAI", "PYUSD", "TUSD", "USDE", "USDS", "BUSD"]);
+const DEX = /SWAP|UNISWAP|RAYDIUM|AERODROME|PULSEX|ORCA|METEORA|CURVE|SUSHI|TRADERJOE|CAMELOT|VELODROME|QUICKSWAP|BISWAP|THENA|PUMP|DEX/;
+
+export type CryptoPair = {
+  ticker: string;
+  base: string;
+  name: string;
+  quote: string;
+  exchange: string;
+  price: number;
+  changePercent: number | null;
+  high: number | null;
+  low: number | null;
+  /** 24h traded value in USD (none for most DEX pairs). */
+  volumeUsd: number | null;
+  /** How much it trades, to rank pairs that lack volumeUsd: the bar's volume × price for a dollar pair. */
+  activity: number;
+  spot: boolean;
+  dex: boolean;
+};
+
+export function parsePair(row: { s: string; d: any[] }): CryptoPair | null {
+  const [base, name, quote, exchange, close, change, high, low, vol, type, barVolume] = row.d;
+  const b = String(base ?? "").toUpperCase();
+  if (!/^[A-Z0-9]{1,20}$/.test(b) || typeof close !== "number" || !(close > 0)) return null;
+  const ex = String(exchange ?? row.s.split(":")[0]).toUpperCase();
+  const q = String(quote ?? "").toUpperCase();
+  const dollars = USD_LIKE.has(q) || row.s.toUpperCase().endsWith(".USD");
+  const volumeUsd = typeof vol === "number" ? vol : null;
+  const activity = volumeUsd ?? (dollars && typeof barVolume === "number" ? barVolume * close : 0);
+  return {
+    ticker: row.s, base: b, name: name || b, quote: String(quote ?? "").toUpperCase(), exchange: ex, price: close,
+    changePercent: typeof change === "number" ? change : null, high: typeof high === "number" ? high : null,
+    low: typeof low === "number" ? low : null, volumeUsd, activity,
+    spot: type !== "swap" && type !== "futures", dex: DEX.test(ex),
+  };
+}
+
+/**
+ * The pair a token is quoted and charted on: priced in dollars (or a dollar stablecoin), on an
+ * exchange before a DEX, spot before a perpetual, then the most traded; a DEX pair converted to
+ * USD (".USD") before its raw SOL/WETH one.
+ */
+export function bestPair(pairs: CryptoPair[]): CryptoPair | null {
+  const dollars = (p: CryptoPair) => USD_LIKE.has(p.quote) || p.ticker.toUpperCase().endsWith(".USD");
+  const key = (p: CryptoPair) => [dollars(p) ? 0 : 1, p.dex ? 1 : 0, p.spot ? 0 : 1, -p.activity, p.ticker.endsWith(".USD") ? 0 : 1];
+  // Lexicographic on the key, then the ticker: the same pair every time, whatever order the scanner sends.
+  const before = (a: CryptoPair, b: CryptoPair) => {
+    const ka = key(a);
+    const kb = key(b);
+    for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i] < kb[i];
+    return a.ticker < b.ticker;
+  };
+  let best: CryptoPair | null = null;
+  for (const p of pairs) if (!best || before(p, best)) best = p;
+  return best;
+}
+
+/**
+ * The pair a crypto symbol's chart should come from when it is a token off the ranked board (so
+ * the chart is of the very token its quote is): its best pair. Empty for ranked coins and when
+ * the board can't be read; the usual exchanges carry those.
+ */
+export async function offBoardPair(base: string): Promise<string[]> {
+  const board = await coinBoard().catch(() => null);
+  if (!board || coinCache?.bySymbol.has(base.toUpperCase())) return [];
+  const pair = await tokenPair(base).catch(() => null);
+  return pair ? [pair.ticker] : [];
+}
+
+async function pairScan(filter: unknown[], limit: number): Promise<CryptoPair[]> {
+  const res = await fetch("https://scanner.tradingview.com/crypto/scan", {
+    method: "POST",
+    headers: HEADERS,
+    body: JSON.stringify({ columns: PAIR_COLUMNS, filter, sort: { sortBy: "24h_vol|5", sortOrder: "desc" }, range: [0, limit] }),
+  });
+  if (!res.ok) throw new Error(`tradingview crypto scan ${res.status}`);
+  const data: Array<{ s: string; d: any[] }> = (await res.json())?.data ?? [];
+  return data.map(parsePair).filter((p): p is CryptoPair => p !== null);
+}
+
+const pairCache = new Map<string, { at: number; pair: CryptoPair | null }>();
+
+/** A token's best pair across every exchange TradingView lists (cached ten minutes). */
+export async function tokenPair(base: string): Promise<CryptoPair | null> {
+  const b = base.toUpperCase();
+  const hit = pairCache.get(b);
+  if (hit && Date.now() - hit.at < 600_000) return hit.pair;
+  const pair = bestPair(await pairScan([{ left: "base_currency", operation: "equal", right: b }], 300));
+  pairCache.set(b, { at: Date.now(), pair });
+  return pair;
+}
+
+/** Tokens whose ticker or name matches, each on its best pair, most traded first. */
+export async function searchTokens(term: string, limit = 8): Promise<CryptoPair[]> {
+  const t = term.trim();
+  if (!t) return [];
+  const lists = await Promise.allSettled([
+    pairScan([{ left: "base_currency", operation: "match", right: t }], 400),
+    pairScan([{ left: "base_currency_desc", operation: "match", right: t }], 400),
+  ]);
+  const byBase = new Map<string, CryptoPair[]>();
+  for (const l of lists) if (l.status === "fulfilled") for (const p of l.value) (byBase.get(p.base) ?? byBase.set(p.base, []).get(p.base)!).push(p);
+  const up = t.toUpperCase();
+  return [...byBase.values()]
+    .map(bestPair)
+    .filter((p): p is CryptoPair => p !== null)
+    .sort((a, b) => Number(b.base === up) - Number(a.base === up) || (b.volumeUsd ?? -1) - (a.volumeUsd ?? -1))
+    .slice(0, limit);
+}
+
+/** A quote for a token from its best pair (24h change, as TradingView's crypto quotes). */
+export async function tokenQuote(base: string, displaySymbol: string): Promise<Quote> {
+  const p = await tokenPair(base);
+  if (!p) throw new Error(`tradingview: no pair for ${base}`);
+  return pairQuote(p, displaySymbol);
+}
+
+/** Quotes for pairs named outright (PANCAKESWAP:SBCUSDT_4C0D3D), one request for all. */
+export async function pairQuotes(tickers: string[]): Promise<Map<string, Quote>> {
+  const res = await fetch("https://scanner.tradingview.com/crypto/scan", {
+    method: "POST",
+    headers: HEADERS,
+    body: JSON.stringify({ columns: PAIR_COLUMNS, symbols: { tickers } }),
+  });
+  if (!res.ok) throw new Error(`tradingview crypto scan ${res.status}`);
+  const data: Array<{ s: string; d: any[] }> = (await res.json())?.data ?? [];
+  const out = new Map<string, Quote>();
+  for (const row of data) {
+    const p = parsePair(row);
+    const asked = tickers.find((t) => t.toUpperCase() === row.s.toUpperCase());
+    if (p && asked) out.set(asked, pairQuote(p, asked));
+  }
+  return out;
+}
+
+/**
+ * How a token found by its pair is named: BASE-USD when that already means this token (its
+ * ticker isn't taken by a ranked coin or a busier token of another name), else the pair itself.
+ */
+export async function tokenSymbol(p: CryptoPair): Promise<string> {
+  await coinBoard().catch(() => null);
+  const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  const ranked = coinCache?.bySymbol.get(p.base);
+  if (ranked) return sameName(ranked.name, p.name) ? cryptoTicker(p.base) : p.ticker;
+  const best = await tokenPair(p.base).catch(() => null);
+  return !best || sameName(best.name, p.name) ? cryptoTicker(p.base) : p.ticker;
+}
+
+function pairQuote(p: CryptoPair, displaySymbol: string): Quote {
+  const usd = USD_LIKE.has(p.quote);
+  const prev = p.changePercent !== null ? p.price / (1 + p.changePercent / 100) : null;
+  return {
+    symbol: displaySymbol, name: p.name, price: p.price, change: prev !== null ? p.price - prev : null,
+    changePercent: p.changePercent, open: null, high: p.high, low: p.low, previousClose: prev, bid: null, ask: null,
+    volume: p.volumeUsd, avgVolume: null, marketCap: null, pe: null, eps: null, dividendYield: null,
+    week52High: null, week52Low: null, beta: null, sharesOutstanding: null, currency: usd ? "USD" : p.quote, exchange: p.exchange,
+    marketState: "Open", time: null, source: "tradingview",
+  };
+}
+
+/** A token as a row of the crypto board (for its search), under the symbol it goes by. */
+export function pairAsRow(p: CryptoPair, symbol: string): CryptoRow {
+  return {
+    id: p.ticker, symbol: p.base, ticker: symbol, name: p.name, price: p.price, changePercent24h: p.changePercent,
+    marketCap: null, volume24h: p.volumeUsd, rank: null, sparkline: [], image: null,
+  };
+}
