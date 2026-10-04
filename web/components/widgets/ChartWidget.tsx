@@ -45,7 +45,10 @@ import { movedBound, styledLevels, styleResult } from "../../lib/ta/style";
 import { BackgroundPrimitive, CountdownPrimitive, DrawingsPrimitive, FillPrimitive, type DrawingsSpec } from "../../lib/ta/chart-primitives";
 import { IndicatorTableView } from "../chart/IndicatorTableView";
 import { chartContext } from "../../lib/chart-context";
-import { INTERVAL_LABEL, INTERVAL_SECONDS, latestBarsView, loadRange, orderedFavorites, resolveInterval, type ChartInterval } from "../../lib/chart-intervals";
+import { INTERVAL_LABEL, INTERVAL_SECONDS, INTERVAL_SOURCE, isRangeInterval, latestBarsView, loadRange, orderedFavorites, resolveInterval, type ChartInterval } from "../../lib/chart-intervals";
+import { groupDays, groupHours, rangeBars } from "../../lib/chart-aggregate";
+import { TimeGridPrimitive, zonedTimes } from "../../lib/chart-grid";
+import { priceDigits } from "../../lib/watchlist";
 import { IntervalMenu } from "../chart/IntervalMenu";
 import { ChartSettings } from "../chart/ChartSettings";
 import { candleOptions, formatChartTime, formatTick, prevCloseColors, resolveChartStyle, resolveTimezone, risingBars } from "../../lib/chart-style";
@@ -54,7 +57,7 @@ import { isPinch, keyAction, panPrice, scalePrice, shiftSpan, wheelPixels, zoomF
 import { IndicatorPicker, IndicatorSettings } from "../chart/IndicatorDialogs";
 import { PriceScaleMenu } from "../chart/PriceScaleMenu";
 import { isCryptoSymbol, usePoll, usSessionActive } from "../../lib/refresh";
-import { formatAxisCountdown, formatCountdown, intervalLabel, isIntradayInterval, secondsUntilClose, type Market } from "../../lib/candle-time";
+import { formatAxisCountdown, formatCountdown, isIntradayInterval, secondsUntilClose, type Market } from "../../lib/candle-time";
 import { fontPx } from "../../lib/font-scale";
 import { DrawingLayer } from "../../lib/drawings/layer";
 import { attachDrawing } from "../../lib/drawings/controller";
@@ -270,14 +273,25 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     return live ? 120_000 : 900_000;
   });
 
+  // The API's bars for the interval, or those it is built from (H2 from H1, D3 from D1, range
+  // bars from 1-minute ones; lib/chart-aggregate).
+  const source = INTERVAL_SOURCE[interval];
+  const rangeChart = isRangeInterval(interval);
   const { data: history, error } = useQuery({
-    queryKey: ["history", symbol, range, interval],
-    queryFn: () => apiGetWithStale<Candle[]>(`/api/history/${symbol}?range=${range}&interval=${interval}`),
+    queryKey: ["history", symbol, range, source.base],
+    queryFn: () => apiGetWithStale<Candle[]>(`/api/history/${symbol}?range=${range}&interval=${source.base}`),
     // Intraday bars move; daily-and-longer bars only change at the last candle. Right after a
     // launch the API answers from its disk cache and marks it stale: ask again shortly.
     refetchInterval: (q) => (q.state.data?.stale ? 2_500 : poll()),
   });
-  const candles = history?.data;
+  const candles = useMemo(() => {
+    const raw = history?.data;
+    if (!raw || raw.length === 0) return raw;
+    if (source.ticks) return rangeBars(raw, source.ticks * 10 ** -priceDigits(symbol, raw[raw.length - 1].close));
+    if (!source.group) return raw;
+    const market = chartContext(symbol, 0);
+    return source.base === "1h" ? groupHours(raw, source.group, market.type, market.timezone) : groupDays(raw, source.group, market.type);
+  }, [history?.data, source.ticks, source.group, source.base, symbol]);
 
   const bars = useMemo(() => (candles && candles.length > 0 ? candlesToBars(candles) : null), [candles]);
 
@@ -297,8 +311,9 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   // 20h overnight) as 20h.
   const intervalSeconds = INTERVAL_SECONDS[interval];
   const ctx = useMemo(
-    () => chartContext(symbol, intervalSeconds, range, interval),
-    [symbol, intervalSeconds, range, interval]
+    // request.security() fetches what the API serves, so the interval's source.
+    () => chartContext(symbol, intervalSeconds, range, source.base),
+    [symbol, intervalSeconds, range, source.base]
   );
   const timezone = resolveTimezone(chartStyle, ctx.timezone);
   const instancesJson = JSON.stringify(instances);
@@ -414,7 +429,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     const chart: IChartApi = createChart(el, {
       layout: { background: { color: chartStyle.background }, textColor: "#808080", fontSize: AXIS_FONT_SIZE, attributionLogo: false, panes: { separatorColor: "#262626" } },
       grid: {
-        vertLines: { color: chartStyle.vertGrid.color, visible: chartStyle.vertGrid.visible },
+        // Vertical lines come from TimeGridPrimitive (lib/chart-grid), which follows the interval.
+        vertLines: { visible: false },
         horzLines: { color: chartStyle.horzGrid.color, visible: chartStyle.horzGrid.visible },
       },
       // Times in the chosen timezone (the settings' Timezone); daily and longer bars are dates.
@@ -425,9 +441,9 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         borderColor: "#262626",
         timeVisible: intraday,
         minBarSpacing: 0.01,
-        // All marks of a weight (every month, every hour, …) or none, so the vertical grid lines are
-        // evenly spaced; otherwise a few odd mid-month days get a line and the cells differ in width.
-        uniformDistribution: true,
+        // The vertical grid is drawn apart from the axis marks (lib/chart-grid), so the axis is free
+        // to label as densely as it fits, as TradingView's does.
+        uniformDistribution: false,
         tickMarkFormatter: (t: Time, kind: number) => formatTick(t as number, kind, intraday, timezone),
       },
       rightPriceScale: { borderColor: "#262626", mode: PRICE_SCALE_MODE[scaleMode], invertScale: invert },
@@ -464,6 +480,12 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           : chart.addSeries(AreaSeries, { lineColor: "#ff9900", topColor: "rgba(255,153,0,0.25)", bottomColor: "rgba(255,153,0,0)", priceFormat: mainFormat });
       main.setData([...candles.map((c) => ({ time: c.time as UTCTimestamp, value: c.close })), ...future]);
     }
+
+    // The vertical grid, after the interval (lib/chart-grid): on the price pane, and on each
+    // indicator pane as it is made below.
+    const zoned = zonedTimes(times as number[], timezone);
+    const gridPanes = new Set<number>([0]);
+    if (chartStyle.vertGrid.visible) main.attachPrimitive(new TimeGridPrimitive(zoned, intervalSeconds, chartStyle.vertGrid.color));
 
     const overlayMarkers: SeriesMarker<Time>[] = [];
     const drawings: DrawingsSpec = { lines: [], labels: [], crosses: [], boxes: [] };
@@ -539,6 +561,10 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         anchor ??= series;
       }
       if (!anchor) continue;
+      if (!it.def.overlay && !gridPanes.has(paneIndex)) {
+        gridPanes.add(paneIndex);
+        if (chartStyle.vertGrid.visible) anchor.attachPrimitive(new TimeGridPrimitive(zoned, intervalSeconds, chartStyle.vertGrid.color));
+      }
 
       for (const h of styledLevels(it.result, style)) {
         if (!h.visible) continue;
@@ -591,7 +617,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         : barColors?.[candles.length - 1] ?? (risingBars(candles.slice(-2), chartStyle.colorByPrevClose).at(-1) ? chartStyle.body.up : chartStyle.body.down);
     const market: Market = { type: ctx.type, timezone: ctx.timezone };
     const countdown = new CountdownPrimitive(() => {
-      const left = secondsUntilClose(last.time, intervalSeconds, market);
+      // Range bars close on price, not on the clock.
+      const left = rangeChart ? null : secondsUntilClose(last.time, intervalSeconds, market);
       return left === null ? null : { price: last.close, text: formatAxisCountdown(left), color: lastColor };
     }, AXIS_FONT_SIZE * (1 + 5 / 12));
     main.attachPrimitive(countdown);
@@ -950,9 +977,9 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           <div className="absolute top-1 left-2 z-10 flex flex-col gap-0.5 text-fs-11 pointer-events-none max-w-[85%]">
             <div className="flex gap-3 bg-[rgba(10,10,10,0.7)] w-fit px-1">
               <span className="dim">
-                <span className="amber">{intervalLabel(intervalSeconds)}</span> {formatChartTime(candle.time, isIntradayInterval(intervalSeconds), timezone)}
+                <span className="amber">{INTERVAL_LABEL[interval]}</span> {formatChartTime(candle.time, isIntradayInterval(intervalSeconds), timezone)}
               </span>
-              {hoveringLastBar && <BarCountdown barTime={candle.time} intervalSeconds={intervalSeconds} market={legendMarket} />}
+              {hoveringLastBar && !rangeChart && <BarCountdown barTime={candle.time} intervalSeconds={intervalSeconds} market={legendMarket} />}
               <span className="dim">O <span className="text-[var(--text)]">{px(candle.open)}</span></span>
               <span className="dim">H <span className="up">{px(candle.high)}</span></span>
               <span className="dim">L <span className="down">{px(candle.low)}</span></span>
