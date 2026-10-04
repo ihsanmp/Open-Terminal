@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Fragment, useMemo, useState } from "react";
 import { apiGet, fmt, pctClass } from "../../lib/api";
+import { IMPACTS, countriesOf, countryOf, filterEvents, impactOf, type Impact } from "../../lib/econ-filter";
 import { useTerminal, useWidgetSetting } from "../../store/terminal";
 
 type EconEvent = {
@@ -41,7 +42,10 @@ const TIMEZONES: Array<{ label: string; zone: string | undefined }> = [
 ];
 
 function EconomicTab() {
-  const [minImpact, setMinImpact] = useWidgetSetting<"all" | "medium">("minImpact", "medium");
+  // The old HIGH+MED / ALL switch, as the starting impacts.
+  const [minImpact] = useWidgetSetting<"all" | "medium">("minImpact", "medium");
+  const [impacts, setImpacts] = useWidgetSetting<Impact[]>("impacts", minImpact === "all" ? IMPACTS.map((i) => i.id) : ["High", "Medium"]);
+  const [hiddenCountries, setHiddenCountries] = useWidgetSetting<string[]>("hiddenCountries", []);
   const [tz, setTz] = useWidgetSetting<string>("tz", "Local");
 
   const { data = [], isLoading, error } = useQuery({
@@ -50,24 +54,45 @@ function EconomicTab() {
     refetchInterval: 300_000,
   });
 
-  const events = useMemo(
-    () => (minImpact === "all" ? data : data.filter((e) => e.impact === "High" || e.impact === "Medium")),
-    [data, minImpact]
-  );
+  const events = useMemo(() => filterEvents(data, impacts, hiddenCountries), [data, impacts, hiddenCountries]);
+  const countries = useMemo(() => countriesOf(data), [data]);
+  /** Events per country, at the chosen impacts: how many each country chip would add. */
+  const perCountry = useMemo(() => {
+    const n = new Map<string, number>();
+    for (const e of filterEvents(data, impacts, [])) n.set(countryOf(e.country), (n.get(countryOf(e.country)) ?? 0) + 1);
+    return n;
+  }, [data, impacts]);
+  const perImpact = useMemo(() => {
+    const n = new Map<Impact, number>();
+    for (const e of filterEvents(data, IMPACTS.map((i) => i.id), hiddenCountries)) n.set(impactOf(e.impact), (n.get(impactOf(e.impact)) ?? 0) + 1);
+    return n;
+  }, [data, hiddenCountries]);
 
   if (error) return <div className="p-2 down">Error: {(error as Error).message}</div>;
   if (isLoading) return <div className="p-2 dim">Loading calendar…</div>;
 
   const zone = TIMEZONES.find((t) => t.label === tz)?.zone;
+  const toggleImpact = (id: Impact) => setImpacts(impacts.includes(id) ? impacts.filter((i) => i !== id) : [...impacts, id]);
+  const toggleCountry = (code: string) =>
+    setHiddenCountries(hiddenCountries.includes(code) ? hiddenCountries.filter((c) => c !== code) : [...hiddenCountries, code]);
 
   return (
     <div>
       <div className="flex gap-1 p-1 items-center flex-wrap">
-        <button className={`term-btn ${minImpact === "medium" ? "active" : ""}`} onClick={() => setMinImpact("medium")}>
-          HIGH+MED
-        </button>
-        <button className={`term-btn ${minImpact === "all" ? "active" : ""}`} onClick={() => setMinImpact("all")}>
-          ALL
+        <span className="dim text-fs-10 tracking-wider mr-1">IMPACT</span>
+        {IMPACTS.map((i) => (
+          <button
+            key={i.id}
+            className={`term-btn ${impacts.includes(i.id) ? "active" : ""}`}
+            onClick={() => toggleImpact(i.id)}
+            title={`${i.id} impact`}
+            aria-pressed={impacts.includes(i.id)}
+          >
+            <span className={i.cls}>●</span> {i.label} <span className="dim">{perImpact.get(i.id) ?? 0}</span>
+          </button>
+        ))}
+        <button className="term-btn" onClick={() => setImpacts(impacts.length === IMPACTS.length ? [] : IMPACTS.map((i) => i.id))}>
+          {impacts.length === IMPACTS.length ? "NONE" : "ALL"}
         </button>
         <span className="w-2" />
         <select
@@ -82,12 +107,36 @@ function EconomicTab() {
           ))}
         </select>
       </div>
+      <div className="flex gap-1 px-1 pb-1 items-center flex-wrap">
+        <span className="dim text-fs-10 tracking-wider mr-1">COUNTRY</span>
+        {countries.map((c) => {
+          const on = !hiddenCountries.includes(c.code);
+          return (
+            <button
+              key={c.code}
+              className={`term-btn ${on ? "active" : ""}`}
+              onClick={() => toggleCountry(c.code)}
+              title={c.name}
+              aria-pressed={on}
+            >
+              {c.code} <span className="dim">{perCountry.get(c.code) ?? 0}</span>
+            </button>
+          );
+        })}
+        <button
+          className="term-btn"
+          onClick={() => setHiddenCountries(hiddenCountries.length === 0 ? countries.map((c) => c.code) : [])}
+        >
+          {hiddenCountries.length === 0 ? "NONE" : "ALL"}
+        </button>
+      </div>
       <table className="data-table">
         <thead>
           <tr>
             <th>Date</th>
             <th>Ccy</th>
-            <th>Event</th>
+            <th title="Impact">Imp</th>
+            <th className="!text-left">Event</th>
             <th>Forecast</th>
             <th>Previous</th>
             <th>Actual</th>
@@ -107,7 +156,10 @@ function EconomicTab() {
                 })}
               </td>
               <td>{e.country}</td>
-              <td className={`!text-left ${IMPACT_CLASS[e.impact]}`}>{e.title}</td>
+              <td className={IMPACTS.find((i) => i.id === impactOf(e.impact))!.cls} title={`${impactOf(e.impact)} impact`}>
+                ●
+              </td>
+              <td className={`!text-left ${IMPACT_CLASS[impactOf(e.impact)]}`}>{e.title}</td>
               <td>{e.forecast ?? "—"}</td>
               <td className="dim">{e.previous ?? "—"}</td>
               <td className={e.actual ? "text-[var(--text)]" : "dim"}>{e.actual ?? "—"}</td>
@@ -115,7 +167,7 @@ function EconomicTab() {
           ))}
         </tbody>
       </table>
-      {events.length === 0 && <div className="p-3 dim">No events in this window.</div>}
+      {events.length === 0 && <div className="p-3 dim">{data.length === 0 ? "No events in this window." : "No events match these filters."}</div>}
     </div>
   );
 }
