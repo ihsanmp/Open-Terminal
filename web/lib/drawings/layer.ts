@@ -5,8 +5,8 @@
 import type { CanvasRenderingTarget2D } from "fancy-canvas";
 import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Logical, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 import { fontPx } from "../font-scale";
-import { distanceTo, shapesFor, type Anchor, type Shape } from "./geometry";
-import { logicalOfTime, type Drawing, type DrawPoint, type TimeframeKind, type ToolId } from "./tools";
+import { distanceTo, shapesFor, textBox, type Anchor, type Shape } from "./geometry";
+import { logicalOfTime, timeOfLogical, type Drawing, type DrawPoint, type TimeframeKind, type ToolId } from "./tools";
 
 const FONT = "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif";
 const HANDLE = 5;
@@ -20,6 +20,8 @@ export type LayerData = {
   times: number[];
   interval: number;
   formatPrice: (p: number) => string;
+  /** A time as the chart writes it (a vertical line's time label). */
+  formatTime?: (t: number) => string;
   /** The chart's kind of interval, for each drawing's Visibility. */
   intervalKind: TimeframeKind;
 };
@@ -86,9 +88,13 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
     return out;
   }
 
-  private shapes(tool: ToolId, anchors: Anchor[], style: Pick<Drawing, "color" | "width" | "dash" | "text" | "ratio" | "options">, width: number, height: number): Shape[] {
+  private shapes(tool: ToolId, anchors: Anchor[], style: Pick<Drawing, "color" | "width" | "dash" | "text" | "ratio" | "options">, width: number, height: number, selected = false): Shape[] {
     const at = this.attachedTo!;
+    const { times, interval } = this.data;
     return shapesFor(tool, {
+      selected,
+      timeOf: (l) => timeOfLogical(times, interval, l),
+      formatTime: this.data.formatTime,
       anchors,
       width,
       height,
@@ -106,7 +112,7 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
       if (d.visibility?.[this.data.intervalKind] === false) continue;
       const anchors = this.anchorsOf(d.points);
       if (!anchors) continue;
-      const shapes = this.shapes(d.tool, anchors, d, width, height);
+      const shapes = this.shapes(d.tool, anchors, d, width, height, d.id === this.data.selected);
       this.drawn.set(d.id, { anchors, shapes });
       render(ctx, shapes);
       if (d.id === this.data.selected) handles(ctx, anchors);
@@ -179,23 +185,40 @@ function render(ctx: CanvasRenderingContext2D, shapes: Shape[]) {
         ctx.lineWidth = s.width ?? 1;
         ctx.setLineDash(s.dash ?? []);
         ctx.ellipse(s.cx, s.cy, s.rx, s.ry, 0, s.start ?? 0, s.end ?? 2 * Math.PI);
+        if (s.fill) {
+          ctx.fillStyle = s.fill;
+          ctx.fill();
+        }
         ctx.stroke();
         break;
       case "text": {
+        // Its box in its own frame (turned about its anchor for text along a sloping line),
+        // a line of text at a time.
         const size = fontPx(s.size ?? 10);
+        const lines = s.text.split("\n");
+        const lh = size * 1.25;
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        if (s.angle) ctx.rotate(s.angle);
         ctx.font = `${s.italic ? "italic " : ""}${s.bold ? "bold " : ""}${size}px ${FONT}`;
         ctx.textAlign = s.align ?? "left";
-        ctx.textBaseline = s.base ?? "bottom";
+        ctx.textBaseline = "middle";
+        const box = textBox({ ...s, size });
+        const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 8;
+        const x0 = s.align === "right" ? -w + 4 : s.align === "center" ? -w / 2 : -4;
         if (s.bg) {
-          const w = ctx.measureText(s.text).width + 8;
-          const h = size + 6;
-          const x0 = s.align === "right" ? s.x - w + 4 : s.align === "center" ? s.x - w / 2 : s.x - 4;
-          const y0 = s.base === "top" ? s.y - 3 : s.base === "middle" ? s.y - h / 2 : s.y - h + 3;
           ctx.fillStyle = s.bg;
-          ctx.fillRect(x0, y0, w, h);
+          ctx.fillRect(x0, box.y0, w, box.h);
+        }
+        if (s.border) {
+          ctx.strokeStyle = s.border;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([]);
+          ctx.strokeRect(x0 + 0.5, box.y0 + 0.5, w - 1, box.h - 1);
         }
         ctx.fillStyle = s.color;
-        ctx.fillText(s.text, s.x, s.y);
+        lines.forEach((l, i) => ctx.fillText(l, 0, box.y0 + 2 + lh * (i + 0.5)));
+        ctx.restore();
         break;
       }
     }

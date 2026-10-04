@@ -60,37 +60,78 @@ export type DrawPoint = { time: number; price: number };
 /** One level of a Fibonacci or Gann tool (a ratio, a time multiple, a Gann angle). */
 export type DrawLevel = { value: number; color: string; visible: boolean };
 
+export type LineDashStyle = "solid" | "dashed" | "dotted";
+export type HAlign = "left" | "center" | "right";
+export type VAlign = "top" | "middle" | "bottom";
+
 /** What a drawing's Settings change beyond its line (each tool uses those of TOOL_FEATURES). */
 export type DrawingOptions = {
   levels?: DrawLevel[];
-  /** Background between levels or inside the shape, and its opacity (0 … 1). */
+  /** Every level in one color instead of its own (kept while off, as TradingView does). */
+  useOneColor?: boolean;
+  oneColor?: string;
+  /** Background between levels or inside the shape, and its opacity (0 … 1); or its own color. */
   fill?: boolean;
   fillOpacity?: number;
+  fillColor?: string;
   extendLeft?: boolean;
   extendRight?: boolean;
   /** Levels counted from the other end of the move. */
   reverse?: boolean;
-  /** Level labels: the ratio, and (for price levels) the price. */
+  /** Level labels: the ratio (as a value or a percent) and, for price levels, the price; where
+   *  they sit and their size. */
   showLevels?: boolean;
   showPrices?: boolean;
-  /** Parallel channel's middle line. */
+  levelsAs?: "values" | "percents";
+  labelHAlign?: HAlign;
+  labelVAlign?: VAlign;
+  labelSize?: number;
+  /** The dashed line between the points a Fibonacci tool is drawn on. */
+  trendLine?: boolean;
+  trendColor?: string;
+  trendWidth?: 1 | 2 | 3 | 4;
+  trendDash?: LineDashStyle;
+  /** A channel's or rectangle's middle line. */
   middleLine?: boolean;
-  /** Horizontal line / ray: its price at the right edge. */
-  priceLabel?: boolean;
-  /** Text tool (and a rectangle's text). */
-  fontSize?: number;
-  textBackground?: boolean;
-  /** Rectangle: its background's own color (with its opacity), the middle line's look, and its
-   *  text's color, weight and place in the box. */
-  fillColor?: string;
   middleColor?: string;
   middleWidth?: 1 | 2 | 3 | 4;
-  middleDash?: "solid" | "dashed" | "dotted";
+  middleDash?: LineDashStyle;
+  /** Horizontal line / ray: its price at the right edge. Vertical line: its time at the bottom. */
+  priceLabel?: boolean;
+  timeLabel?: boolean;
+  /** Trend line: arrows at its ends, a dot at its middle, the prices at its points. */
+  leftEnd?: "normal" | "arrow";
+  rightEnd?: "normal" | "arrow";
+  middlePoint?: boolean;
+  priceLabels?: boolean;
+  /** Trend line stats: what they show, where, and whether only while it's selected. */
+  statsPriceRange?: boolean;
+  statsPercent?: boolean;
+  statsBars?: boolean;
+  statsDateRange?: boolean;
+  statsAngle?: boolean;
+  statsPosition?: HAlign;
+  alwaysShowStats?: boolean;
+  /** Text (the Text tool's, or one on a line or in a box): its look and place. */
+  fontSize?: number;
   textColor?: string;
   bold?: boolean;
   italic?: boolean;
-  textVAlign?: "top" | "middle" | "bottom";
-  textHAlign?: "left" | "center" | "right";
+  textVAlign?: VAlign;
+  textHAlign?: HAlign;
+  textBackground?: boolean;
+  textBgColor?: string;
+  textBorder?: boolean;
+  textBorderColor?: string;
+  /** Fib speed fan: its grid. Gann tools: the diagonals, fan and arcs. */
+  grid?: boolean;
+  angles?: boolean;
+  fans?: boolean;
+  arcs?: boolean;
+  /** Fib spiral: the way it turns. */
+  counterclockwise?: boolean;
+  /** Measure: its label's background. */
+  labelBackground?: boolean;
 };
 
 export type TimeframeKind = "minutes" | "hours" | "days" | "weeks" | "months";
@@ -101,11 +142,11 @@ export type Drawing = {
   points: DrawPoint[];
   color: string;
   width: 1 | 2 | 3 | 4;
-  dash?: "solid" | "dashed" | "dotted";
+  dash?: LineDashStyle;
   locked?: boolean;
   /** Its own name, given in its Settings (the tool's otherwise). */
   name?: string;
-  /** Text tool (and a rectangle's text): what it says. */
+  /** The Text tool's text, or the text on a line or in a box. */
   text?: string;
   /** Gann square fixed: price per bar it keeps. */
   ratio?: number;
@@ -117,50 +158,64 @@ export type Drawing = {
 /** A drawing's look, as a template for new ones of its tool ("Save as default"). */
 export type DrawingTemplate = Pick<Drawing, "color" | "width" | "dash" | "options">;
 
-/** Which settings a tool has (its Settings dialog shows those). */
+/**
+ * Which settings a tool has, as TradingView's dialog for it: its layout (what its Style tab
+ * starts with, and whether it has a Text tab) and the options under it.
+ */
 export type ToolFeatures = {
+  /**
+   * line: Line, its ends, extending, middle point, price labels, stats; a Text tab.
+   * hline / vline: Line and its price or time label; a Text tab.
+   * channel: Extend, Channel lines, Middle line, Background.
+   * box: Extend, Border, Middle line, Background; a Text tab.
+   * levels: Trend line, Levels line, the levels and their options.
+   * spiral: Line and the way it turns.
+   * text: the Text tool (a Text tab only).
+   * measure: Background, Label background, Font size.
+   */
+  layout: "line" | "hline" | "vline" | "channel" | "box" | "levels" | "spiral" | "text" | "measure";
   levels?: "price" | "time" | "ratio" | "angle";
+  trendLine?: boolean;
   fill?: boolean;
   extend?: boolean;
   reverse?: boolean;
-  /** Labels: level ratios, and prices too for price levels. */
+  /** Level labels; with their place and size too (Fibonacci retracement and extension). */
   labels?: boolean;
-  middleLine?: boolean;
-  priceLabel?: boolean;
-  text?: boolean;
-  /** A dash style for its line (plain lines and shapes). */
+  labelPlace?: boolean;
+  grid?: boolean;
+  angles?: boolean;
+  fans?: boolean;
+  arcs?: boolean;
+  /** A dash style for its line. */
   dash?: boolean;
-  /** TradingView's box layout: an Extend menu, Border, Middle line and Background each with its
-   *  own color, and a Text tab. */
-  box?: boolean;
 };
 
 export const TOOL_FEATURES: Record<ToolId, ToolFeatures> = {
-  trend: { extend: true, dash: true },
-  ray: { dash: true },
-  extended: { dash: true },
-  hline: { priceLabel: true, dash: true },
-  hray: { priceLabel: true, dash: true },
-  vline: { dash: true },
-  channel: { fill: true, extend: true, middleLine: true, dash: true },
-  fibRetracement: { levels: "price", fill: true, extend: true, reverse: true, labels: true },
-  fibExtension: { levels: "price", fill: true, extend: true, reverse: true, labels: true },
-  fibChannel: { levels: "ratio", fill: true, labels: true },
-  fibTimeZone: { levels: "time", labels: true },
-  fibSpeedFan: { levels: "ratio", labels: true },
-  fibTrendTime: { levels: "time", labels: true },
-  fibCircles: { levels: "ratio", labels: true },
-  fibSpiral: {},
-  fibSpeedArcs: { levels: "ratio", labels: true },
-  fibWedge: { levels: "ratio", labels: true },
-  pitchfan: { levels: "ratio" },
-  gannBox: { levels: "ratio", fill: true, labels: true },
-  gannSquareFixed: { levels: "ratio", fill: true },
-  gannSquare: { levels: "ratio", fill: true },
-  gannFan: { levels: "angle", labels: true },
-  rect: { fill: true, extend: true, middleLine: true, dash: true, box: true },
-  text: { text: true },
-  measure: {},
+  trend: { layout: "line", extend: true, dash: true },
+  ray: { layout: "line", dash: true },
+  extended: { layout: "line", dash: true },
+  hline: { layout: "hline", dash: true },
+  hray: { layout: "hline", dash: true },
+  vline: { layout: "vline", dash: true },
+  channel: { layout: "channel", fill: true, extend: true, dash: true },
+  fibRetracement: { layout: "levels", levels: "price", trendLine: true, fill: true, extend: true, reverse: true, labels: true, labelPlace: true, dash: true },
+  fibExtension: { layout: "levels", levels: "price", trendLine: true, fill: true, extend: true, reverse: true, labels: true, labelPlace: true, dash: true },
+  fibChannel: { layout: "levels", levels: "ratio", fill: true, extend: true, labels: true, dash: true },
+  fibTimeZone: { layout: "levels", levels: "time", trendLine: true, fill: true, labels: true, dash: true },
+  fibSpeedFan: { layout: "levels", levels: "ratio", fill: true, reverse: true, labels: true, grid: true, dash: true },
+  fibTrendTime: { layout: "levels", levels: "time", trendLine: true, fill: true, labels: true, dash: true },
+  fibCircles: { layout: "levels", levels: "ratio", trendLine: true, labels: true, dash: true },
+  fibSpiral: { layout: "spiral", dash: true },
+  fibSpeedArcs: { layout: "levels", levels: "ratio", trendLine: true, labels: true, dash: true },
+  fibWedge: { layout: "levels", levels: "ratio", labels: true, dash: true },
+  pitchfan: { layout: "levels", levels: "ratio", fill: true, dash: true },
+  gannBox: { layout: "levels", levels: "ratio", fill: true, reverse: true, labels: true, angles: true, dash: true },
+  gannSquareFixed: { layout: "levels", levels: "ratio", fill: true, angles: true, fans: true, arcs: true, dash: true },
+  gannSquare: { layout: "levels", levels: "ratio", fill: true, angles: true, fans: true, arcs: true, dash: true },
+  gannFan: { layout: "levels", levels: "angle", fill: true, labels: true, dash: true },
+  rect: { layout: "box", fill: true, extend: true, dash: true },
+  text: { layout: "text" },
+  measure: { layout: "measure", fill: true },
 };
 
 /** Which Visibility checkbox an interval falls under. */

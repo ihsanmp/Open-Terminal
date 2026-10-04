@@ -63,7 +63,9 @@ import { DrawingLayer } from "../../lib/drawings/layer";
 import { attachDrawing } from "../../lib/drawings/controller";
 import { TOOL_BY_ID, TOOL_FEATURES, timeframeKindOf, type Drawing, type DrawingTemplate, type DrawPoint, type ToolGroup, type ToolId } from "../../lib/drawings/tools";
 import { DrawingSettings } from "../chart/DrawingSettings";
-import { DrawingToolbar } from "../chart/DrawingToolbar";
+import { DrawingToolbar, FavoritesBar } from "../chart/DrawingToolbar";
+import { CursorEffects } from "../chart/CursorEffects";
+import { crosshairFor, cssCursor, type CursorMode } from "../../lib/chart-cursor";
 import { ColorPicker } from "../chart/ColorPicker";
 
 
@@ -231,6 +233,14 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const [drawingsLocked, setDrawingsLocked] = useWidgetSetting("drawLocked", false);
   const [drawingsHidden, setDrawingsHidden] = useWidgetSetting("drawHidden", false);
   const [selectedDrawing, setSelectedDrawing] = useState<string | null>(null);
+  // The cursor (TradingView's Cross, Dot, Arrow, Demonstration, Magic, Eraser), the long-press
+  // values tooltip, and the starred cursors and tools on the favorites bar.
+  const [cursorMode, setCursorMode] = useWidgetSetting<CursorMode>("cursorMode", "cross");
+  const [valuesTooltip, setValuesTooltip] = useWidgetSetting("valuesTooltip", true);
+  const [favorites, setFavorites] = useWidgetSetting<string[]>("drawFavorites", []);
+  const [longPressAt, setLongPressAt] = useState<{ x: number; y: number } | null>(null);
+  const crosshairRef = useRef<CursorMode>("cross");
+  crosshairRef.current = tool ? "cross" : cursorMode;
   // Each tool's look saved with "Save as default", for its new drawings; the open Settings.
   const [drawTemplates, setDrawTemplates] = useWidgetSetting<Partial<Record<ToolId, DrawingTemplate>>>("drawTemplates", {});
   const drawTemplatesRef = useRef(drawTemplates);
@@ -238,11 +248,11 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const [drawingSettings, setDrawingSettings] = useState<string | null>(null);
   const layerRef = useRef<DrawingLayer | null>(null);
   const placingRef = useRef<DrawPoint[] | null>(null);
-  const drawStateRef = useRef({ tool, magnet, locked: drawingsLocked, drawings, selected: selectedDrawing });
+  const drawStateRef = useRef({ tool, magnet, locked: drawingsLocked, drawings, selected: selectedDrawing, cursor: cursorMode });
   const drawHiddenRef = useRef(drawingsHidden);
   drawHiddenRef.current = drawingsHidden;
   const setDrawingsRef = useRef(setDrawings);
-  drawStateRef.current = { tool, magnet, locked: drawingsLocked, drawings, selected: selectedDrawing };
+  drawStateRef.current = { tool, magnet, locked: drawingsLocked, drawings, selected: selectedDrawing, cursor: cursorMode };
   const pickTool = (t: ToolId | null) => {
     placingRef.current = null;
     layerRef.current?.set({ preview: null });
@@ -262,6 +272,10 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     placingRef.current = null;
     setSelectedDrawing(null);
   }, [symbol]);
+  // The crosshair's lines show with the Cross only (and while drawing).
+  useEffect(() => {
+    chartRef.current?.applyOptions({ crosshair: crosshairFor(tool ? "cross" : cursorMode) });
+  }, [tool, cursorMode]);
   const selected = drawings.find((d) => d.id === selectedDrawing) ?? null;
   const patchDrawing = (id: string, patch: Partial<Drawing>) => setDrawings((list) => list.map((d) => (d.id === id ? { ...d, ...patch } : d)));
   const removeDrawing = (id: string) => {
@@ -441,7 +455,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       },
       // Times in the chosen timezone (the settings' Timezone); daily and longer bars are dates.
       localization: { timeFormatter: (t: Time) => formatChartTime(t as number, intraday, timezone) },
-      crosshair: { mode: 0 },
+      crosshair: crosshairFor(crosshairRef.current),
       // A low minimum bar spacing lets decades of daily bars fit on screen when zoomed out, as on TradingView.
       timeScale: {
         borderColor: "#262626",
@@ -634,9 +648,16 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
 
     const panes = chart.panes();
     panes.forEach((p, i) => p.setStretchFactor(i === 0 ? Math.max(2, panes.length - 1) * 1.5 : 1));
+    // The panes (not the axes) take the cursor's pointer (globals.css: .chart-cursor); marked
+    // now and again when they're measured, as a pane can be added later.
+    const markPanes = () => {
+      for (const p of chart.panes()) p.getHTMLElement()?.setAttribute("data-chart-pane", "");
+    };
+    markPanes();
 
     const measurePanes = () => {
       const top = el.getBoundingClientRect().top;
+      markPanes();
       const tops = chart.panes().map((p) => Math.round((p.getHTMLElement()?.getBoundingClientRect().top ?? top) - top));
       setPaneTops((prev) => (prev.length === tops.length && prev.every((v, i) => v === tops[i]) ? prev : tops));
       const right = chart.priceScale("right").width();
@@ -799,6 +820,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       times: times as number[],
       interval: intervalSeconds,
       formatPrice: (v) => fmt(v, pxPrecision),
+      formatTime: (t) => formatChartTime(t, intraday, timezone),
       intervalKind: timeframeKindOf(intervalSeconds),
     });
     main.attachPrimitive(layer);
@@ -811,6 +833,10 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       onSelect: setSelectedDrawing,
       onToolDone: () => setTool(null),
       onOpenSettings: setDrawingSettings,
+      onErase: (id) => {
+        setDrawingsRef.current((list) => list.filter((d) => d.id !== id));
+        setSelectedDrawing((s) => (s === id ? null : s));
+      },
     });
 
     el.addEventListener("pointerdown", onPointerDown, { capture: true });
@@ -970,9 +996,16 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           setSelectedDrawing(null);
         }}
         last={lastTool}
+        cursor={cursorMode}
+        onCursor={setCursorMode}
+        valuesTooltip={valuesTooltip}
+        onValuesTooltip={setValuesTooltip}
+        favorites={favorites}
+        onFavorite={(id) => setFavorites((f) => (f.includes(id) ? f.filter((x) => x !== id) : [...f, id]))}
       />
       <div
-        className={`relative flex-1 min-h-0 min-w-0 ${tool ? "[&_canvas]:!cursor-crosshair" : ""}`}
+        className="relative flex-1 min-h-0 min-w-0 chart-cursor"
+        style={{ "--chart-cursor": cssCursor(tool ? "cross" : cursorMode) } as React.CSSProperties}
         onPointerMove={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           const fromBottom = rect.bottom - axes.bottom - e.clientY;
@@ -1029,6 +1062,49 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
             setScaleMenu({ x: e.clientX, y: e.clientY });
           }}
         />
+        <CursorEffects hostRef={containerRef} mode={cursorMode} active={!tool} longPress={valuesTooltip} axes={axes} onLongPress={setLongPressAt} />
+        <FavoritesBar
+          favorites={favorites}
+          tool={tool}
+          cursor={cursorMode}
+          onTool={pickTool}
+          onCursor={setCursorMode}
+        />
+        {longPressAt && candle && (
+          // TradingView's values tooltip: the bar under a long press.
+          <div
+            role="tooltip"
+            className="absolute z-30 pointer-events-none bg-[rgba(19,23,34,0.95)] border border-[var(--border)] px-2 py-1.5 text-fs-11 grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5 shadow-lg"
+            style={{ left: Math.min(longPressAt.x + 16, (containerRef.current?.clientWidth ?? 9999) - 190), top: Math.max(4, longPressAt.y - 120) }}
+          >
+            <span className="col-span-2 dim">{formatChartTime(candle.time, isIntradayInterval(intervalSeconds), timezone)}</span>
+            <span className="dim">Open</span>
+            <span className="text-right">{px(candle.open)}</span>
+            <span className="dim">High</span>
+            <span className="text-right up">{px(candle.high)}</span>
+            <span className="dim">Low</span>
+            <span className="text-right down">{px(candle.low)}</span>
+            <span className="dim">Close</span>
+            <span className={`text-right ${candle.close >= candle.open ? "up" : "down"}`}>{px(candle.close)}</span>
+            {(() => {
+              const i = candles!.indexOf(candle);
+              const prev = i > 0 ? candles![i - 1].close : candle.open;
+              const ch = candle.close - prev;
+              return (
+                <>
+                  <span className="dim">Change</span>
+                  <span className={`text-right ${ch >= 0 ? "up" : "down"}`}>
+                    {ch >= 0 ? "+" : ""}
+                    {px(ch)} ({ch >= 0 ? "+" : ""}
+                    {prev ? ((ch / prev) * 100).toFixed(2) : "0.00"}%)
+                  </span>
+                </>
+              );
+            })()}
+            <span className="dim">Vol</span>
+            <span className="text-right">{fmtBig(candle.volume)}</span>
+          </div>
+        )}
         {scaleMenu && (
           <PriceScaleMenu
             at={scaleMenu}

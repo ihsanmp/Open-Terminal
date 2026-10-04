@@ -4,12 +4,24 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ColorPicker } from "./ColorPicker";
 import { gannLabel, optionsOf, withAlpha } from "../../lib/drawings/geometry";
-import { TOOL_BY_ID, TOOL_FEATURES, defaultColor, type DrawLevel, type Drawing, type DrawingOptions, type DrawingTemplate, type TimeframeKind } from "../../lib/drawings/tools";
+import {
+  TOOL_BY_ID,
+  TOOL_FEATURES,
+  defaultColor,
+  type DrawLevel,
+  type Drawing,
+  type DrawingOptions,
+  type DrawingTemplate,
+  type HAlign,
+  type TimeframeKind,
+  type VAlign,
+} from "../../lib/drawings/tools";
 
-// A drawing's Settings, as TradingView's: its Style (line, levels with their values and colors,
-// background, extending, labels, text), its Coordinates (each point's price and time) and its
-// Visibility (the kinds of interval it shows on). Its look can be kept as the default for new
-// drawings of the tool, or put back to the tool's own.
+// A drawing's Settings, as TradingView's dialog for its tool: its Style (the line and what it
+// draws: ends, extending, middle line, levels with their values and colors, one color for all,
+// background, labels, stats …), its Text, its Coordinates (each point's price and time) and its
+// Visibility (the kinds of interval it shows on). It can be renamed, and its look kept as the
+// default for new drawings of the tool, or put back.
 
 /** The label column of a settings row. */
 const LABEL = "w-[calc(8.5rem*var(--font-scale))] shrink-0 whitespace-nowrap";
@@ -47,6 +59,33 @@ function Check({ label, checked, onChange }: { label: string; checked: boolean; 
     </label>
   );
 }
+
+function Section({ title }: { title: string }) {
+  return <div className="dim text-fs-10 tracking-wider mt-3 mb-1">{title}</div>;
+}
+
+function Select<T extends string>({ value, options, onChange, label }: { value: T; options: Array<[T, string]>; onChange: (v: T) => void; label: string }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value as T)} aria-label={label}>
+      {options.map(([v, l]) => (
+        <option key={v} value={v}>
+          {l}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+const H_ALIGN: Array<[HAlign, string]> = [
+  ["left", "Left"],
+  ["center", "Center"],
+  ["right", "Right"],
+];
+const V_ALIGN: Array<[VAlign, string]> = [
+  ["top", "Top"],
+  ["middle", "Middle"],
+  ["bottom", "Bottom"],
+];
 
 /** A number typed freely (a partial one doesn't apply), kept in step when it changes from outside. */
 function NumberField({ value, onValue, step = "any", className = "w-[calc(5.5rem*var(--font-scale))]" }: { value: number; onValue: (v: number) => void; step?: string; className?: string }) {
@@ -109,6 +148,8 @@ function TemplateMenu({ hasTemplate, onSave, onApply, onReset }: { hasTemplate: 
   );
 }
 
+type Tab = "style" | "text" | "coordinates" | "visibility";
+
 type Props = {
   drawing: Drawing;
   /** Saved default for the tool, if any. */
@@ -122,10 +163,17 @@ export function DrawingSettings({ drawing, template, onApply, onSaveTemplate, on
   const tool = drawing.tool;
   const def = TOOL_BY_ID.get(tool)!;
   const features = TOOL_FEATURES[tool];
+  const layout = features.layout;
+  // The Text tool is all text; lines and boxes carry a text of their own on a tab of its own.
+  const tabs: Tab[] =
+    layout === "text"
+      ? ["text", "coordinates", "visibility"]
+      : ["line", "hline", "vline", "box"].includes(layout)
+        ? ["style", "text", "coordinates", "visibility"]
+        : ["style", "coordinates", "visibility"];
   const [d, setD] = useState<Drawing>(drawing);
-  const [tab, setTab] = useState<"style" | "text" | "coordinates" | "visibility">("style");
+  const [tab, setTab] = useState<Tab>(tabs[0]);
   const [renaming, setRenaming] = useState(false);
-  const tabs: Array<typeof tab> = features.box ? ["style", "text", "coordinates", "visibility"] : ["style", "coordinates", "visibility"];
   const o = optionsOf(tool, d.options);
   const setOpt = (patch: Partial<DrawingOptions>) => setD((v) => ({ ...v, options: { ...v.options, ...patch } }));
   const setLevels = (f: (ls: DrawLevel[]) => DrawLevel[]) => setOpt({ levels: f(o.levels) });
@@ -136,7 +184,311 @@ export function DrawingSettings({ drawing, template, onApply, onSaveTemplate, on
     return () => window.removeEventListener("keydown", esc);
   }, [onClose]);
 
-  const levelLabel = features.levels === "angle" ? "Angles" : features.levels === "time" ? "Time levels" : "Levels";
+  // ---- rows the layouts share ----
+  /** The drawing's own line: color, width and style. */
+  const lineRow = (label: string) => (
+    <Row>
+      <span className={`${LABEL} dim`}>{label}</span>
+      <ColorPicker
+        color={d.color}
+        onColor={(color) => setD((v) => ({ ...v, color }))}
+        width={d.width}
+        onWidth={(width) => setD((v) => ({ ...v, width }))}
+        dash={features.dash ? d.dash ?? "solid" : undefined}
+        onDash={features.dash ? (dash) => setD((v) => ({ ...v, dash })) : undefined}
+      />
+    </Row>
+  );
+  const extendRow = (
+    <Row>
+      <span className={`${LABEL} dim`}>Extend</span>
+      <Select
+        label="Extend"
+        value={o.extendLeft && o.extendRight ? "both" : o.extendLeft ? "left" : o.extendRight ? "right" : "none"}
+        options={[
+          ["none", "Don't extend"],
+          ["left", "Extend left"],
+          ["right", "Extend right"],
+          ["both", "Extend both"],
+        ]}
+        onChange={(v) => setOpt({ extendLeft: v === "left" || v === "both", extendRight: v === "right" || v === "both" })}
+      />
+    </Row>
+  );
+  const middleRow = (
+    <Row>
+      <span className={LABEL}>
+        <Check label="Middle line" checked={o.middleLine} onChange={(v) => setOpt({ middleLine: v })} />
+      </span>
+      <ColorPicker
+        color={o.middleColor ?? d.color}
+        onColor={(middleColor) => setOpt({ middleColor })}
+        width={o.middleWidth}
+        onWidth={(middleWidth) => setOpt({ middleWidth })}
+        dash={o.middleDash}
+        onDash={(middleDash) => setOpt({ middleDash })}
+      />
+    </Row>
+  );
+  /** A background in a color of its own (a box, a channel). */
+  const backgroundColorRow = (
+    <Row>
+      <span className={LABEL}>
+        <Check label="Background" checked={o.fill} onChange={(v) => setOpt({ fill: v })} />
+      </span>
+      <ColorPicker color={o.fillColor ?? withAlpha(d.color, o.fillOpacity)} onColor={(fillColor) => setOpt({ fillColor })} />
+    </Row>
+  );
+  /** A background in the levels' colors, at an opacity. */
+  const backgroundOpacityRow = (
+    <Row>
+      <span className={LABEL}>
+        <Check label="Background" checked={o.fill} onChange={(v) => setOpt({ fill: v })} />
+      </span>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        value={Math.round(o.fillOpacity * 100)}
+        disabled={!o.fill}
+        onChange={(e) => setOpt({ fillOpacity: Number(e.target.value) / 100 })}
+        className="flex-1"
+        aria-label="Background opacity"
+      />
+      <span className="dim w-10 text-right">{Math.round(o.fillOpacity * 100)}%</span>
+    </Row>
+  );
+  const fontRow = (color: string, onColor: (c: string) => void) => (
+    <Row>
+      <ColorPicker color={color} onColor={onColor} />
+      <Select label="Font size" value={String(o.fontSize)} options={FONT_SIZES.map((s) => [String(s), String(s)])} onChange={(v) => setOpt({ fontSize: Number(v) })} />
+      <button className={`term-btn font-bold ${o.bold ? "active" : ""}`} onClick={() => setOpt({ bold: !o.bold })} aria-pressed={o.bold} title="Bold">
+        B
+      </button>
+      <button className={`term-btn italic ${o.italic ? "active" : ""}`} onClick={() => setOpt({ italic: !o.italic })} aria-pressed={o.italic} title="Italic">
+        I
+      </button>
+    </Row>
+  );
+  const textArea = (
+    <textarea className="w-full min-h-[80px] mt-1" value={d.text ?? ""} onChange={(e) => setD((v) => ({ ...v, text: e.target.value }))} placeholder="Add text" />
+  );
+
+  // ---- Style, by the tool's layout ----
+  const lineStyle = () => {
+    const ends = tool !== "extended";
+    return (
+      <>
+        {lineRow("Line")}
+        {features.extend && extendRow}
+        {ends && (
+          <Row>
+            <span className={`${LABEL} dim`}>Line ends</span>
+            <Select label="Left end" value={o.leftEnd} options={[["normal", "Normal"], ["arrow", "Arrow"]]} onChange={(leftEnd) => setOpt({ leftEnd })} />
+            {tool === "trend" && <Select label="Right end" value={o.rightEnd} options={[["normal", "Normal"], ["arrow", "Arrow"]]} onChange={(rightEnd) => setOpt({ rightEnd })} />}
+          </Row>
+        )}
+        <Check label="Middle point" checked={o.middlePoint} onChange={(v) => setOpt({ middlePoint: v })} />
+        <Check label="Price labels" checked={o.priceLabels} onChange={(v) => setOpt({ priceLabels: v })} />
+        <Section title="STATS" />
+        <div className="grid grid-cols-2 gap-x-4">
+          <Check label="Price range" checked={o.statsPriceRange} onChange={(v) => setOpt({ statsPriceRange: v })} />
+          <Check label="Percent change" checked={o.statsPercent} onChange={(v) => setOpt({ statsPercent: v })} />
+          <Check label="Bars range" checked={o.statsBars} onChange={(v) => setOpt({ statsBars: v })} />
+          <Check label="Date/time range" checked={o.statsDateRange} onChange={(v) => setOpt({ statsDateRange: v })} />
+          <Check label="Angle" checked={o.statsAngle} onChange={(v) => setOpt({ statsAngle: v })} />
+        </div>
+        <Row>
+          <span className={`${LABEL} dim`}>Stats position</span>
+          <Select label="Stats position" value={o.statsPosition} options={H_ALIGN} onChange={(statsPosition) => setOpt({ statsPosition })} />
+        </Row>
+        <Check label="Always show stats" checked={o.alwaysShowStats} onChange={(v) => setOpt({ alwaysShowStats: v })} />
+      </>
+    );
+  };
+
+  const levelsStyle = () => {
+    const kind = features.levels!;
+    const levelsTitle = kind === "angle" ? "ANGLES" : kind === "time" ? "TIME LEVELS" : "LEVELS";
+    return (
+      <>
+        {features.trendLine && (
+          <Row>
+            <span className={LABEL}>
+              <Check label="Trend line" checked={o.trendLine} onChange={(v) => setOpt({ trendLine: v })} />
+            </span>
+            <ColorPicker
+              color={o.trendColor ?? withAlpha(d.color, 0.8)}
+              onColor={(trendColor) => setOpt({ trendColor })}
+              width={o.trendWidth}
+              onWidth={(trendWidth) => setOpt({ trendWidth })}
+              dash={o.trendDash}
+              onDash={(trendDash) => setOpt({ trendDash })}
+            />
+          </Row>
+        )}
+        {lineRow(kind === "price" || kind === "time" ? "Levels line" : "Line")}
+        {features.extend && extendRow}
+        {features.reverse && <Check label="Reverse" checked={o.reverse} onChange={(v) => setOpt({ reverse: v })} />}
+        {(features.grid || features.angles || features.fans || features.arcs) && (
+          <div className="flex gap-6">
+            {features.grid && <Check label="Grid" checked={o.grid} onChange={(v) => setOpt({ grid: v })} />}
+            {features.angles && <Check label="Angles" checked={o.angles} onChange={(v) => setOpt({ angles: v })} />}
+            {features.fans && <Check label="Fans" checked={o.fans} onChange={(v) => setOpt({ fans: v })} />}
+            {features.arcs && <Check label="Arcs" checked={o.arcs} onChange={(v) => setOpt({ arcs: v })} />}
+          </div>
+        )}
+
+        <Section title={levelsTitle} />
+        <div className="grid grid-cols-2 gap-x-4">
+          {o.levels.map((l, i) => (
+            <div key={i} className="flex items-center gap-1.5 min-h-[32px]">
+              <input type="checkbox" checked={l.visible} onChange={(e) => setLevels((ls) => ls.map((x, j) => (j === i ? { ...x, visible: e.target.checked } : x)))} aria-label="Show level" />
+              <NumberField value={l.value} onValue={(value) => setLevels((ls) => ls.map((x, j) => (j === i ? { ...x, value } : x)))} />
+              {kind === "angle" && <span className="dim text-fs-10 w-10">{gannLabel(l.value)}</span>}
+              <span className={o.useOneColor ? "opacity-40 pointer-events-none" : ""}>
+                <ColorPicker color={l.color} onColor={(color) => setLevels((ls) => ls.map((x, j) => (j === i ? { ...x, color } : x)))} />
+              </span>
+              <button className="dim hover:text-[var(--down)] px-1" title="Remove level" aria-label="Remove level" onClick={() => setLevels((ls) => ls.filter((_, j) => j !== i))}>
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+        <button
+          className="term-btn self-start mt-1"
+          onClick={() => setLevels((ls) => [...ls, { value: ls.length ? +(Math.max(...ls.map((x) => x.value)) + 0.5).toFixed(3) : 1, color: d.color, visible: true }])}
+        >
+          + Add level
+        </button>
+
+        <Section title="OPTIONS" />
+        <Row>
+          <span className={LABEL}>
+            <Check label="Use one color" checked={o.useOneColor} onChange={(v) => setOpt({ useOneColor: v })} />
+          </span>
+          <ColorPicker color={o.oneColor ?? d.color} onColor={(oneColor) => setOpt({ oneColor, useOneColor: true })} />
+        </Row>
+        {features.fill && backgroundOpacityRow}
+        {features.labels && (
+          <Row>
+            <span className={LABEL}>
+              <Check label={kind === "angle" ? "Labels" : "Levels"} checked={o.showLevels} onChange={(v) => setOpt({ showLevels: v })} />
+            </span>
+            {kind !== "angle" && (
+              <Select label="Levels as" value={o.levelsAs} options={[["values", "Values"], ["percents", "Percents"]]} onChange={(levelsAs) => setOpt({ levelsAs })} />
+            )}
+            {kind === "price" && <Check label="Prices" checked={o.showPrices} onChange={(v) => setOpt({ showPrices: v })} />}
+          </Row>
+        )}
+        {features.labelPlace && (
+          <>
+            <Row>
+              <span className={`${LABEL} dim`}>Labels</span>
+              <Select label="Labels horizontal position" value={o.labelHAlign} options={H_ALIGN} onChange={(labelHAlign) => setOpt({ labelHAlign })} />
+              <Select label="Labels vertical position" value={o.labelVAlign} options={V_ALIGN} onChange={(labelVAlign) => setOpt({ labelVAlign })} />
+            </Row>
+            <Row>
+              <span className={`${LABEL} dim`}>Font size</span>
+              <Select label="Labels font size" value={String(o.labelSize)} options={FONT_SIZES.map((s) => [String(s), String(s)])} onChange={(v) => setOpt({ labelSize: Number(v) })} />
+            </Row>
+          </>
+        )}
+      </>
+    );
+  };
+
+  const style = () => {
+    switch (layout) {
+      case "line":
+        return lineStyle();
+      case "hline":
+        return (
+          <>
+            {lineRow("Line")}
+            <Check label="Show price" checked={o.priceLabel} onChange={(v) => setOpt({ priceLabel: v })} />
+          </>
+        );
+      case "vline":
+        return (
+          <>
+            {lineRow("Line")}
+            <Check label="Show time" checked={o.timeLabel} onChange={(v) => setOpt({ timeLabel: v })} />
+          </>
+        );
+      case "channel":
+        return (
+          <>
+            {extendRow}
+            {lineRow("Channel lines")}
+            {middleRow}
+            {backgroundColorRow}
+          </>
+        );
+      case "box":
+        return (
+          <>
+            {extendRow}
+            {lineRow("Border")}
+            {middleRow}
+            {backgroundColorRow}
+          </>
+        );
+      case "spiral":
+        return (
+          <>
+            {lineRow("Line")}
+            <Check label="Counterclockwise" checked={o.counterclockwise} onChange={(v) => setOpt({ counterclockwise: v })} />
+          </>
+        );
+      case "measure":
+        return (
+          <>
+            {backgroundOpacityRow}
+            <Check label="Label background" checked={o.labelBackground} onChange={(v) => setOpt({ labelBackground: v })} />
+            <Row>
+              <span className={`${LABEL} dim`}>Font size</span>
+              <Select label="Font size" value={String(o.labelSize)} options={FONT_SIZES.map((s) => [String(s), String(s)])} onChange={(v) => setOpt({ labelSize: Number(v) })} />
+            </Row>
+          </>
+        );
+      case "levels":
+        return levelsStyle();
+      default:
+        return null;
+    }
+  };
+
+  // ---- Text ----
+  const textTab = () =>
+    layout === "text" ? (
+      <>
+        {fontRow(d.color, (color) => setD((v) => ({ ...v, color })))}
+        {textArea}
+        <Row>
+          <span className={LABEL}>
+            <Check label="Background" checked={o.textBackground} onChange={(v) => setOpt({ textBackground: v })} />
+          </span>
+          <ColorPicker color={o.textBgColor ?? "rgba(10,10,10,0.6)"} onColor={(textBgColor) => setOpt({ textBgColor, textBackground: true })} />
+        </Row>
+        <Row>
+          <span className={LABEL}>
+            <Check label="Border" checked={o.textBorder} onChange={(v) => setOpt({ textBorder: v })} />
+          </span>
+          <ColorPicker color={o.textBorderColor ?? d.color} onColor={(textBorderColor) => setOpt({ textBorderColor, textBorder: true })} />
+        </Row>
+      </>
+    ) : (
+      <>
+        {fontRow(o.textColor ?? d.color, (textColor) => setOpt({ textColor }))}
+        {textArea}
+        <Row>
+          <span className={`${LABEL} dim`}>Text alignment</span>
+          <Select label="Vertical alignment" value={o.textVAlign} options={V_ALIGN} onChange={(textVAlign) => setOpt({ textVAlign })} />
+          <Select label="Horizontal alignment" value={o.textHAlign} options={H_ALIGN} onChange={(textHAlign) => setOpt({ textHAlign })} />
+        </Row>
+      </>
+    );
 
   return createPortal(
     <div className="fixed inset-0 bg-black/70 z-50 flex items-start justify-center pt-16" onMouseDown={onClose}>
@@ -183,186 +535,8 @@ export function DrawingSettings({ drawing, template, onApply, onSaveTemplate, on
         </div>
 
         <div className="overflow-auto px-4 py-3 flex flex-col gap-1">
-          {tab === "style" && features.box && (
-            <>
-              <Row>
-                <span className={`${LABEL} dim`}>Extend</span>
-                <select
-                  value={o.extendLeft && o.extendRight ? "both" : o.extendLeft ? "left" : o.extendRight ? "right" : "none"}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setOpt({ extendLeft: v === "left" || v === "both", extendRight: v === "right" || v === "both" });
-                  }}
-                  aria-label="Extend"
-                >
-                  <option value="none">Don&apos;t extend</option>
-                  <option value="left">Extend left</option>
-                  <option value="right">Extend right</option>
-                  <option value="both">Extend both</option>
-                </select>
-              </Row>
-              <Row>
-                <span className={`${LABEL} dim`}>Border</span>
-                <ColorPicker
-                  color={d.color}
-                  onColor={(color) => setD((v) => ({ ...v, color }))}
-                  width={d.width}
-                  onWidth={(width) => setD((v) => ({ ...v, width }))}
-                  dash={d.dash ?? "solid"}
-                  onDash={(dash) => setD((v) => ({ ...v, dash }))}
-                />
-              </Row>
-              <Row>
-                <span className={LABEL}>
-                  <Check label="Middle line" checked={o.middleLine} onChange={(v) => setOpt({ middleLine: v })} />
-                </span>
-                <ColorPicker
-                  color={o.middleColor ?? d.color}
-                  onColor={(middleColor) => setOpt({ middleColor })}
-                  width={o.middleWidth}
-                  onWidth={(middleWidth) => setOpt({ middleWidth })}
-                  dash={o.middleDash}
-                  onDash={(middleDash) => setOpt({ middleDash })}
-                />
-              </Row>
-              <Row>
-                <span className={LABEL}>
-                  <Check label="Background" checked={o.fill} onChange={(v) => setOpt({ fill: v })} />
-                </span>
-                <ColorPicker color={o.fillColor ?? withAlpha(d.color, o.fillOpacity)} onColor={(fillColor) => setOpt({ fillColor })} />
-              </Row>
-            </>
-          )}
-
-          {tab === "text" && (
-            <>
-              <Row>
-                <ColorPicker color={o.textColor ?? d.color} onColor={(textColor) => setOpt({ textColor })} />
-                <select value={o.fontSize} onChange={(e) => setOpt({ fontSize: Number(e.target.value) })} aria-label="Font size">
-                  {FONT_SIZES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-                <button className={`term-btn font-bold ${o.bold ? "active" : ""}`} onClick={() => setOpt({ bold: !o.bold })} aria-pressed={o.bold} title="Bold">
-                  B
-                </button>
-                <button className={`term-btn italic ${o.italic ? "active" : ""}`} onClick={() => setOpt({ italic: !o.italic })} aria-pressed={o.italic} title="Italic">
-                  I
-                </button>
-              </Row>
-              <textarea className="w-full min-h-[80px] mt-1" value={d.text ?? ""} onChange={(e) => setD((v) => ({ ...v, text: e.target.value }))} placeholder="Add text" />
-              <Row>
-                <span className={`${LABEL} dim`}>Text alignment</span>
-                <select value={o.textVAlign} onChange={(e) => setOpt({ textVAlign: e.target.value as typeof o.textVAlign })} aria-label="Vertical alignment">
-                  <option value="top">Top</option>
-                  <option value="middle">Middle</option>
-                  <option value="bottom">Bottom</option>
-                </select>
-                <select value={o.textHAlign} onChange={(e) => setOpt({ textHAlign: e.target.value as typeof o.textHAlign })} aria-label="Horizontal alignment">
-                  <option value="left">Left</option>
-                  <option value="center">Center</option>
-                  <option value="right">Right</option>
-                </select>
-              </Row>
-            </>
-          )}
-
-          {tab === "style" && !features.box && (
-            <>
-              {tool !== "measure" && (
-                <Row>
-                  <span className={`${LABEL} dim`}>{features.levels ? "Trend line" : tool === "text" ? "Color" : "Line"}</span>
-                  <ColorPicker
-                    color={d.color}
-                    onColor={(color) => setD((v) => ({ ...v, color }))}
-                    width={tool === "text" ? undefined : d.width}
-                    onWidth={tool === "text" ? undefined : (width) => setD((v) => ({ ...v, width }))}
-                    dash={features.dash ? d.dash ?? "solid" : undefined}
-                    onDash={features.dash ? (dash) => setD((v) => ({ ...v, dash })) : undefined}
-                  />
-                </Row>
-              )}
-
-              {features.text && (
-                <>
-                  <textarea className="w-full min-h-[80px] mt-1" value={d.text ?? ""} onChange={(e) => setD((v) => ({ ...v, text: e.target.value }))} placeholder="Text" />
-                  <Row>
-                    <span className={`${LABEL} dim`}>Font size</span>
-                    <select value={o.fontSize} onChange={(e) => setOpt({ fontSize: Number(e.target.value) })}>
-                      {FONT_SIZES.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </Row>
-                  <Check label="Background" checked={o.textBackground} onChange={(v) => setOpt({ textBackground: v })} />
-                </>
-              )}
-
-              {features.levels && (
-                <>
-                  <div className="dim text-fs-10 tracking-wider mt-2 mb-1">{levelLabel.toUpperCase()}</div>
-                  <div className="grid grid-cols-2 gap-x-4">
-                    {o.levels.map((l, i) => (
-                      <div key={i} className="flex items-center gap-1.5 min-h-[32px]">
-                        <input type="checkbox" checked={l.visible} onChange={(e) => setLevels((ls) => ls.map((x, j) => (j === i ? { ...x, visible: e.target.checked } : x)))} />
-                        <NumberField value={l.value} onValue={(value) => setLevels((ls) => ls.map((x, j) => (j === i ? { ...x, value } : x)))} />
-                        {features.levels === "angle" && <span className="dim text-fs-10 w-10">{gannLabel(l.value)}</span>}
-                        <ColorPicker color={l.color} onColor={(color) => setLevels((ls) => ls.map((x, j) => (j === i ? { ...x, color } : x)))} />
-                        <button className="dim hover:text-[var(--down)] px-1" title="Remove level" aria-label="Remove level" onClick={() => setLevels((ls) => ls.filter((_, j) => j !== i))}>
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <button
-                    className="term-btn self-start mt-1"
-                    onClick={() => setLevels((ls) => [...ls, { value: ls.length ? +(Math.max(...ls.map((x) => x.value)) + 0.5).toFixed(3) : 1, color: d.color, visible: true }])}
-                  >
-                    + Add level
-                  </button>
-                </>
-              )}
-
-              {(features.fill || features.extend || features.reverse || features.labels || features.middleLine || features.priceLabel) && (
-                <div className="dim text-fs-10 tracking-wider mt-3 mb-1">OPTIONS</div>
-              )}
-              {features.fill && (
-                <Row>
-                  <Check label="Background" checked={o.fill} onChange={(v) => setOpt({ fill: v })} />
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={Math.round(o.fillOpacity * 100)}
-                    disabled={!o.fill}
-                    onChange={(e) => setOpt({ fillOpacity: Number(e.target.value) / 100 })}
-                    className="flex-1 ml-2"
-                    aria-label="Background opacity"
-                  />
-                  <span className="dim w-10 text-right">{Math.round(o.fillOpacity * 100)}%</span>
-                </Row>
-              )}
-              {features.extend && (
-                <div className="flex gap-6">
-                  <Check label="Extend left" checked={o.extendLeft} onChange={(v) => setOpt({ extendLeft: v })} />
-                  <Check label="Extend right" checked={o.extendRight} onChange={(v) => setOpt({ extendRight: v })} />
-                </div>
-              )}
-              {features.reverse && <Check label="Reverse" checked={o.reverse} onChange={(v) => setOpt({ reverse: v })} />}
-              {features.middleLine && <Check label="Middle line" checked={o.middleLine} onChange={(v) => setOpt({ middleLine: v })} />}
-              {features.priceLabel && <Check label="Price label" checked={o.priceLabel} onChange={(v) => setOpt({ priceLabel: v })} />}
-              {features.labels && (
-                <div className="flex gap-6">
-                  <Check label={features.levels === "angle" ? "Labels" : "Levels"} checked={o.showLevels} onChange={(v) => setOpt({ showLevels: v })} />
-                  {features.levels === "price" && <Check label="Prices" checked={o.showPrices} onChange={(v) => setOpt({ showPrices: v })} />}
-                </div>
-              )}
-            </>
-          )}
+          {tab === "style" && style()}
+          {tab === "text" && textTab()}
 
           {tab === "coordinates" &&
             d.points.map((p, i) => (
