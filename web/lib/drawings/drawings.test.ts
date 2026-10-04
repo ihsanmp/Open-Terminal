@@ -154,6 +154,62 @@ describe("each tool's settings", () => {
     expect(t).toMatchObject({ text: "Zone", x: xOf(30) - 6, y: yOf(120) - 4, align: "right", base: "bottom", color: "#fff", bold: true });
   });
 
+  it("trend line: arrows, middle point, price labels, its text along it, and stats", () => {
+    const pts = [at(10, 120), at(30, 140)];
+    const line = (o: object, extra: Partial<GeometryContext> = {}, text?: string) =>
+      shapesFor("trend", { ...ctx(pts), ...extra, drawing: { color: "#2962FF", width: 1, text, options: o } });
+    const polys = (s: Shape[]) => s.filter((g) => g.t === "poly");
+    expect(polys(line({ rightEnd: "arrow" }))).toHaveLength(1);
+    expect(polys(line({ rightEnd: "arrow", extendRight: true }))).toHaveLength(0); // no end to point
+    expect(line({ middlePoint: true }).some((g) => g.t === "ellipse" && g.cx === xOf(20))).toBe(true);
+    expect(labels(line({ priceLabels: true }))).toEqual(["120.00", "140.00"]);
+    // The text turns with the line (up to the right: a negative angle on screen).
+    const t = line({}, {}, "Breakout").find((g) => g.t === "text") as Extract<Shape, { t: "text" }>;
+    expect(t.text).toBe("Breakout");
+    expect(t.angle).toBeCloseTo(Math.atan2(yOf(140) - yOf(120), xOf(30) - xOf(10)), 6);
+    // Stats: only while selected unless always shown.
+    const stats = { statsPriceRange: true, statsPercent: true, statsBars: true, statsDateRange: true, statsAngle: true };
+    expect(labels(line(stats))).toEqual([]);
+    const timeOf = (l: number) => 1_000_000 + l * 86_400;
+    const shown = labels(line(stats, { selected: true, timeOf }))[0];
+    expect(shown.split("\n")).toEqual(["+20.00 (+16.67%)", "20 bars, 20d", `${(Math.atan2(120, 200) * (180 / Math.PI)).toFixed(1)}°`]);
+    expect(labels(line({ ...stats, alwaysShowStats: true }))).toHaveLength(1);
+  });
+
+  it("levels: one color for all, as percents, labels on the right, and backgrounds between rays and time zones", () => {
+    const pts = [at(10, 120), at(50, 170)];
+    const s = withOpts("fibRetracement", pts, { useOneColor: true, oneColor: "#abcdef", levelsAs: "percents", labelHAlign: "right", showPrices: false });
+    expect(segs(s).filter((g) => g.y1 === g.y2).every((g) => g.color === "#abcdef")).toBe(true);
+    expect(labels(s)).toContain("61.8%");
+    const l618 = s.find((g) => g.t === "text" && g.text === "61.8%") as Extract<Shape, { t: "text" }>;
+    expect(l618).toMatchObject({ x: xOf(50) + 4, align: "left" });
+    // Gann fan: a wedge between each pair of neighbouring angles.
+    const fan = withOpts("gannFan", [at(10, 120), at(30, 140)], {});
+    expect(fan.filter((g) => g.t === "poly" && g.fill)).toHaveLength(8);
+    expect(withOpts("gannFan", [at(10, 120), at(30, 140)], { fill: false }).some((g) => g.t === "poly")).toBe(false);
+    // Time zones: no background until it's turned on.
+    expect(withOpts("fibTimeZone", [at(10, 150), at(14, 150)], {}).some((g) => g.t === "poly")).toBe(false);
+    expect(withOpts("fibTimeZone", [at(10, 150), at(14, 150)], { fill: true }).filter((g) => g.t === "poly").length).toBeGreaterThan(5);
+    // Gann box without its diagonals; a spiral the other way round.
+    const diagonals = (o: object) => segs(withOpts("gannBox", pts, o)).filter((g) => g.x1 !== g.x2 && g.y1 !== g.y2).length;
+    expect(diagonals({})).toBe(2);
+    expect(diagonals({ angles: false })).toBe(0);
+    const spiral = (o: object) => (withOpts("fibSpiral", pts, o).find((g) => g.t === "poly") as Extract<Shape, { t: "poly" }>).pts[40];
+    expect(spiral({ counterclockwise: true })).not.toEqual(spiral({}));
+  });
+
+  it("a vertical line's time, and text that turns or runs over lines is picked where it is", async () => {
+    const { distanceTo: dist, fmtDuration } = await import("./geometry");
+    const v = shapesFor("vline", { ...ctx([at(20, 150)]), timeOf: () => 86_400, formatTime: (t) => `T${t}`, drawing: { color: "#fff", width: 1, options: { timeLabel: true } } });
+    expect(labels(v)).toEqual(["T86400"]);
+    expect([fmtDuration(90_000), fmtDuration(8_100), fmtDuration(2_400), fmtDuration(86_400)]).toEqual(["1d 1h", "2h 15m", "40m", "1d"]);
+    const turned: Shape = { t: "text", x: 100, y: 100, text: "abcdefghij", color: "", align: "left", base: "middle", size: 10, angle: Math.PI / 2 };
+    expect(dist(turned, 100, 140)).toBe(0); // down the turned text
+    expect(dist(turned, 140, 100)).toBe(Infinity);
+    const twoLines: Shape = { t: "text", x: 0, y: 0, text: "a\nb", color: "", align: "left", base: "top", size: 10 };
+    expect(dist(twoLines, 2, 20)).toBe(0);
+  });
+
   it("text: its size and background", () => {
     const s = shapesFor("text", { ...ctx([at(10, 150)]), drawing: { color: "#fff", width: 1, text: "Hi", options: { fontSize: 24, textBackground: false } } });
     expect(s[0]).toMatchObject({ t: "text", text: "Hi", size: 24, bg: undefined });

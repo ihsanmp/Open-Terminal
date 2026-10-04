@@ -173,3 +173,9 @@ button.term-btn.active {
 .react-grid-item > .react-resizable-handle::after {
   border-color: var(--amber-dim) !important;
 }
+
+/* The chart's cursor (lib/chart-cursor) over its panes only; the axes keep their own. A pane's
+   row holds the left axis, the pane, then the right axis. */
+.chart-cursor [data-chart-pane] > td:nth-child(2) canvas {
+  cursor: var(--chart-cursor) !important;
+}

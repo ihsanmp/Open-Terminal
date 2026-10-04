@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { CURSORS, ERASER, type CursorMode } from "../../lib/chart-cursor";
 import { TOOLS, TOOL_BY_ID, type ToolGroup, type ToolId } from "../../lib/drawings/tools";
 
-// TradingView's drawing toolbar, down the left of the chart: the cursor, each group of tools (a
+// TradingView's drawing toolbar, down the left of the chart: the cursor (with its menu: Cross,
+// Dot, Arrow, Demonstration, Magic, the Eraser and the values tooltip), each group of tools (a
 // button for the one used last, a menu for the rest), then the magnet, locking, hiding and
-// removing all drawings.
+// removing all drawings. A star in a menu puts a cursor or tool on the favorites bar.
 
 /** How much larger than TradingView's the toolbar is drawn (1.35: a third as large again). */
 const TOOLBAR_SCALE = 1.35;
@@ -17,12 +19,23 @@ const px = (n: number) => Math.round(n * TOOLBAR_SCALE);
 const S = { fill: "none", stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round", strokeLinejoin: "round" } as const;
 
 /** A small picture of each tool, after TradingView's. */
-export function ToolIcon({ id, size = px(22) }: { id: ToolId | "cursor" | "magnet" | "lock" | "hide" | "trash"; size?: number }) {
+export function ToolIcon({ id, size = px(22) }: { id: ToolId | CursorMode | "cursor" | "magnet" | "lock" | "hide" | "trash"; size?: number }) {
   const dot = (x: number, y: number) => <circle cx={x} cy={y} r="1.6" fill="currentColor" stroke="none" />;
   const body = (() => {
     switch (id) {
       case "cursor":
+      case "cross":
         return <path {...S} d="M11 3v6M11 13v6M3 11h6M13 11h6" />;
+      case "dot":
+        return <circle cx="11" cy="11" r="2.2" fill="currentColor" />;
+      case "arrow":
+        return <path {...S} d="M7 4v13l3.5-3.5 2.5 5.5 2-1-2.5-5.5H17z" />;
+      case "demo":
+        return <g {...S}><circle cx="11" cy="11" r="8" /><path d="M9 7v9l2.5-2.5 1.8 3.6 1.4-.7-1.8-3.6H16z" /></g>;
+      case "magic":
+        return <g {...S}><path d="M4 18l9-9" strokeWidth="2" /><path d="M15 3v3M13.5 4.5h3M18 8v2M17 9h2M11 2v1.5" /></g>;
+      case "eraser":
+        return <path {...S} d="M4 14l8-8a1.4 1.4 0 0 1 2 0l3.5 3.5a1.4 1.4 0 0 1 0 2L11 18H7.5zM8.5 9.5l5 5M4 19h14" />;
       case "trend":
         return <g {...S}><path d="M5 17L17 5" />{dot(5, 17)}{dot(17, 5)}</g>;
       case "ray":
@@ -102,7 +115,150 @@ type Props = {
   onRemoveAll: () => void;
   /** The tool last used in each group, for its button. */
   last: Partial<Record<ToolGroup, ToolId>>;
+  cursor: CursorMode;
+  onCursor: (m: CursorMode) => void;
+  valuesTooltip: boolean;
+  onValuesTooltip: (on: boolean) => void;
+  /** Starred cursors ("cursor:dot") and tools, for the favorites bar. */
+  favorites: string[];
+  onFavorite: (id: string) => void;
 };
+
+/** A favorite's id: a tool's own, or a cursor's as "cursor:<mode>". */
+export const cursorFav = (m: CursorMode) => `cursor:${m}`;
+
+function Star({ on, onToggle, label }: { on: boolean; onToggle: () => void; label: string }) {
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-pressed={on}
+      title={on ? `Remove ${label} from favorites` : `Add ${label} to favorites`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggle();
+        }
+      }}
+      style={{ fontSize: textPx(13) }}
+      className={`shrink-0 px-1 ${on ? "text-[#f5c518]" : "dim opacity-0 group-hover/item:opacity-100 hover:text-[var(--text)]"}`}
+    >
+      {on ? "★" : "☆"}
+    </span>
+  );
+}
+
+/** Closes a menu on a click outside it or on Escape. */
+function useDismiss(ref: React.RefObject<HTMLDivElement | null>, onClose: () => void) {
+  useEffect(() => {
+    const away = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && onClose();
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("mousedown", away, true);
+    window.addEventListener("keydown", esc);
+    return () => {
+      window.removeEventListener("mousedown", away, true);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [ref, onClose]);
+}
+
+const MENU_ITEM = "group/item w-full flex items-center gap-3.5 px-4 py-1.5 text-left hover:bg-[#262626]";
+const ALL_CURSORS = [...CURSORS, ERASER];
+
+/** The cursor's menu, as TradingView's: the cursors, the Eraser, and the values tooltip switch. */
+function CursorMenu(p: {
+  at: CSSProperties;
+  current: CursorMode;
+  active: boolean;
+  favorites: string[];
+  valuesTooltip: boolean;
+  onPick: (m: CursorMode) => void;
+  onFavorite: (id: string) => void;
+  onValuesTooltip: (on: boolean) => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useDismiss(ref, p.onClose);
+  const item = ({ id, label }: { id: CursorMode; label: string }) => (
+    <button
+      key={id}
+      type="button"
+      onClick={() => {
+        p.onPick(id);
+        p.onClose();
+      }}
+      style={{ minHeight: px(36) }}
+      className={`${MENU_ITEM} ${p.active && p.current === id ? "bg-[#2a2e39] text-white" : ""}`}
+    >
+      <ToolIcon id={id} />
+      <span className="flex-1 whitespace-nowrap">{label}</span>
+      <Star on={p.favorites.includes(cursorFav(id))} label={label} onToggle={() => p.onFavorite(cursorFav(id))} />
+    </button>
+  );
+  return createPortal(
+    <div ref={ref} role="menu" style={{ ...p.at, width: `calc(${17 * TOOLBAR_SCALE}rem * var(--font-scale))`, fontSize: textPx(12) }} className="fixed z-[60] bg-[#1a1a1a] border border-[var(--border)] py-1 shadow-xl">
+      {CURSORS.map(item)}
+      <div className="border-t border-[var(--border)] my-1" />
+      {item(ERASER)}
+      <div className="border-t border-[var(--border)] my-1" />
+      <label style={{ minHeight: px(36) }} className="flex items-center gap-3 px-4 py-1.5 cursor-pointer hover:bg-[#262626]">
+        <span className="flex-1">Values tooltip on long press</span>
+        <span
+          aria-hidden
+          style={{ width: px(30), height: px(16) }}
+          className={`relative shrink-0 rounded-full transition-colors ${p.valuesTooltip ? "bg-[#d1d4dc]" : "bg-[#3a3a3a]"}`}
+        >
+          <span
+            style={{ width: px(12), height: px(12), left: p.valuesTooltip ? px(16) : px(2) }}
+            className={`absolute top-1/2 -translate-y-1/2 rounded-full transition-all ${p.valuesTooltip ? "bg-[#131313]" : "bg-[#9a9a9a]"}`}
+          />
+        </span>
+        <input type="checkbox" role="switch" className="sr-only" checked={p.valuesTooltip} onChange={(e) => p.onValuesTooltip(e.target.checked)} />
+      </label>
+    </div>,
+    document.body
+  );
+}
+
+/** TradingView's favorites bar: the starred cursors and tools, one click away, over the chart. */
+export function FavoritesBar(p: { favorites: string[]; tool: ToolId | null; cursor: CursorMode; onTool: (t: ToolId | null) => void; onCursor: (m: CursorMode) => void }) {
+  const items = p.favorites.filter((f) => (f.startsWith("cursor:") ? ALL_CURSORS.some((c) => cursorFav(c.id) === f) : TOOL_BY_ID.has(f as ToolId)));
+  if (items.length === 0) return null;
+  return (
+    <div className="absolute top-1 left-1/2 -translate-x-1/2 z-20 flex gap-0.5 p-0.5 bg-[var(--panel)] border border-[var(--border)] rounded shadow-lg" role="toolbar" aria-label="Favorites">
+      {items.map((f) => {
+        if (f.startsWith("cursor:")) {
+          const m = f.slice("cursor:".length) as CursorMode;
+          const label = ALL_CURSORS.find((c) => c.id === m)!.label;
+          return (
+            <Button
+              key={f}
+              active={p.tool === null && p.cursor === m}
+              title={label}
+              onClick={() => {
+                p.onTool(null);
+                p.onCursor(m);
+              }}
+            >
+              <ToolIcon id={m} />
+            </Button>
+          );
+        }
+        const t = f as ToolId;
+        return (
+          <Button key={f} active={p.tool === t} title={TOOL_BY_ID.get(t)!.label} onClick={() => p.onTool(p.tool === t ? null : t)}>
+            <ToolIcon id={t} />
+          </Button>
+        );
+      })}
+    </div>
+  );
+}
 
 const GROUPS: Array<{ group: ToolGroup; first: ToolId; title: string }> = [
   { group: "lines", first: "trend", title: "Lines" },
@@ -129,18 +285,25 @@ function Button({ active, title, onClick, children }: { active?: boolean; title:
 }
 
 /** A group's menu, as TradingView's: its tools under their headings, each with a hint. */
-function GroupMenu({ group, at, current, onPick, onClose }: { group: ToolGroup; at: CSSProperties; current: ToolId | null; onPick: (t: ToolId) => void; onClose: () => void }) {
+function GroupMenu({
+  group,
+  at,
+  current,
+  favorites,
+  onFavorite,
+  onPick,
+  onClose,
+}: {
+  group: ToolGroup;
+  at: CSSProperties;
+  current: ToolId | null;
+  favorites: string[];
+  onFavorite: (id: string) => void;
+  onPick: (t: ToolId) => void;
+  onClose: () => void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const away = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && onClose();
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("mousedown", away, true);
-    window.addEventListener("keydown", esc);
-    return () => {
-      window.removeEventListener("mousedown", away, true);
-      window.removeEventListener("keydown", esc);
-    };
-  }, [onClose]);
+  useDismiss(ref, onClose);
   const tools = TOOLS.filter((t) => t.group === group);
   let section: string | undefined;
   return createPortal(
@@ -157,10 +320,11 @@ function GroupMenu({ group, at, current, onPick, onClose }: { group: ToolGroup; 
                 onClose();
               }}
               style={{ minHeight: px(36) }}
-              className={`w-full flex items-center gap-3.5 px-4 py-1.5 text-left hover:bg-[#262626] ${current === t.id ? "text-[#5b8cff]" : ""}`}
+              className={`${MENU_ITEM} ${current === t.id ? "text-[#5b8cff]" : ""}`}
             >
               <ToolIcon id={t.id} />
               <span className="flex-1 whitespace-nowrap">{t.label}</span>
+              <Star on={favorites.includes(t.id)} label={t.label} onToggle={() => onFavorite(t.id)} />
               <span style={{ width: px(16), height: px(16), fontSize: textPx(9) }} className="dim shrink-0 rounded-full border border-[#444] flex items-center justify-center" title={t.hint}>
                 ?
               </span>
@@ -174,17 +338,30 @@ function GroupMenu({ group, at, current, onPick, onClose }: { group: ToolGroup; 
 }
 
 export function DrawingToolbar(p: Props) {
-  const [menu, setMenu] = useState<{ group: ToolGroup; at: CSSProperties } | null>(null);
-  const openMenu = (group: ToolGroup, el: HTMLElement) => {
+  const [menu, setMenu] = useState<{ group: ToolGroup | "cursor"; at: CSSProperties } | null>(null);
+  const openMenu = (group: ToolGroup | "cursor", el: HTMLElement) => {
     const r = el.getBoundingClientRect();
-    setMenu({ group, at: { left: r.right + 4, top: Math.max(8, Math.min(r.top, window.innerHeight - 780)) } });
+    setMenu({ group, at: { left: r.right + 4, top: Math.max(8, Math.min(r.top, window.innerHeight - (group === "cursor" ? 380 : 780))) } });
   };
+  const cursorLabel = ALL_CURSORS.find((c) => c.id === p.cursor)?.label ?? "Cross";
 
   return (
     <div style={{ width: px(40) }} className="shrink-0 border-r border-[var(--border)] bg-[var(--panel)] flex flex-col items-center gap-0.5 py-1 overflow-y-auto">
-      <Button active={p.tool === null} title="Cursor (Esc)" onClick={() => p.onTool(null)}>
-        <ToolIcon id="cursor" />
-      </Button>
+      <div className="relative group/tool">
+        <Button active={p.tool === null} title={`${cursorLabel} (Esc)`} onClick={() => p.onTool(null)}>
+          <ToolIcon id={p.cursor} />
+        </Button>
+        <button
+          type="button"
+          title="Cursors"
+          aria-label="Cursors menu"
+          onClick={(e) => openMenu("cursor", e.currentTarget.parentElement!)}
+          style={{ width: px(11), height: px(22), fontSize: textPx(9) }}
+          className="absolute -right-1 top-1/2 -translate-y-1/2 dim opacity-0 group-hover/tool:opacity-100 hover:text-[var(--text)]"
+        >
+          ›
+        </button>
+      </div>
       {GROUPS.map(({ group, first, title }) => {
         const shown = p.last[group] ?? first;
         const inGroup = p.tool !== null && TOOL_BY_ID.get(p.tool)?.group === group;
@@ -227,7 +404,25 @@ export function DrawingToolbar(p: Props) {
       >
         <ToolIcon id="trash" />
       </Button>
-      {menu && <GroupMenu group={menu.group} at={menu.at} current={p.tool} onPick={(t) => p.onTool(t)} onClose={() => setMenu(null)} />}
+      {menu && menu.group === "cursor" && (
+        <CursorMenu
+          at={menu.at}
+          current={p.cursor}
+          active={p.tool === null}
+          favorites={p.favorites}
+          valuesTooltip={p.valuesTooltip}
+          onPick={(m) => {
+            p.onTool(null);
+            p.onCursor(m);
+          }}
+          onFavorite={p.onFavorite}
+          onValuesTooltip={p.onValuesTooltip}
+          onClose={() => setMenu(null)}
+        />
+      )}
+      {menu && menu.group !== "cursor" && (
+        <GroupMenu group={menu.group} at={menu.at} current={p.tool} favorites={p.favorites} onFavorite={p.onFavorite} onPick={(t) => p.onTool(t)} onClose={() => setMenu(null)} />
+      )}
     </div>
   );
 }

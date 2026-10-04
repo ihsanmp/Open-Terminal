@@ -2,9 +2,11 @@
 // point (the drawing follows the pointer until its last one); with the cursor, a click selects a
 // drawing, dragging a handle moves that point and dragging the drawing moves all of it. The chart
 // doesn't pan while it does. A drawing being moved is only redrawn until the pointer is released,
-// then saved once.
+// then saved once. With the Eraser cursor a click removes the drawing under it; with the Magic
+// cursor a drag draws its trail (components/chart/CursorEffects) instead of panning.
 
 import type { IChartApi } from "lightweight-charts";
+import type { CursorMode } from "../chart-cursor";
 import { defaultColor, TOOL_BY_ID, timeOfLogical, type Drawing, type DrawPoint, type ToolId } from "./tools";
 import type { DrawingLayer } from "./layer";
 
@@ -14,6 +16,8 @@ export type DrawState = {
   locked: boolean;
   drawings: Drawing[];
   selected: string | null;
+  /** The cursor in use while no tool is. */
+  cursor?: CursorMode;
 };
 
 export type DrawCallbacks = {
@@ -27,6 +31,8 @@ export type DrawCallbacks = {
   onToolDone: () => void;
   /** A drawing double-clicked: its Settings. */
   onOpenSettings: (id: string) => void;
+  /** A drawing clicked with the Eraser. */
+  onErase: (id: string) => void;
 };
 
 type Bar = { open: number; high: number; low: number; close: number };
@@ -59,11 +65,8 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
   const finish = (tool: ToolId, points: DrawPoint[]) => {
     const def = TOOL_BY_ID.get(tool)!;
     const d: Drawing = { id: `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, tool, points, color: defaultColor(tool), width: def.group === "fib" ? 1 : 2 };
-    if (tool === "text") {
-      const text = window.prompt("Text", "");
-      if (!text) return;
-      d.text = text;
-    }
+    // A text is written in its Settings, which open as it's placed (as on TradingView).
+    if (tool === "text") d.text = "Text";
     if (tool === "gannSquareFixed") {
       // The price per bar that makes it square on screen as drawn; it keeps that from then on.
       const a = layer.toChart(100, 100);
@@ -72,8 +75,11 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     }
     cb.onAdd(d);
     cb.onSelect(d.id);
+    if (tool === "text") cb.onOpenSettings(d.id);
   };
 
+  /** The press is the Eraser's or the Magic cursor's: the chart mustn't pan with it. */
+  let held = false;
   let drag: { id: string; handle: number | null; x: number; y: number; points: DrawPoint[]; anchors: Array<{ x: number; y: number }> } | null = null;
   let moved: DrawPoint[] | null = null;
 
@@ -105,7 +111,21 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
       }
       return;
     }
+    if (s.cursor === "magic") {
+      held = true;
+      swallow(e);
+      el.focus({ preventScroll: true });
+      return;
+    }
     const hit = layer.pick(x, y);
+    if (s.cursor === "eraser") {
+      const d = hit && s.drawings.find((v) => v.id === hit.id);
+      if (!d) return;
+      held = true;
+      swallow(e);
+      if (!d.locked && !s.locked) cb.onErase(d.id);
+      return;
+    }
     if (!hit) {
       if (s.selected) cb.onSelect(null);
       return;
@@ -149,6 +169,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
   };
 
   const onUp = () => {
+    held = false;
     if (drag && moved) cb.onUpdate(drag.id, { points: moved });
     drag = null;
     moved = null;
@@ -158,7 +179,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     const { x, y } = local(e);
     const hit = layer.pick(x, y);
     const s = cb.state();
-    if (!hit || s.tool) return;
+    if (!hit || s.tool || s.cursor === "eraser" || s.cursor === "magic") return;
     swallow(e);
     cb.onSelect(hit.id);
     cb.onOpenSettings(hit.id);
@@ -168,7 +189,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
   const onMouseDown = (e: MouseEvent) => {
     const s = cb.state();
     const { x, y } = local(e);
-    if (e.button === 0 && inMainPane(x, y) && (s.tool || drag)) swallow(e);
+    if (e.button === 0 && inMainPane(x, y) && (s.tool || drag || held)) swallow(e);
   };
 
   el.addEventListener("pointerdown", onDown, { capture: true });
