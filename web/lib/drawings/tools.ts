@@ -77,9 +77,20 @@ export type DrawingOptions = {
   middleLine?: boolean;
   /** Horizontal line / ray: its price at the right edge. */
   priceLabel?: boolean;
-  /** Text tool. */
+  /** Text tool (and a rectangle's text). */
   fontSize?: number;
   textBackground?: boolean;
+  /** Rectangle: its background's own color (with its opacity), the middle line's look, and its
+   *  text's color, weight and place in the box. */
+  fillColor?: string;
+  middleColor?: string;
+  middleWidth?: 1 | 2 | 3 | 4;
+  middleDash?: "solid" | "dashed" | "dotted";
+  textColor?: string;
+  bold?: boolean;
+  italic?: boolean;
+  textVAlign?: "top" | "middle" | "bottom";
+  textHAlign?: "left" | "center" | "right";
 };
 
 export type TimeframeKind = "minutes" | "hours" | "days" | "weeks" | "months";
@@ -92,7 +103,9 @@ export type Drawing = {
   width: 1 | 2 | 3 | 4;
   dash?: "solid" | "dashed" | "dotted";
   locked?: boolean;
-  /** Text tool: what it says. */
+  /** Its own name, given in its Settings (the tool's otherwise). */
+  name?: string;
+  /** Text tool (and a rectangle's text): what it says. */
   text?: string;
   /** Gann square fixed: price per bar it keeps. */
   ratio?: number;
@@ -117,6 +130,9 @@ export type ToolFeatures = {
   text?: boolean;
   /** A dash style for its line (plain lines and shapes). */
   dash?: boolean;
+  /** TradingView's box layout: an Extend menu, Border, Middle line and Background each with its
+   *  own color, and a Text tab. */
+  box?: boolean;
 };
 
 export const TOOL_FEATURES: Record<ToolId, ToolFeatures> = {
@@ -142,7 +158,7 @@ export const TOOL_FEATURES: Record<ToolId, ToolFeatures> = {
   gannSquareFixed: { levels: "ratio", fill: true },
   gannSquare: { levels: "ratio", fill: true },
   gannFan: { levels: "angle", labels: true },
-  rect: { fill: true, dash: true },
+  rect: { fill: true, extend: true, middleLine: true, dash: true, box: true },
   text: { text: true },
   measure: {},
 };
