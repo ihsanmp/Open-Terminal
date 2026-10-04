@@ -8,10 +8,14 @@ import { TOOLS, TOOL_BY_ID, type ToolGroup, type ToolId } from "../../lib/drawin
 // button for the one used last, a menu for the rest), then the magnet, locking, hiding and
 // removing all drawings.
 
+/** How much larger than TradingView's the toolbar is drawn (1.5: half as large again). */
+const TOOLBAR_SCALE = 1.5;
+const px = (n: number) => Math.round(n * TOOLBAR_SCALE);
+
 const S = { fill: "none", stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round", strokeLinejoin: "round" } as const;
 
 /** A small picture of each tool, after TradingView's. */
-export function ToolIcon({ id }: { id: ToolId | "cursor" | "magnet" | "lock" | "hide" | "trash" }) {
+export function ToolIcon({ id, size = px(22) }: { id: ToolId | "cursor" | "magnet" | "lock" | "hide" | "trash"; size?: number }) {
   const dot = (x: number, y: number) => <circle cx={x} cy={y} r="1.6" fill="currentColor" stroke="none" />;
   const body = (() => {
     switch (id) {
@@ -77,7 +81,7 @@ export function ToolIcon({ id }: { id: ToolId | "cursor" | "magnet" | "lock" | "
     }
   })();
   return (
-    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden>
+    <svg width={size} height={size} viewBox="0 0 22 22" aria-hidden>
       {body}
     </svg>
   );
@@ -114,7 +118,8 @@ function Button({ active, title, onClick, children }: { active?: boolean; title:
       aria-label={title}
       aria-pressed={active}
       onClick={onClick}
-      className={`w-8 h-8 flex items-center justify-center rounded ${active ? "bg-[#1f2a44] text-[#5b8cff]" : "dim hover:bg-[#1f1f1f] hover:text-[var(--text)]"}`}
+      style={{ width: px(32), height: px(32) }}
+      className={`flex items-center justify-center rounded ${active ? "bg-[#1f2a44] text-[#5b8cff]" : "dim hover:bg-[#1f1f1f] hover:text-[var(--text)]"}`}
     >
       {children}
     </button>
@@ -137,23 +142,24 @@ function GroupMenu({ group, at, current, onPick, onClose }: { group: ToolGroup; 
   const tools = TOOLS.filter((t) => t.group === group);
   let section: string | undefined;
   return createPortal(
-    <div ref={ref} style={at} className="fixed z-[60] w-[calc(22rem*var(--font-scale))] max-h-[80vh] overflow-auto bg-[#1a1a1a] border border-[var(--border)] py-1 shadow-xl">
+    <div ref={ref} style={at} className="fixed z-[60] w-[calc(33rem*var(--font-scale))] text-fs-18 max-h-[80vh] overflow-auto bg-[#1a1a1a] border border-[var(--border)] py-1 shadow-xl">
       {tools.map((t) => {
         const heading = t.section && t.section !== section ? (section = t.section) : null;
         return (
           <div key={t.id}>
-            {heading && <div className="dim text-fs-10 tracking-wider px-3 pt-2.5 pb-1 border-t border-[var(--border)] first:border-t-0">{heading}</div>}
+            {heading && <div className="dim text-fs-15 tracking-wider px-4 pt-3.5 pb-1.5 border-t border-[var(--border)] first:border-t-0">{heading}</div>}
             <button
               type="button"
               onClick={() => {
                 onPick(t.id);
                 onClose();
               }}
-              className={`w-full flex items-center gap-2.5 px-3 min-h-9 py-1 text-left hover:bg-[#262626] ${current === t.id ? "text-[#5b8cff]" : ""}`}
+              style={{ minHeight: px(36) }}
+              className={`w-full flex items-center gap-3.5 px-4 py-1.5 text-left hover:bg-[#262626] ${current === t.id ? "text-[#5b8cff]" : ""}`}
             >
               <ToolIcon id={t.id} />
               <span className="flex-1 whitespace-nowrap">{t.label}</span>
-              <span className="dim w-4 h-4 shrink-0 rounded-full border border-[#444] text-fs-9 flex items-center justify-center" title={t.hint}>
+              <span className="dim w-6 h-6 shrink-0 rounded-full border border-[#444] text-fs-13 flex items-center justify-center" title={t.hint}>
                 ?
               </span>
             </button>
@@ -169,11 +175,11 @@ export function DrawingToolbar(p: Props) {
   const [menu, setMenu] = useState<{ group: ToolGroup; at: CSSProperties } | null>(null);
   const openMenu = (group: ToolGroup, el: HTMLElement) => {
     const r = el.getBoundingClientRect();
-    setMenu({ group, at: { left: r.right + 4, top: Math.max(8, Math.min(r.top, window.innerHeight - 520)) } });
+    setMenu({ group, at: { left: r.right + 4, top: Math.max(8, Math.min(r.top, window.innerHeight - 780)) } });
   };
 
   return (
-    <div className="w-10 shrink-0 border-r border-[var(--border)] bg-[var(--panel)] flex flex-col items-center gap-0.5 py-1 overflow-y-auto">
+    <div style={{ width: px(40) }} className="shrink-0 border-r border-[var(--border)] bg-[var(--panel)] flex flex-col items-center gap-0.5 py-1 overflow-y-auto">
       <Button active={p.tool === null} title="Cursor (Esc)" onClick={() => p.onTool(null)}>
         <ToolIcon id="cursor" />
       </Button>
@@ -192,7 +198,7 @@ export function DrawingToolbar(p: Props) {
                 title={`${title}: all tools`}
                 aria-label={`${title} menu`}
                 onClick={(e) => openMenu(group, e.currentTarget.parentElement!)}
-                className="absolute -right-1 top-1/2 -translate-y-1/2 w-3 h-5 text-fs-9 dim opacity-0 group-hover/tool:opacity-100 hover:text-[var(--text)]"
+                className="absolute -right-1 top-1/2 -translate-y-1/2 w-4 h-8 text-fs-13 dim opacity-0 group-hover/tool:opacity-100 hover:text-[var(--text)]"
               >
                 ›
               </button>
@@ -200,7 +206,7 @@ export function DrawingToolbar(p: Props) {
           </div>
         );
       })}
-      <div className="w-6 border-t border-[var(--border)] my-1" />
+      <div style={{ width: px(24) }} className="border-t border-[var(--border)] my-1.5" />
       <Button active={p.magnet} title={p.magnet ? "Magnet on: points snap to open, high, low, close" : "Magnet"} onClick={() => p.onMagnet(!p.magnet)}>
         <ToolIcon id="magnet" />
       </Button>
