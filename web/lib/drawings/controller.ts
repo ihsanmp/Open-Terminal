@@ -25,6 +25,8 @@ export type DrawCallbacks = {
   onSelect: (id: string | null) => void;
   /** The drawing is placed: back to the cursor. */
   onToolDone: () => void;
+  /** A drawing double-clicked: its Settings. */
+  onOpenSettings: (id: string) => void;
 };
 
 type Bar = { open: number; high: number; low: number; close: number };
@@ -156,11 +158,10 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     const { x, y } = local(e);
     const hit = layer.pick(x, y);
     const s = cb.state();
-    const d = hit && s.drawings.find((v) => v.id === hit.id);
-    if (!d || d.tool !== "text" || d.locked || s.locked) return;
+    if (!hit || s.tool) return;
     swallow(e);
-    const text = window.prompt("Text", d.text ?? "");
-    if (text) cb.onUpdate(d.id, { text });
+    cb.onSelect(hit.id);
+    cb.onOpenSettings(hit.id);
   };
 
   // Mouse events too: the chart library listens to them, and must not start a pan meanwhile.

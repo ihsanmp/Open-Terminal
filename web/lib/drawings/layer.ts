@@ -6,7 +6,7 @@ import type { CanvasRenderingTarget2D } from "fancy-canvas";
 import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Logical, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 import { fontPx } from "../font-scale";
 import { distanceTo, shapesFor, type Anchor, type Shape } from "./geometry";
-import { logicalOfTime, type Drawing, type DrawPoint, type ToolId } from "./tools";
+import { logicalOfTime, type Drawing, type DrawPoint, type TimeframeKind, type ToolId } from "./tools";
 
 const FONT = "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif";
 const HANDLE = 5;
@@ -14,12 +14,14 @@ const HANDLE = 5;
 export type LayerData = {
   drawings: Drawing[];
   /** The drawing being placed: its tool, the points so far and the pointer's. */
-  preview: { tool: ToolId; points: DrawPoint[]; style: Pick<Drawing, "color" | "width" | "dash" | "text" | "ratio"> } | null;
+  preview: { tool: ToolId; points: DrawPoint[]; style: Pick<Drawing, "color" | "width" | "dash" | "text" | "ratio" | "options"> } | null;
   selected: string | null;
   hidden: boolean;
   times: number[];
   interval: number;
   formatPrice: (p: number) => string;
+  /** The chart's kind of interval, for each drawing's Visibility. */
+  intervalKind: TimeframeKind;
 };
 
 type Attached = { chart: IChartApi; series: ISeriesApi<SeriesType>; requestUpdate: () => void };
@@ -84,7 +86,7 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
     return out;
   }
 
-  private shapes(tool: ToolId, anchors: Anchor[], style: Pick<Drawing, "color" | "width" | "dash" | "text" | "ratio">, width: number, height: number): Shape[] {
+  private shapes(tool: ToolId, anchors: Anchor[], style: Pick<Drawing, "color" | "width" | "dash" | "text" | "ratio" | "options">, width: number, height: number): Shape[] {
     const at = this.attachedTo!;
     return shapesFor(tool, {
       anchors,
@@ -101,6 +103,7 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
     this.drawn.clear();
     if (!this.attachedTo || this.data.hidden) return;
     for (const d of this.data.drawings) {
+      if (d.visibility?.[this.data.intervalKind] === false) continue;
       const anchors = this.anchorsOf(d.points);
       if (!anchors) continue;
       const shapes = this.shapes(d.tool, anchors, d, width, height);
@@ -179,12 +182,13 @@ function render(ctx: CanvasRenderingContext2D, shapes: Shape[]) {
         ctx.stroke();
         break;
       case "text": {
-        ctx.font = `${fontPx(10)}px ${FONT}`;
+        const size = fontPx(s.size ?? 10);
+        ctx.font = `${size}px ${FONT}`;
         ctx.textAlign = s.align ?? "left";
         ctx.textBaseline = s.base ?? "bottom";
         if (s.bg) {
           const w = ctx.measureText(s.text).width + 8;
-          const h = fontPx(10) + 6;
+          const h = size + 6;
           const x0 = s.align === "right" ? s.x - w + 4 : s.align === "center" ? s.x - w / 2 : s.x - 4;
           const y0 = s.base === "top" ? s.y - 3 : s.base === "middle" ? s.y - h / 2 : s.y - h + 3;
           ctx.fillStyle = s.bg;
