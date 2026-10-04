@@ -8,8 +8,10 @@ import { TOOLS, TOOL_BY_ID, type ToolGroup, type ToolId } from "../../lib/drawin
 // button for the one used last, a menu for the rest), then the magnet, locking, hiding and
 // removing all drawings.
 
-/** How much larger than TradingView's the toolbar is drawn (1.5: half as large again). */
-const TOOLBAR_SCALE = 1.5;
+/** How much larger than TradingView's the toolbar is drawn (1.35: a third as large again). */
+const TOOLBAR_SCALE = 1.35;
+/** A designed text size at the toolbar's scale (and the app's text scale). */
+const textPx = (n: number) => `calc(${n * TOOLBAR_SCALE}px * var(--font-scale))`;
 const px = (n: number) => Math.round(n * TOOLBAR_SCALE);
 
 const S = { fill: "none", stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round", strokeLinejoin: "round" } as const;
@@ -142,12 +144,12 @@ function GroupMenu({ group, at, current, onPick, onClose }: { group: ToolGroup; 
   const tools = TOOLS.filter((t) => t.group === group);
   let section: string | undefined;
   return createPortal(
-    <div ref={ref} style={at} className="fixed z-[60] w-[calc(33rem*var(--font-scale))] text-fs-18 max-h-[80vh] overflow-auto bg-[#1a1a1a] border border-[var(--border)] py-1 shadow-xl">
+    <div ref={ref} style={{ ...at, width: `calc(${22 * TOOLBAR_SCALE}rem * var(--font-scale))`, fontSize: textPx(12) }} className="fixed z-[60] max-h-[80vh] overflow-auto bg-[#1a1a1a] border border-[var(--border)] py-1 shadow-xl">
       {tools.map((t) => {
         const heading = t.section && t.section !== section ? (section = t.section) : null;
         return (
           <div key={t.id}>
-            {heading && <div className="dim text-fs-15 tracking-wider px-4 pt-3.5 pb-1.5 border-t border-[var(--border)] first:border-t-0">{heading}</div>}
+            {heading && <div style={{ fontSize: textPx(10) }} className="dim tracking-wider px-4 pt-3 pb-1.5 border-t border-[var(--border)] first:border-t-0">{heading}</div>}
             <button
               type="button"
               onClick={() => {
@@ -159,7 +161,7 @@ function GroupMenu({ group, at, current, onPick, onClose }: { group: ToolGroup; 
             >
               <ToolIcon id={t.id} />
               <span className="flex-1 whitespace-nowrap">{t.label}</span>
-              <span className="dim w-6 h-6 shrink-0 rounded-full border border-[#444] text-fs-13 flex items-center justify-center" title={t.hint}>
+              <span style={{ width: px(16), height: px(16), fontSize: textPx(9) }} className="dim shrink-0 rounded-full border border-[#444] flex items-center justify-center" title={t.hint}>
                 ?
               </span>
             </button>
@@ -198,7 +200,8 @@ export function DrawingToolbar(p: Props) {
                 title={`${title}: all tools`}
                 aria-label={`${title} menu`}
                 onClick={(e) => openMenu(group, e.currentTarget.parentElement!)}
-                className="absolute -right-1 top-1/2 -translate-y-1/2 w-4 h-8 text-fs-13 dim opacity-0 group-hover/tool:opacity-100 hover:text-[var(--text)]"
+                style={{ width: px(11), height: px(22), fontSize: textPx(9) }}
+                className="absolute -right-1 top-1/2 -translate-y-1/2 dim opacity-0 group-hover/tool:opacity-100 hover:text-[var(--text)]"
               >
                 ›
               </button>
