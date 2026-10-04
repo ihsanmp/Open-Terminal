@@ -57,6 +57,33 @@ export const TOOL_BY_ID = new Map(TOOLS.map((t) => [t.id, t]));
 
 export type DrawPoint = { time: number; price: number };
 
+/** One level of a Fibonacci or Gann tool (a ratio, a time multiple, a Gann angle). */
+export type DrawLevel = { value: number; color: string; visible: boolean };
+
+/** What a drawing's Settings change beyond its line (each tool uses those of TOOL_FEATURES). */
+export type DrawingOptions = {
+  levels?: DrawLevel[];
+  /** Background between levels or inside the shape, and its opacity (0 … 1). */
+  fill?: boolean;
+  fillOpacity?: number;
+  extendLeft?: boolean;
+  extendRight?: boolean;
+  /** Levels counted from the other end of the move. */
+  reverse?: boolean;
+  /** Level labels: the ratio, and (for price levels) the price. */
+  showLevels?: boolean;
+  showPrices?: boolean;
+  /** Parallel channel's middle line. */
+  middleLine?: boolean;
+  /** Horizontal line / ray: its price at the right edge. */
+  priceLabel?: boolean;
+  /** Text tool. */
+  fontSize?: number;
+  textBackground?: boolean;
+};
+
+export type TimeframeKind = "minutes" | "hours" | "days" | "weeks" | "months";
+
 export type Drawing = {
   id: string;
   tool: ToolId;
@@ -69,7 +96,65 @@ export type Drawing = {
   text?: string;
   /** Gann square fixed: price per bar it keeps. */
   ratio?: number;
+  options?: DrawingOptions;
+  /** The kinds of interval it shows on; all when unset. */
+  visibility?: Partial<Record<TimeframeKind, boolean>>;
 };
+
+/** A drawing's look, as a template for new ones of its tool ("Save as default"). */
+export type DrawingTemplate = Pick<Drawing, "color" | "width" | "dash" | "options">;
+
+/** Which settings a tool has (its Settings dialog shows those). */
+export type ToolFeatures = {
+  levels?: "price" | "time" | "ratio" | "angle";
+  fill?: boolean;
+  extend?: boolean;
+  reverse?: boolean;
+  /** Labels: level ratios, and prices too for price levels. */
+  labels?: boolean;
+  middleLine?: boolean;
+  priceLabel?: boolean;
+  text?: boolean;
+  /** A dash style for its line (plain lines and shapes). */
+  dash?: boolean;
+};
+
+export const TOOL_FEATURES: Record<ToolId, ToolFeatures> = {
+  trend: { extend: true, dash: true },
+  ray: { dash: true },
+  extended: { dash: true },
+  hline: { priceLabel: true, dash: true },
+  hray: { priceLabel: true, dash: true },
+  vline: { dash: true },
+  channel: { fill: true, extend: true, middleLine: true, dash: true },
+  fibRetracement: { levels: "price", fill: true, extend: true, reverse: true, labels: true },
+  fibExtension: { levels: "price", fill: true, extend: true, reverse: true, labels: true },
+  fibChannel: { levels: "ratio", fill: true, labels: true },
+  fibTimeZone: { levels: "time", labels: true },
+  fibSpeedFan: { levels: "ratio", labels: true },
+  fibTrendTime: { levels: "time", labels: true },
+  fibCircles: { levels: "ratio", labels: true },
+  fibSpiral: {},
+  fibSpeedArcs: { levels: "ratio", labels: true },
+  fibWedge: { levels: "ratio", labels: true },
+  pitchfan: { levels: "ratio" },
+  gannBox: { levels: "ratio", fill: true, labels: true },
+  gannSquareFixed: { levels: "ratio", fill: true },
+  gannSquare: { levels: "ratio", fill: true },
+  gannFan: { levels: "angle", labels: true },
+  rect: { fill: true, dash: true },
+  text: { text: true },
+  measure: {},
+};
+
+/** Which Visibility checkbox an interval falls under. */
+export function timeframeKindOf(intervalSeconds: number): TimeframeKind {
+  if (intervalSeconds < 3600) return "minutes";
+  if (intervalSeconds < 86_400) return "hours";
+  if (intervalSeconds < 7 * 86_400) return "days";
+  if (intervalSeconds < 28 * 86_400) return "weeks";
+  return "months";
+}
 
 /** The color a new drawing of a tool starts with (TradingView's defaults, roughly). */
 export function defaultColor(tool: ToolId): string {

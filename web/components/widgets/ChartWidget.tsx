@@ -61,7 +61,8 @@ import { formatAxisCountdown, formatCountdown, isIntradayInterval, secondsUntilC
 import { fontPx } from "../../lib/font-scale";
 import { DrawingLayer } from "../../lib/drawings/layer";
 import { attachDrawing } from "../../lib/drawings/controller";
-import { TOOL_BY_ID, type Drawing, type DrawPoint, type ToolGroup, type ToolId } from "../../lib/drawings/tools";
+import { TOOL_BY_ID, TOOL_FEATURES, timeframeKindOf, type Drawing, type DrawingTemplate, type DrawPoint, type ToolGroup, type ToolId } from "../../lib/drawings/tools";
+import { DrawingSettings } from "../chart/DrawingSettings";
 import { DrawingToolbar } from "../chart/DrawingToolbar";
 import { ColorPicker } from "../chart/ColorPicker";
 
@@ -230,6 +231,11 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const [drawingsLocked, setDrawingsLocked] = useWidgetSetting("drawLocked", false);
   const [drawingsHidden, setDrawingsHidden] = useWidgetSetting("drawHidden", false);
   const [selectedDrawing, setSelectedDrawing] = useState<string | null>(null);
+  // Each tool's look saved with "Save as default", for its new drawings; the open Settings.
+  const [drawTemplates, setDrawTemplates] = useWidgetSetting<Partial<Record<ToolId, DrawingTemplate>>>("drawTemplates", {});
+  const drawTemplatesRef = useRef(drawTemplates);
+  drawTemplatesRef.current = drawTemplates;
+  const [drawingSettings, setDrawingSettings] = useState<string | null>(null);
   const layerRef = useRef<DrawingLayer | null>(null);
   const placingRef = useRef<DrawPoint[] | null>(null);
   const drawStateRef = useRef({ tool, magnet, locked: drawingsLocked, drawings, selected: selectedDrawing });
@@ -793,16 +799,18 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       times: times as number[],
       interval: intervalSeconds,
       formatPrice: (v) => fmt(v, pxPrecision),
+      intervalKind: timeframeKindOf(intervalSeconds),
     });
     main.attachPrimitive(layer);
     layerRef.current = layer;
     const detachDrawing = attachDrawing(el, chart, layer, times as number[], intervalSeconds, candles, {
       state: () => drawStateRef.current,
       placing: placingRef,
-      onAdd: (d) => setDrawingsRef.current((list) => [...list, d]),
+      onAdd: (d) => setDrawingsRef.current((list) => [...list, { ...d, ...drawTemplatesRef.current[d.tool] }]),
       onUpdate: (id, patch) => setDrawingsRef.current((list) => list.map((d) => (d.id === id ? { ...d, ...patch } : d))),
       onSelect: setSelectedDrawing,
       onToolDone: () => setTool(null),
+      onOpenSettings: setDrawingSettings,
     });
 
     el.addEventListener("pointerdown", onPointerDown, { capture: true });
@@ -1103,9 +1111,12 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
               onColor={(color) => patchDrawing(selected.id, { color })}
               width={selected.tool === "text" ? undefined : selected.width}
               onWidth={selected.tool === "text" ? undefined : (width) => patchDrawing(selected.id, { width })}
-              dash={["trend", "ray", "extended", "hline", "hray", "vline", "rect"].includes(selected.tool) ? selected.dash ?? "solid" : undefined}
+              dash={TOOL_FEATURES[selected.tool].dash ? selected.dash ?? "solid" : undefined}
               onDash={(dash) => patchDrawing(selected.id, { dash })}
             />
+            <button className="px-1.5 h-6 border border-[var(--border)] dim hover:text-[var(--text)]" title="Settings (double-click the drawing)" onClick={() => setDrawingSettings(selected.id)}>
+              ⚙ Settings
+            </button>
             <button
               className={`px-1.5 h-6 border border-[var(--border)] ${selected.locked ? "amber" : "dim hover:text-[var(--text)]"}`}
               title={selected.locked ? "Unlock" : "Lock"}
@@ -1120,6 +1131,15 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         )}
       </div>
       </div>
+      {drawingSettings && drawings.some((d) => d.id === drawingSettings) && (
+        <DrawingSettings
+          drawing={drawings.find((d) => d.id === drawingSettings)!}
+          template={drawTemplates[drawings.find((d) => d.id === drawingSettings)!.tool]}
+          onApply={(next) => patchDrawing(next.id, next)}
+          onSaveTemplate={(t) => setDrawTemplates((m) => ({ ...m, [drawings.find((d) => d.id === drawingSettings)!.tool]: t }))}
+          onClose={() => setDrawingSettings(null)}
+        />
+      )}
       {settingsOpen && (
         <ChartSettings
           style={chartStyle}

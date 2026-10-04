@@ -95,3 +95,47 @@ describe("picking a drawing", () => {
     expect(distanceTo({ t: "poly", pts: [[0, 0], [10, 0], [10, 10], [0, 10]], fill: "x", closed: true }, 5, 5)).toBe(0);
   });
 });
+
+describe("each tool's settings", () => {
+  const style = (options: object) => ({ color: "#2962FF", width: 1 as const, options });
+  const withOpts = (tool: ToolId, anchors: Anchor[], options: object) => shapesFor(tool, { ...ctx(anchors), drawing: style(options) });
+
+  it("fib levels: hidden ones go, values and colors are the user's, more can be added", async () => {
+    const { defaultLevels } = await import("./geometry");
+    const levels = defaultLevels("fibRetracement")!.map((l) => (l.value === 0.236 ? { ...l, visible: false } : l));
+    levels.push({ value: 0.65, color: "#123456", visible: true });
+    const s = withOpts("fibRetracement", [at(10, 120), at(50, 170)], { levels });
+    expect(labels(s).some((t) => t.startsWith("0.236"))).toBe(false);
+    expect(labels(s)).toContain("0.65 (137.50)");
+    expect(segs(s).some((g) => g.color === "#123456" && g.y1 === yOf(137.5))).toBe(true);
+  });
+
+  it("reverse, extend, labels and background", () => {
+    const pts = [at(10, 120), at(50, 170)];
+    // Reversed: 0 at the start (120), 1 at the end.
+    expect(labels(withOpts("fibRetracement", pts, { reverse: true }))).toContain("1 (170.00)");
+    expect(labels(withOpts("fibRetracement", pts, { reverse: true }))).toContain("0 (120.00)");
+    // Extended right: the level lines run on past the pane.
+    expect(segs(withOpts("fibRetracement", pts, { extendRight: true })).some((g) => g.x2 > 5000)).toBe(true);
+    // Levels without prices, or no labels at all.
+    expect(labels(withOpts("fibRetracement", pts, { showPrices: false }))).toContain("0.618");
+    expect(labels(withOpts("fibRetracement", pts, { showPrices: false, showLevels: false }))).toEqual([]);
+    // No background: no filled bands.
+    expect(withOpts("fibRetracement", pts, { fill: false }).some((g) => g.t === "poly" && g.fill)).toBe(false);
+  });
+
+  it("trend line extends; a channel loses its middle line; Gann angles follow their values", () => {
+    const t = segs(withOpts("trend", [at(10, 120), at(20, 130)], { extendLeft: true, extendRight: true }))[0];
+    expect(t.x1).toBeLessThan(-1000);
+    expect(t.x2).toBeGreaterThan(5000);
+    const ch = (o: object) => segs(withOpts("channel", [at(10, 120), at(30, 140), at(20, 150)], o)).length;
+    expect(ch({ middleLine: false })).toBe(ch({}) - 1);
+    const fan = withOpts("gannFan", [at(10, 120), at(30, 140)], { levels: [{ value: 5, color: "#ff0000", visible: true }] });
+    expect(labels(fan)).toEqual(["5/1"]);
+  });
+
+  it("text: its size and background", () => {
+    const s = shapesFor("text", { ...ctx([at(10, 150)]), drawing: { color: "#fff", width: 1, text: "Hi", options: { fontSize: 24, textBackground: false } } });
+    expect(s[0]).toMatchObject({ t: "text", text: "Hi", size: 24, bg: undefined });
+  });
+});
