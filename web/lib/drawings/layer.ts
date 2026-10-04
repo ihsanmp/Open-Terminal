@@ -183,7 +183,7 @@ function render(ctx: CanvasRenderingContext2D, shapes: Shape[]) {
         break;
       case "text": {
         const size = fontPx(s.size ?? 10);
-        ctx.font = `${size}px ${FONT}`;
+        ctx.font = `${s.italic ? "italic " : ""}${s.bold ? "bold " : ""}${size}px ${FONT}`;
         ctx.textAlign = s.align ?? "left";
         ctx.textBaseline = s.base ?? "bottom";
         if (s.bg) {

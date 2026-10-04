@@ -14,7 +14,7 @@ export type Shape =
   | { t: "seg"; x1: number; y1: number; x2: number; y2: number; color: string; width?: number; dash?: number[] }
   | { t: "poly"; pts: Array<[number, number]>; fill?: string; stroke?: string; width?: number; dash?: number[]; closed?: boolean }
   | { t: "ellipse"; cx: number; cy: number; rx: number; ry: number; start?: number; end?: number; color: string; width?: number; dash?: number[] }
-  | { t: "text"; x: number; y: number; text: string; color: string; align?: "left" | "right" | "center"; base?: "top" | "middle" | "bottom"; bg?: string; size?: number };
+  | { t: "text"; x: number; y: number; text: string; color: string; align?: "left" | "right" | "center"; base?: "top" | "middle" | "bottom"; bg?: string; size?: number; bold?: boolean; italic?: boolean };
 
 export type GeometryContext = {
   anchors: Anchor[];
@@ -88,7 +88,8 @@ export function defaultLevels(tool: ToolId): DrawLevel[] | null {
 export const gannLabel = (k: number) => (k >= 1 ? `${+k.toFixed(3)}/1` : `1/${+(1 / k).toFixed(3)}`);
 
 /** A drawing's options with each one's default for its tool filled in. */
-export function optionsOf(tool: ToolId, o: DrawingOptions | undefined): Required<Omit<DrawingOptions, "levels">> & { levels: DrawLevel[] } {
+type Unset = "levels" | "fillColor" | "middleColor" | "textColor";
+export function optionsOf(tool: ToolId, o: DrawingOptions | undefined): Required<Omit<DrawingOptions, Unset>> & Pick<DrawingOptions, Unset> & { levels: DrawLevel[] } {
   const opacity: Partial<Record<ToolId, number>> = { channel: 0.12, rect: 0.15, gannBox: 0.06, gannSquare: 0.06, gannSquareFixed: 0.06 };
   return {
     levels: o?.levels ?? defaultLevels(tool) ?? [],
@@ -99,10 +100,19 @@ export function optionsOf(tool: ToolId, o: DrawingOptions | undefined): Required
     reverse: o?.reverse ?? false,
     showLevels: o?.showLevels ?? true,
     showPrices: o?.showPrices ?? true,
-    middleLine: o?.middleLine ?? true,
+    middleLine: o?.middleLine ?? tool !== "rect",
     priceLabel: o?.priceLabel ?? true,
     fontSize: o?.fontSize ?? 14,
     textBackground: o?.textBackground ?? true,
+    fillColor: o?.fillColor,
+    middleColor: o?.middleColor,
+    middleWidth: o?.middleWidth ?? 1,
+    middleDash: o?.middleDash ?? "dashed",
+    textColor: o?.textColor,
+    bold: o?.bold ?? false,
+    italic: o?.italic ?? false,
+    textVAlign: o?.textVAlign ?? "top",
+    textHAlign: o?.textHAlign ?? "left",
   };
 }
 
@@ -451,14 +461,27 @@ export function shapesFor(tool: ToolId, ctx: GeometryContext): Shape[] {
     }
 
     case "rect": {
-      const [x1, x2] = [Math.min(A.x, B.x), Math.max(A.x, B.x)];
+      // Extended, its sides run on past the pane's edges.
+      const x1 = o.extendLeft ? -FAR : Math.min(A.x, B.x);
+      const x2 = o.extendRight ? W + FAR : Math.max(A.x, B.x);
       const [y1, y2] = [Math.min(A.y, B.y), Math.max(A.y, B.y)];
-      out.push({ t: "poly", pts: [[x1, y1], [x2, y1], [x2, y2], [x1, y2]], fill: fillA(color), stroke: color, width: lw, dash, closed: true });
+      const fill = o.fill ? (o.fillColor ?? withAlpha(color, o.fillOpacity)) : undefined;
+      out.push({ t: "poly", pts: [[x1, y1], [x2, y1], [x2, y2], [x1, y2]], fill, stroke: color, width: lw, dash, closed: true });
+      const ym = (y1 + y2) / 2;
+      if (o.middleLine) seg(x1, ym, x2, ym, o.middleColor ?? color, o.middleWidth, DASH[o.middleDash]);
+      if (drawing.text) {
+        // Placed in the part of the box on screen.
+        const [l, r] = [Math.max(x1, 0), Math.min(x2, W)];
+        const x = o.textHAlign === "left" ? l + 6 : o.textHAlign === "right" ? r - 6 : (l + r) / 2;
+        const y = o.textVAlign === "top" ? y1 + 4 : o.textVAlign === "bottom" ? y2 - 4 : ym;
+        const base = o.textVAlign === "top" ? "top" : o.textVAlign === "bottom" ? "bottom" : "middle";
+        out.push({ t: "text", x, y, text: drawing.text, color: o.textColor ?? color, align: o.textHAlign, base, size: o.fontSize, bold: o.bold, italic: o.italic });
+      }
       break;
     }
 
     case "text":
-      text(A.x, A.y, drawing.text || "Text", color, "left", "middle", o.textBackground ? "rgba(10,10,10,0.6)" : undefined, o.fontSize);
+      out.push({ t: "text", x: A.x, y: A.y, text: drawing.text || "Text", color, align: "left", base: "middle", bg: o.textBackground ? "rgba(10,10,10,0.6)" : undefined, size: o.fontSize, bold: o.bold, italic: o.italic });
       break;
 
     case "measure": {

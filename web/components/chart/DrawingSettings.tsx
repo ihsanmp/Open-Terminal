@@ -1,15 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ColorPicker } from "./ColorPicker";
-import { gannLabel, optionsOf } from "../../lib/drawings/geometry";
+import { gannLabel, optionsOf, withAlpha } from "../../lib/drawings/geometry";
 import { TOOL_BY_ID, TOOL_FEATURES, defaultColor, type DrawLevel, type Drawing, type DrawingOptions, type DrawingTemplate, type TimeframeKind } from "../../lib/drawings/tools";
 
 // A drawing's Settings, as TradingView's: its Style (line, levels with their values and colors,
 // background, extending, labels, text), its Coordinates (each point's price and time) and its
 // Visibility (the kinds of interval it shows on). Its look can be kept as the default for new
 // drawings of the tool, or put back to the tool's own.
+
+/** The label column of a settings row. */
+const LABEL = "w-[calc(8.5rem*var(--font-scale))] shrink-0 whitespace-nowrap";
+
+const FONT_SIZES = [10, 11, 12, 14, 16, 20, 24, 28, 32, 40];
 
 const TIMEFRAMES: Array<[TimeframeKind, string]> = [
   ["minutes", "Minutes"],
@@ -36,7 +41,7 @@ function Row({ children }: { children: React.ReactNode }) {
 
 function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <label className="flex items-center gap-2 cursor-pointer min-h-[30px]">
+    <label className="flex items-center gap-2 cursor-pointer min-h-[30px] whitespace-nowrap">
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
       <span>{label}</span>
     </label>
@@ -62,6 +67,48 @@ function NumberField({ value, onValue, step = "any", className = "w-[calc(5.5rem
   );
 }
 
+/** TradingView's Template menu: keep this look for new drawings of the tool, or put one back. */
+function TemplateMenu({ hasTemplate, onSave, onApply, onReset }: { hasTemplate: boolean; onSave: () => void; onApply: () => void; onReset: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", close, true);
+    return () => window.removeEventListener("mousedown", close, true);
+  }, [open]);
+  const item = (label: string, title: string, run: () => void, disabled = false) => (
+    <button
+      role="menuitem"
+      className="block w-full text-left px-3 py-1.5 hover:bg-[var(--border)] disabled:opacity-40 disabled:hover:bg-transparent"
+      title={title}
+      disabled={disabled}
+      onClick={() => {
+        run();
+        setOpen(false);
+      }}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div ref={ref} className="relative">
+      <button className={`term-btn ${open ? "active" : ""}`} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
+        Template ▾
+      </button>
+      {open && (
+        <div role="menu" className="absolute bottom-full left-0 mb-1 min-w-[calc(12rem*var(--font-scale))] bg-[var(--panel)] border border-[var(--amber-dim)] py-1 z-10">
+          {item("Save as default", "New drawings of this tool start with this look", onSave)}
+          {item("Apply default", "The look saved as this tool's default", onApply, !hasTemplate)}
+          {item("Reset settings", "The tool's own look", onReset)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type Props = {
   drawing: Drawing;
   /** Saved default for the tool, if any. */
@@ -76,7 +123,9 @@ export function DrawingSettings({ drawing, template, onApply, onSaveTemplate, on
   const def = TOOL_BY_ID.get(tool)!;
   const features = TOOL_FEATURES[tool];
   const [d, setD] = useState<Drawing>(drawing);
-  const [tab, setTab] = useState<"style" | "coordinates" | "visibility">("style");
+  const [tab, setTab] = useState<"style" | "text" | "coordinates" | "visibility">("style");
+  const [renaming, setRenaming] = useState(false);
+  const tabs: Array<typeof tab> = features.box ? ["style", "text", "coordinates", "visibility"] : ["style", "coordinates", "visibility"];
   const o = optionsOf(tool, d.options);
   const setOpt = (patch: Partial<DrawingOptions>) => setD((v) => ({ ...v, options: { ...v.options, ...patch } }));
   const setLevels = (f: (ls: DrawLevel[]) => DrawLevel[]) => setOpt({ levels: f(o.levels) });
@@ -98,13 +147,35 @@ export function DrawingSettings({ drawing, template, onApply, onSaveTemplate, on
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border)]">
-          <span className="font-bold text-fs-14 text-white">{def.label}</span>
+          {renaming ? (
+            <input
+              autoFocus
+              className="font-bold text-fs-14 flex-1 mr-3"
+              value={d.name ?? def.label}
+              onChange={(e) => setD((v) => ({ ...v, name: e.target.value }))}
+              onBlur={() => setRenaming(false)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === "Escape") {
+                  e.stopPropagation();
+                  setRenaming(false);
+                }
+              }}
+              aria-label="Name"
+            />
+          ) : (
+            <span className="flex items-center gap-2 min-w-0">
+              <span className="font-bold text-fs-14 text-white truncate">{d.name?.trim() || def.label}</span>
+              <button className="dim hover:text-[var(--text)]" title="Rename" aria-label="Rename" onClick={() => setRenaming(true)}>
+                ✎
+              </button>
+            </span>
+          )}
           <button className="dim hover:text-[var(--text)]" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
         <div className="flex gap-4 px-4 border-b border-[var(--border)]">
-          {(["style", "coordinates", "visibility"] as const).map((t) => (
+          {tabs.map((t) => (
             <button key={t} className={`py-2 capitalize ${tab === t ? "text-white border-b-2 border-white" : "dim hover:text-[var(--text)]"}`} onClick={() => setTab(t)}>
               {t}
             </button>
@@ -112,11 +183,97 @@ export function DrawingSettings({ drawing, template, onApply, onSaveTemplate, on
         </div>
 
         <div className="overflow-auto px-4 py-3 flex flex-col gap-1">
-          {tab === "style" && (
+          {tab === "style" && features.box && (
+            <>
+              <Row>
+                <span className={`${LABEL} dim`}>Extend</span>
+                <select
+                  value={o.extendLeft && o.extendRight ? "both" : o.extendLeft ? "left" : o.extendRight ? "right" : "none"}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setOpt({ extendLeft: v === "left" || v === "both", extendRight: v === "right" || v === "both" });
+                  }}
+                  aria-label="Extend"
+                >
+                  <option value="none">Don&apos;t extend</option>
+                  <option value="left">Extend left</option>
+                  <option value="right">Extend right</option>
+                  <option value="both">Extend both</option>
+                </select>
+              </Row>
+              <Row>
+                <span className={`${LABEL} dim`}>Border</span>
+                <ColorPicker
+                  color={d.color}
+                  onColor={(color) => setD((v) => ({ ...v, color }))}
+                  width={d.width}
+                  onWidth={(width) => setD((v) => ({ ...v, width }))}
+                  dash={d.dash ?? "solid"}
+                  onDash={(dash) => setD((v) => ({ ...v, dash }))}
+                />
+              </Row>
+              <Row>
+                <span className={LABEL}>
+                  <Check label="Middle line" checked={o.middleLine} onChange={(v) => setOpt({ middleLine: v })} />
+                </span>
+                <ColorPicker
+                  color={o.middleColor ?? d.color}
+                  onColor={(middleColor) => setOpt({ middleColor })}
+                  width={o.middleWidth}
+                  onWidth={(middleWidth) => setOpt({ middleWidth })}
+                  dash={o.middleDash}
+                  onDash={(middleDash) => setOpt({ middleDash })}
+                />
+              </Row>
+              <Row>
+                <span className={LABEL}>
+                  <Check label="Background" checked={o.fill} onChange={(v) => setOpt({ fill: v })} />
+                </span>
+                <ColorPicker color={o.fillColor ?? withAlpha(d.color, o.fillOpacity)} onColor={(fillColor) => setOpt({ fillColor })} />
+              </Row>
+            </>
+          )}
+
+          {tab === "text" && (
+            <>
+              <Row>
+                <ColorPicker color={o.textColor ?? d.color} onColor={(textColor) => setOpt({ textColor })} />
+                <select value={o.fontSize} onChange={(e) => setOpt({ fontSize: Number(e.target.value) })} aria-label="Font size">
+                  {FONT_SIZES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <button className={`term-btn font-bold ${o.bold ? "active" : ""}`} onClick={() => setOpt({ bold: !o.bold })} aria-pressed={o.bold} title="Bold">
+                  B
+                </button>
+                <button className={`term-btn italic ${o.italic ? "active" : ""}`} onClick={() => setOpt({ italic: !o.italic })} aria-pressed={o.italic} title="Italic">
+                  I
+                </button>
+              </Row>
+              <textarea className="w-full min-h-[80px] mt-1" value={d.text ?? ""} onChange={(e) => setD((v) => ({ ...v, text: e.target.value }))} placeholder="Add text" />
+              <Row>
+                <span className={`${LABEL} dim`}>Text alignment</span>
+                <select value={o.textVAlign} onChange={(e) => setOpt({ textVAlign: e.target.value as typeof o.textVAlign })} aria-label="Vertical alignment">
+                  <option value="top">Top</option>
+                  <option value="middle">Middle</option>
+                  <option value="bottom">Bottom</option>
+                </select>
+                <select value={o.textHAlign} onChange={(e) => setOpt({ textHAlign: e.target.value as typeof o.textHAlign })} aria-label="Horizontal alignment">
+                  <option value="left">Left</option>
+                  <option value="center">Center</option>
+                  <option value="right">Right</option>
+                </select>
+              </Row>
+            </>
+          )}
+
+          {tab === "style" && !features.box && (
             <>
               {tool !== "measure" && (
                 <Row>
-                  <span className="w-28 dim">{features.levels ? "Trend line" : tool === "text" ? "Color" : "Line"}</span>
+                  <span className={`${LABEL} dim`}>{features.levels ? "Trend line" : tool === "text" ? "Color" : "Line"}</span>
                   <ColorPicker
                     color={d.color}
                     onColor={(color) => setD((v) => ({ ...v, color }))}
@@ -132,9 +289,9 @@ export function DrawingSettings({ drawing, template, onApply, onSaveTemplate, on
                 <>
                   <textarea className="w-full min-h-[80px] mt-1" value={d.text ?? ""} onChange={(e) => setD((v) => ({ ...v, text: e.target.value }))} placeholder="Text" />
                   <Row>
-                    <span className="w-28 dim">Font size</span>
+                    <span className={`${LABEL} dim`}>Font size</span>
                     <select value={o.fontSize} onChange={(e) => setOpt({ fontSize: Number(e.target.value) })}>
-                      {[10, 12, 14, 16, 20, 24, 28, 32, 40].map((s) => (
+                      {FONT_SIZES.map((s) => (
                         <option key={s} value={s}>
                           {s}
                         </option>
@@ -236,24 +393,12 @@ export function DrawingSettings({ drawing, template, onApply, onSaveTemplate, on
         </div>
 
         <div className="flex items-center gap-2 px-4 py-2.5 border-t border-[var(--border)]">
-          <button
-            className="term-btn"
-            title="Back to the tool's default look (or the one saved as default)"
-            onClick={() =>
-              setD((v) => ({
-                ...v,
-                color: template?.color ?? defaultColor(tool),
-                width: template?.width ?? (def.group === "fib" ? 1 : 2),
-                dash: template?.dash,
-                options: template?.options,
-              }))
-            }
-          >
-            Defaults
-          </button>
-          <button className="term-btn" title="New drawings of this tool start with this look" onClick={() => onSaveTemplate({ color: d.color, width: d.width, dash: d.dash, options: d.options })}>
-            Save as default
-          </button>
+          <TemplateMenu
+            hasTemplate={!!template}
+            onSave={() => onSaveTemplate({ color: d.color, width: d.width, dash: d.dash, options: d.options })}
+            onApply={() => setD((v) => ({ ...v, color: template?.color ?? v.color, width: template?.width ?? v.width, dash: template?.dash, options: template?.options }))}
+            onReset={() => setD((v) => ({ ...v, color: defaultColor(tool), width: def.group === "fib" ? 1 : 2, dash: undefined, options: undefined }))}
+          />
           <span className="flex-1" />
           <button className="term-btn" onClick={onClose}>
             Cancel

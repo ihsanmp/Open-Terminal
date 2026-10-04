@@ -134,6 +134,26 @@ describe("each tool's settings", () => {
     expect(labels(fan)).toEqual(["5/1"]);
   });
 
+  it("rectangle: extend, middle line, background and its text, as TradingView's", () => {
+    const pts = [at(10, 120), at(30, 140)];
+    const box = (o: object, text?: string) => shapesFor("rect", { ...ctx(pts), drawing: { color: "#9C27B0", width: 1, text, options: o } });
+    const poly = (s: Shape[]) => s.find((g) => g.t === "poly") as Extract<Shape, { t: "poly" }>;
+    // Plain: no middle line, a background in its border color.
+    expect(segs(box({}))).toEqual([]);
+    expect(poly(box({})).fill).toBe("rgba(156,39,176,0.15)");
+    // Extended both ways, with a dashed middle line in its own color across it.
+    const s = box({ extendLeft: true, extendRight: true, middleLine: true, middleColor: "#00ff00", fillColor: "rgba(1,2,3,0.5)" });
+    const xs = poly(s).pts.map((p) => p[0]);
+    expect(Math.min(...xs)).toBeLessThan(-1000);
+    expect(Math.max(...xs)).toBeGreaterThan(5000);
+    expect(segs(s)[0]).toMatchObject({ y1: yOf(130), color: "#00ff00", dash: [6, 4] });
+    expect(poly(s).fill).toBe("rgba(1,2,3,0.5)");
+    expect(poly(box({ fill: false })).fill).toBeUndefined();
+    // Its text, placed in the box as aligned.
+    const t = box({ textVAlign: "bottom", textHAlign: "right", textColor: "#fff", bold: true }, "Zone").find((g) => g.t === "text");
+    expect(t).toMatchObject({ text: "Zone", x: xOf(30) - 6, y: yOf(120) - 4, align: "right", base: "bottom", color: "#fff", bold: true });
+  });
+
   it("text: its size and background", () => {
     const s = shapesFor("text", { ...ctx([at(10, 150)]), drawing: { color: "#fff", width: 1, text: "Hi", options: { fontSize: 24, textBackground: false } } });
     expect(s[0]).toMatchObject({ t: "text", text: "Hi", size: 24, bg: undefined });
