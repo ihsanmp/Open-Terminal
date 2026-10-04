@@ -56,6 +56,11 @@ import { PriceScaleMenu } from "../chart/PriceScaleMenu";
 import { isCryptoSymbol, usePoll, usSessionActive } from "../../lib/refresh";
 import { formatAxisCountdown, formatCountdown, intervalLabel, isIntradayInterval, secondsUntilClose, type Market } from "../../lib/candle-time";
 import { fontPx } from "../../lib/font-scale";
+import { DrawingLayer } from "../../lib/drawings/layer";
+import { attachDrawing } from "../../lib/drawings/controller";
+import { TOOL_BY_ID, type Drawing, type DrawPoint, type ToolGroup, type ToolId } from "../../lib/drawings/tools";
+import { DrawingToolbar } from "../chart/DrawingToolbar";
+import { ColorPicker } from "../chart/ColorPicker";
 
 
 const CHART_TYPES = ["candles", "bars", "line", "area"] as const;
@@ -211,6 +216,49 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const [editing, setEditing] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const savedRange = useRef<{ key: string; range: LogicalRange } | null>(null);
+
+  // ---- drawings (lib/drawings): saved with the chart, per symbol, as on TradingView ----
+  const [allDrawings, setAllDrawings] = useWidgetSetting<Record<string, Drawing[]>>("drawings", {});
+  const drawings = useMemo(() => allDrawings[symbol] ?? [], [allDrawings, symbol]);
+  const setDrawings = (f: (list: Drawing[]) => Drawing[]) => setAllDrawings((all) => ({ ...all, [symbol]: f(all[symbol] ?? []) }));
+  const [tool, setTool] = useState<ToolId | null>(null);
+  const [lastTool, setLastTool] = useWidgetSetting<Partial<Record<ToolGroup, ToolId>>>("drawLastTool", {});
+  const [magnet, setMagnet] = useWidgetSetting("drawMagnet", false);
+  const [drawingsLocked, setDrawingsLocked] = useWidgetSetting("drawLocked", false);
+  const [drawingsHidden, setDrawingsHidden] = useWidgetSetting("drawHidden", false);
+  const [selectedDrawing, setSelectedDrawing] = useState<string | null>(null);
+  const layerRef = useRef<DrawingLayer | null>(null);
+  const placingRef = useRef<DrawPoint[] | null>(null);
+  const drawStateRef = useRef({ tool, magnet, locked: drawingsLocked, drawings, selected: selectedDrawing });
+  const drawHiddenRef = useRef(drawingsHidden);
+  drawHiddenRef.current = drawingsHidden;
+  const setDrawingsRef = useRef(setDrawings);
+  drawStateRef.current = { tool, magnet, locked: drawingsLocked, drawings, selected: selectedDrawing };
+  const pickTool = (t: ToolId | null) => {
+    placingRef.current = null;
+    layerRef.current?.set({ preview: null });
+    setTool(t);
+    if (t) {
+      setSelectedDrawing(null);
+      setLastTool((m) => ({ ...m, [TOOL_BY_ID.get(t)!.group]: t }));
+    }
+  };
+  setDrawingsRef.current = setDrawings;
+  // The layer follows the saved drawings, the selection and hiding without rebuilding the chart.
+  useEffect(() => {
+    layerRef.current?.set({ drawings, selected: selectedDrawing, hidden: drawingsHidden });
+  }, [drawings, selectedDrawing, drawingsHidden]);
+  // Another symbol: nothing half-placed or selected carries over.
+  useEffect(() => {
+    placingRef.current = null;
+    setSelectedDrawing(null);
+  }, [symbol]);
+  const selected = drawings.find((d) => d.id === selectedDrawing) ?? null;
+  const patchDrawing = (id: string, patch: Partial<Drawing>) => setDrawings((list) => list.map((d) => (d.id === id ? { ...d, ...patch } : d)));
+  const removeDrawing = (id: string) => {
+    setDrawings((list) => list.filter((d) => d.id !== id));
+    setSelectedDrawing(null);
+  };
 
   const instances = (widget.indicators ?? DEFAULT_CHART_INDICATORS).filter((i) => INDICATOR_BY_ID.has(i.id));
   const saveInstances = (next: IndicatorInstance[]) => setWidgetIndicators(widget.id, next);
@@ -708,6 +756,28 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       drag = null;
       setTimeout(syncAuto, 0);
     };
+    // Drawings, above the candles; their pointer handling comes first, so a click that places or
+    // moves a drawing neither pans the chart nor drags the price.
+    const layer = new DrawingLayer({
+      drawings: drawStateRef.current.drawings,
+      preview: null,
+      selected: drawStateRef.current.selected,
+      hidden: drawHiddenRef.current,
+      times: times as number[],
+      interval: intervalSeconds,
+      formatPrice: (v) => fmt(v, pxPrecision),
+    });
+    main.attachPrimitive(layer);
+    layerRef.current = layer;
+    const detachDrawing = attachDrawing(el, chart, layer, times as number[], intervalSeconds, candles, {
+      state: () => drawStateRef.current,
+      placing: placingRef,
+      onAdd: (d) => setDrawingsRef.current((list) => [...list, d]),
+      onUpdate: (id, patch) => setDrawingsRef.current((list) => list.map((d) => (d.id === id ? { ...d, ...patch } : d))),
+      onSelect: setSelectedDrawing,
+      onToolDone: () => setTool(null),
+    });
+
     el.addEventListener("pointerdown", onPointerDown, { capture: true });
     el.addEventListener("pointermove", onPointerMove, { capture: true });
     window.addEventListener("pointerup", onPointerUp);
@@ -720,6 +790,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       const pr = priceScale.options().autoScale ? null : priceScale.getVisibleRange();
       savedPrice.current = pr ? { key: priceKey, range: pr } : null;
       chartRef.current = null;
+      layerRef.current = null;
+      detachDrawing();
       disposed = true;
       navRef.current = null;
       ts.unsubscribeVisibleLogicalRangeChange(onRange);
@@ -791,6 +863,18 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
 
   // TradingView's chart hotkeys while the chart has focus (it takes focus when clicked).
   const onChartKey = (e: React.KeyboardEvent) => {
+    // Drawings: Esc leaves the tool (or the selection), Delete removes the selected one.
+    if (e.key === "Escape" && (tool || selectedDrawing)) {
+      e.preventDefault();
+      pickTool(null);
+      setSelectedDrawing(null);
+      return;
+    }
+    if ((e.key === "Delete" || e.key === "Backspace") && selected && !selected.locked && !drawingsLocked) {
+      e.preventDefault();
+      removeDrawing(selected.id);
+      return;
+    }
     const r = chartRef.current?.timeScale().getVisibleLogicalRange();
     const action = keyAction(e, r ? r.to - r.from : 100);
     const nav = navRef.current;
@@ -835,8 +919,25 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       </div>
       {/* A failed refresh keeps the chart that's on screen; the error shows only when there is none. */}
       {error && !candles && <div className="p-2 down">Error: {(error as Error).message}</div>}
+      <div className="flex flex-1 min-h-0">
+      <DrawingToolbar
+        tool={tool}
+        onTool={pickTool}
+        magnet={magnet}
+        onMagnet={setMagnet}
+        locked={drawingsLocked}
+        onLock={setDrawingsLocked}
+        hidden={drawingsHidden}
+        onHide={setDrawingsHidden}
+        count={drawings.length}
+        onRemoveAll={() => {
+          setDrawings(() => []);
+          setSelectedDrawing(null);
+        }}
+        last={lastTool}
+      />
       <div
-        className="relative flex-1 min-h-0"
+        className={`relative flex-1 min-h-0 min-w-0 ${tool ? "[&_canvas]:!cursor-crosshair" : ""}`}
         onPointerMove={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           const fromBottom = rect.bottom - axes.bottom - e.clientY;
@@ -966,6 +1067,31 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
             </button>
           </div>
         )}
+        {selected && !drawingsHidden && (
+          // The selected drawing's toolbar, as TradingView's floating one: color and line, lock, remove.
+          <div className="absolute top-1 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-1.5 py-1 rounded bg-[#1a1a1a] border border-[var(--border)] shadow-lg text-fs-11">
+            <span className="dim px-1">{TOOL_BY_ID.get(selected.tool)?.label}</span>
+            <ColorPicker
+              color={selected.color}
+              onColor={(color) => patchDrawing(selected.id, { color })}
+              width={selected.tool === "text" ? undefined : selected.width}
+              onWidth={selected.tool === "text" ? undefined : (width) => patchDrawing(selected.id, { width })}
+              dash={["trend", "ray", "extended", "hline", "hray", "vline", "rect"].includes(selected.tool) ? selected.dash ?? "solid" : undefined}
+              onDash={(dash) => patchDrawing(selected.id, { dash })}
+            />
+            <button
+              className={`px-1.5 h-6 border border-[var(--border)] ${selected.locked ? "amber" : "dim hover:text-[var(--text)]"}`}
+              title={selected.locked ? "Unlock" : "Lock"}
+              onClick={() => patchDrawing(selected.id, { locked: !selected.locked })}
+            >
+              {selected.locked ? "Locked" : "Lock"}
+            </button>
+            <button className="px-1.5 h-6 border border-[var(--border)] dim hover:text-[var(--down)]" title="Remove (Delete)" onClick={() => removeDrawing(selected.id)}>
+              Remove
+            </button>
+          </div>
+        )}
+      </div>
       </div>
       {settingsOpen && (
         <ChartSettings
