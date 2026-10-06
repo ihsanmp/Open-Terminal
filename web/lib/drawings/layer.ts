@@ -73,6 +73,11 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
     return logical === null || price === null ? null : { logical, price };
   }
 
+  /** A drawing point → pane pixels. */
+  toPixel(p: DrawPoint): { x: number; y: number } | null {
+    return this.anchorsOf([p])?.[0] ?? null;
+  }
+
   private anchorsOf(points: DrawPoint[]): Anchor[] | null {
     const at = this.attachedTo;
     if (!at) return null;
