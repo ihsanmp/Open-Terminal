@@ -10,6 +10,7 @@ type SearchResult = { symbol: string; name: string; exchange: string; type: stri
 export default function CommandPalette() {
   const open = useTerminal((s) => s.commandOpen);
   const setOpen = useTerminal((s) => s.setCommandOpen);
+  const initial = useTerminal((s) => s.commandQuery);
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
   const addToWatchlist = useTerminal((s) => s.addToWatchlist);
   const [query, setQuery] = useState("");
@@ -25,11 +26,20 @@ export default function CommandPalette() {
 
   useEffect(() => {
     if (open) {
-      setQuery("");
+      // Opened by typing on a chart, it starts with what was typed.
+      setQuery(initial);
       setSelected(0);
-      setTimeout(() => inputRef.current?.focus(), 30);
+      // The field shows it at once, so keys typed straight after go on after it.
+      if (inputRef.current) inputRef.current.value = initial;
+      const focus = () => {
+        const el = inputRef.current;
+        el?.focus();
+        el?.setSelectionRange(el.value.length, el.value.length);
+      };
+      focus();
+      setTimeout(focus, 30);
     }
-  }, [open]);
+  }, [open, initial]);
 
   useEffect(() => setSelected(0), [results.length]);
 

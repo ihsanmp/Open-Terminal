@@ -11,6 +11,17 @@ import CommandPalette from "./CommandPalette";
 import { followOtherWindows, useTerminal } from "../store/terminal";
 import { startWorkspaceBackup } from "../store/workspace-backup";
 
+const isField = (el: Element | null) => el instanceof HTMLElement && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+
+/** Whether a letter typed now is meant for the symbol search: on the chart, with no field,
+ *  menu or dialog taking keys. */
+function typingOpensSearch(): boolean {
+  const st = useTerminal.getState();
+  if (st.view !== "chart" || st.commandOpen) return false;
+  if (isField(document.activeElement)) return false;
+  return !document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]');
+}
+
 export default function Terminal() {
   const setCommandOpen = useTerminal((s) => s.setCommandOpen);
   const view = useTerminal((s) => s.view);
@@ -36,6 +47,20 @@ export default function Terminal() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setCommandOpen(true);
+        return;
+      }
+      // As on TradingView: a letter typed on the chart (not into a field or a dialog) starts a
+      // symbol search with it.
+      if (!e.altKey && !e.ctrlKey && !e.metaKey && /^[a-z]$/i.test(e.key) && typingOpensSearch()) {
+        e.preventDefault();
+        setCommandOpen(true, e.key.toUpperCase());
+        return;
+      }
+      // Typed on quickly, before the search's field has the keys: they go on what's searched.
+      const st0 = useTerminal.getState();
+      if (st0.commandOpen && !e.altKey && !e.ctrlKey && !e.metaKey && /^[a-z0-9.\-]$/i.test(e.key) && !isField(document.activeElement)) {
+        e.preventDefault();
+        st0.setCommandOpen(true, st0.commandQuery + e.key.toUpperCase());
         return;
       }
       if (!e.altKey || e.ctrlKey || e.metaKey) return;
