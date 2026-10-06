@@ -9,6 +9,7 @@ import { luxalgo2 } from "./indicators/luxalgo2";
 import { lorentzian } from "./indicators/lorentzian";
 import { community2 } from "./indicators/community2";
 import { btcSplMvrv } from "./indicators/btc-spl-mvrv";
+import { btcPlMomentum } from "./indicators/btc-pl-momentum";
 import { whaleAlerts } from "./indicators/whale-alerts";
 import { astroCycles } from "./indicators/astro-cycles";
 import { astroTimeIndicators } from "./indicators/astro-time";
@@ -18,7 +19,7 @@ import type { Category, ExternalData, IndicatorDef, IndicatorInstance, Indicator
 export * from "./types";
 export type { Bars, Series } from "./core";
 
-export const INDICATORS: IndicatorDef[] = [...averages, ...bands, ...oscillators, ...volume, ...volatility, ...community, ...luxalgo, ...more, ...luxalgo2, lorentzian, ...community2, pivotHilo, btcSplMvrv, whaleAlerts, astroCycles, ...astroTimeIndicators].sort(
+export const INDICATORS: IndicatorDef[] = [...averages, ...bands, ...oscillators, ...volume, ...volatility, ...community, ...luxalgo, ...more, ...luxalgo2, lorentzian, ...community2, pivotHilo, btcSplMvrv, btcPlMomentum, whaleAlerts, astroCycles, ...astroTimeIndicators].sort(
   (a, b) => a.name.localeCompare(b.name)
 );
 

@@ -63,7 +63,7 @@ function rangePosition(x: Series, w: number): Series {
 }
 
 /** The latest daily value at or before each chart bar (on-chain data is daily). */
-function alignDaily(bars: Bars, times: number[], values: Series): Series {
+export function alignDaily(bars: Bars, times: number[], values: Series): Series {
   const out = ta.fill(bars.length);
   let j = -1;
   for (let i = 0; i < bars.length; i++) {
