@@ -76,9 +76,12 @@ describe("Fibonacci and Gann tools", () => {
   });
 
   it("every tool draws from its points, and from fewer while being placed", () => {
-    const pts = [at(10, 120), at(30, 160), at(45, 140)];
+    const pts = [at(10, 120), at(30, 160), at(45, 140), at(55, 170), at(65, 130), at(75, 165), at(85, 125)];
+    const bars = Array.from({ length: 100 }, (_, i) => ({ open: 140 + i * 0.2, high: 145 + i * 0.2, low: 135 + i * 0.2, close: 141 + i * 0.2, volume: 1000 + i }));
     for (const t of TOOLS) {
-      const full = shapesFor(t.id as ToolId, ctx(pts.slice(0, t.points)));
+      const n = t.variable ? Math.max(t.points, 4) : t.points;
+      const placed = pts.slice(0, n);
+      const full = shapesFor(t.id as ToolId, { ...ctx(placed), bars, drawing: { color: "#2962FF", width: 1, text: "Hi" } });
       expect(full.length, t.id).toBeGreaterThan(0);
       for (const shape of full) expect(Number.isNaN(distanceTo(shape, 200, 300)), t.id).toBe(false);
       expect(() => shapesFor(t.id as ToolId, ctx(pts.slice(0, 1)))).not.toThrow();
@@ -213,5 +216,51 @@ describe("each tool's settings", () => {
   it("text: its size and background", () => {
     const s = shapesFor("text", { ...ctx([at(10, 150)]), drawing: { color: "#fff", width: 1, text: "Hi", options: { fontSize: 24, textBackground: false } } });
     expect(s[0]).toMatchObject({ t: "text", text: "Hi", size: 24, bg: undefined });
+  });
+});
+
+describe("TradingView's other tools", () => {
+  const draw = (tool: ToolId, anchors: Anchor[], extra: Partial<GeometryContext> = {}, options: object = {}) =>
+    shapesFor(tool, { ...ctx(anchors), ...extra, drawing: { color: "#2962FF", width: 1, options } });
+
+  it("a long position: the target's and stop's zones, and the risk/reward", () => {
+    const [stop] = TOOLS.find((t) => t.id === "longPosition")!.derive!([{ time: 1, price: 100 }, { time: 2, price: 110 }]).slice(2);
+    expect(stop.price).toBe(90); // 1:1 until it's moved
+    const s = draw("longPosition", [at(10, 150), at(30, 170), at(10, 140)]);
+    expect(labels(s)).toEqual(expect.arrayContaining(["Target: 170.00 (+13.33%)", "Stop: 140.00 (-6.67%)", "Risk/Reward Ratio: 2.00"]));
+    expect(s.filter((g) => g.t === "poly" && g.fill)).toHaveLength(2);
+  });
+
+  it("XABCD: each leg's ratio and the points' names", () => {
+    const s = draw("xabcd", [at(0, 100), at(10, 150), at(20, 120), at(30, 140), at(40, 110)]);
+    expect(labels(s)).toEqual(expect.arrayContaining(["X", "A", "B", "C", "D", "0.600", "0.667"]));
+  });
+
+  it("Elliott waves are numbered, head and shoulders named", () => {
+    expect(labels(draw("elliottImpulse", [at(0, 100), at(5, 120), at(10, 110), at(15, 140), at(20, 130), at(25, 150)]))).toEqual(["(1)", "(2)", "(3)", "(4)", "(5)"]);
+    const hs = draw("headShoulders", [at(0, 100), at(5, 130), at(10, 115), at(15, 150), at(20, 115), at(25, 130), at(30, 100)]);
+    expect(labels(hs)).toEqual(["Left Shoulder", "Head", "Right Shoulder"]);
+  });
+
+  it("regression, anchored VWAP and volume profile read the bars", () => {
+    const bars = Array.from({ length: 60 }, (_, i) => ({ open: 120 + i, high: 122 + i, low: 118 + i, close: 121 + i, volume: 100 }));
+    // A straight rise: the regression line lies on the closes, with no spread for the bands.
+    const reg = segs(draw("regression", [at(10, 0), at(40, 0)], { bars }, { fill: false }));
+    expect(reg[2].y1).toBeCloseTo(yOf(131), 6);
+    expect(reg[2].y2).toBeCloseTo(yOf(161), 6);
+    expect(reg[0].y1).toBeCloseTo(reg[2].y1, 6);
+    const vwap = draw("anchoredVwap", [at(50, 0)], { bars }, { showLabels: false })[0] as Extract<Shape, { t: "poly" }>;
+    expect(vwap.pts[0][1]).toBeCloseTo(yOf((172 + 168 + 171) / 3), 6);
+    const vp = draw("volumeProfile", [at(0, 0), at(59, 0)], { bars }, { rows: 10 });
+    expect(vp.filter((g) => g.t === "poly" && g.fill)).toHaveLength(20); // up and down in each row
+  });
+
+  it("shapes: a circle around its center, an arc through its middle point, a closed polyline", () => {
+    const c = draw("circle", [at(20, 150), at(23, 154)]).find((g) => g.t === "ellipse") as Extract<Shape, { t: "ellipse" }>;
+    expect(c.rx).toBeCloseTo(Math.hypot(30, 24), 6);
+    const arc = draw("arc", [at(10, 150), at(30, 150), at(20, 160)]).find((g) => g.t === "ellipse") as Extract<Shape, { t: "ellipse" }>;
+    expect(distanceTo(arc, xOf(20), yOf(160))).toBeLessThan(0.5);
+    const poly = draw("polyline", [at(10, 120), at(20, 150), at(30, 120)]).find((g) => g.t === "poly") as Extract<Shape, { t: "poly" }>;
+    expect(poly.closed).toBe(true);
   });
 });

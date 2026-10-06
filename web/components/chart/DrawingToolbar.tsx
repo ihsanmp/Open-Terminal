@@ -81,6 +81,105 @@ export function ToolIcon({ id, size = px(22) }: { id: ToolId | CursorMode | "cur
         return <path {...S} d="M3 19L20 2M3 19L20 8M3 19L20 14M3 19L9 2M3 19L15 2" />;
       case "rect":
         return <g {...S}><rect x="4" y="6" width="14" height="10" />{dot(4, 6)}{dot(18, 16)}</g>;
+      case "infoLine":
+        return <g {...S}><path d="M4 18L16 6" />{dot(4, 18)}{dot(16, 6)}<path d="M13 15h6v4h-6z" /></g>;
+      case "trendAngle":
+        return <g {...S}><path d="M4 17L17 5M4 17h14M10 17a6 6 0 0 0-1.6-4.2" />{dot(4, 17)}</g>;
+      case "crossLine":
+        return <g {...S}><path d="M2 11h18M11 2v18" />{dot(11, 11)}</g>;
+      case "regression":
+        return <path {...S} d="M3 16L19 6M3 12L19 2M3 20L19 10" strokeDasharray="0" />;
+      case "flatTopBottom":
+        return <g {...S}><path d="M3 16L19 9M3 5h16" />{dot(3, 16)}{dot(19, 9)}</g>;
+      case "disjointChannel":
+        return <g {...S}><path d="M3 15L19 9M3 7l16 6" />{dot(3, 15)}{dot(3, 7)}</g>;
+      case "pitchfork":
+      case "schiffPitchfork":
+      case "modifiedSchiff":
+      case "insidePitchfork":
+        return <g {...S}><path d="M3 15L19 9M8 5l12 4M8 19l12-4M8 5v14" />{dot(3, 15)}</g>;
+      case "xabcd":
+      case "cypher":
+        return <g {...S}><path d="M2 17L6 5l4 9 5-7 5 12" /><path d="M2 17L10 14M10 14l10 5" strokeDasharray="2 2" /></g>;
+      case "headShoulders":
+        return <path {...S} d="M1 17l3-6 3 4 4-11 4 11 3-4 3 6M3 14h17" />;
+      case "abcd":
+        return <path {...S} d="M3 18L8 6l5 8 6-11" />;
+      case "trianglePattern":
+        return <path {...S} d="M2 4l5 14 5-10 4 7 4-3M2 4l18 7M7 18l13-7" />;
+      case "threeDrives":
+        return <path {...S} d="M1 18l4-6 2 3 4-7 2 3 4-8 2 3" />;
+      case "elliottImpulse":
+      case "elliottTriangle":
+      case "elliottTriple":
+        return <path {...S} d="M1 18l4-8 3 4 5-10 3 5 5-6" />;
+      case "elliottCorrection":
+      case "elliottDouble":
+        return <path {...S} d="M3 5l5 10 4-5 6 9" />;
+      case "cyclicLines":
+        return <path {...S} d="M3 3v16M9 3v16M15 3v16M21 3v16" />;
+      case "timeCycles":
+        return <path {...S} d="M1 17a5 5 0 0 1 10 0a5 5 0 0 1 10 0" />;
+      case "sineLine":
+        return <path {...S} d="M1 11c3-8 5-8 7 0s4 8 7 0 4-8 6 0" />;
+      case "longPosition":
+        return <g {...S}><path d="M3 4h16v7H3z" /><path d="M3 11h16v7H3z" strokeDasharray="2 2" /></g>;
+      case "shortPosition":
+        return <g {...S}><path d="M3 4h16v7H3z" strokeDasharray="2 2" /><path d="M3 11h16v7H3z" /></g>;
+      case "forecast":
+        return <g {...S}><path d="M3 17L17 6M13 6h4v4" />{dot(3, 17)}</g>;
+      case "anchoredVwap":
+        return <g {...S}><path d="M4 17c4-1 5-8 9-9s4 2 7 1" />{dot(4, 17)}</g>;
+      case "volumeProfile":
+        return <path {...S} d="M3 3v16M3 5h6M3 8h11M3 11h15M3 14h9M3 17h4" />;
+      case "priceRange":
+        return <path {...S} d="M4 4h14M4 18h14M11 6v10M8 8l3-3 3 3M8 14l3 3 3-3" />;
+      case "dateRange":
+        return <path {...S} d="M4 4v14M18 4v14M6 11h10M8 8l-3 3 3 3M14 8l3 3-3 3" />;
+      case "brush":
+        return <path {...S} d="M3 18c3 0 3-3 5-3s1 3 4 1 3-8 7-12" />;
+      case "highlighter":
+        return <path {...S} d="M5 19l2-6 9-9 3 3-9 9zM4 20h7" />;
+      case "arrowMarker":
+        return <path {...S} d="M3 17l9-9-2-2h7v7l-2-2-9 9z" />;
+      case "arrow":
+        return <path {...S} d="M4 18L18 4M11 4h7v7" />;
+      case "arrowUp":
+        return <path {...S} d="M11 3l6 7h-4v9H9v-9H5z" />;
+      case "arrowDown":
+        return <path {...S} d="M11 19l6-7h-4V3H9v9H5z" />;
+      case "rotatedRect":
+        return <path {...S} d="M3 13l7-9 9 5-7 9z" />;
+      case "path":
+        return <path {...S} d="M3 18l5-8 5 4 6-9M16 5h3v3" />;
+      case "circle":
+        return <circle {...S} cx="11" cy="11" r="8" />;
+      case "ellipse":
+        return <ellipse {...S} cx="11" cy="11" rx="9" ry="6" />;
+      case "polyline":
+        return <path {...S} d="M3 15l4-10 8 3 4 9-11 2z" />;
+      case "triangle":
+        return <path {...S} d="M11 3l8 15H3z" />;
+      case "arc":
+        return <path {...S} d="M3 17a9 9 0 0 1 16 0" />;
+      case "curve":
+        return <path {...S} d="M3 18Q11 0 19 18" />;
+      case "doubleCurve":
+        return <path {...S} d="M2 17C6 0 10 0 11 11s5 11 9-6" />;
+      case "note":
+        return <path {...S} d="M4 3h11l3 3v13H4zM7 8h8M7 12h8M7 16h5" />;
+      case "priceNote":
+        return <g {...S}><path d="M4 17L12 9h7v-4h-7v4" />{dot(4, 17)}</g>;
+      case "pin":
+        return <g {...S}><circle cx="11" cy="8" r="4" /><path d="M11 12v8" /></g>;
+      case "callout":
+        return <path {...S} d="M3 4h16v10h-9l-5 5v-5H3z" />;
+      case "priceLabel":
+        return <path {...S} d="M3 11l5-5h11v10H8z" />;
+      case "signpost":
+        return <path {...S} d="M11 21V3M5 4h11l3 3-3 3H5z" />;
+      case "flagMark":
+        return <path {...S} d="M5 21V3M5 4h12l-3 4 3 4H5" />;
       case "text":
         return <path {...S} d="M5 5h12M11 5v13M8 18h6" />;
       case "measure":
@@ -96,7 +195,7 @@ export function ToolIcon({ id, size = px(22) }: { id: ToolId | CursorMode | "cur
     }
   })();
   return (
-    <svg width={size} height={size} viewBox="0 0 22 22" aria-hidden>
+    <svg width={size} height={size} viewBox="0 0 22 22" aria-hidden className="shrink-0">
       {body}
     </svg>
   );
@@ -263,9 +362,10 @@ export function FavoritesBar(p: { favorites: string[]; tool: ToolId | null; curs
 const GROUPS: Array<{ group: ToolGroup; first: ToolId; title: string }> = [
   { group: "lines", first: "trend", title: "Lines" },
   { group: "fib", first: "fibRetracement", title: "Fibonacci and Gann" },
-  { group: "shapes", first: "rect", title: "Shapes" },
-  { group: "text", first: "text", title: "Text" },
-  { group: "measure", first: "measure", title: "Measure" },
+  { group: "patterns", first: "xabcd", title: "Patterns" },
+  { group: "forecast", first: "longPosition", title: "Forecasting and measurement" },
+  { group: "shapes", first: "brush", title: "Geometric shapes" },
+  { group: "text", first: "text", title: "Annotation" },
 ];
 
 function Button({ active, title, onClick, children }: { active?: boolean; title: string; onClick: () => void; children: React.ReactNode }) {
@@ -307,7 +407,7 @@ function GroupMenu({
   const tools = TOOLS.filter((t) => t.group === group);
   let section: string | undefined;
   return createPortal(
-    <div ref={ref} style={{ ...at, width: `calc(${22 * TOOLBAR_SCALE}rem * var(--font-scale))`, fontSize: textPx(12) }} className="fixed z-[60] max-h-[80vh] overflow-auto bg-[#1a1a1a] border border-[var(--border)] py-1 shadow-xl">
+    <div ref={ref} style={{ ...at, minWidth: `calc(${22 * TOOLBAR_SCALE}rem * var(--font-scale))`, fontSize: textPx(12) }} className="fixed z-[60] w-max max-h-[80vh] overflow-y-auto overflow-x-hidden bg-[#1a1a1a] border border-[var(--border)] py-1 shadow-xl">
       {tools.map((t) => {
         const heading = t.section && t.section !== section ? (section = t.section) : null;
         return (
@@ -386,6 +486,9 @@ export function DrawingToolbar(p: Props) {
           </div>
         );
       })}
+      <Button active={p.tool === "measure"} title="Measure" onClick={() => p.onTool(p.tool === "measure" ? null : "measure")}>
+        <ToolIcon id="measure" />
+      </Button>
       <div style={{ width: px(24) }} className="border-t border-[var(--border)] my-1.5" />
       <Button active={p.magnet} title={p.magnet ? "Magnet on: points snap to open, high, low, close" : "Magnet"} onClick={() => p.onMagnet(!p.magnet)}>
         <ToolIcon id="magnet" />

@@ -68,11 +68,13 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
 
   const previewStyle = (tool: ToolId) => ({ color: defaultColor(tool), width: 1 as const });
 
-  const finish = (tool: ToolId, points: DrawPoint[]) => {
+  const finish = (tool: ToolId, placed: DrawPoint[]) => {
     const def = TOOL_BY_ID.get(tool)!;
+    // A position's stop comes from its entry and target until it's moved.
+    const points = def.derive ? def.derive(placed) : placed;
     const d: Drawing = { id: `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, tool, points, color: defaultColor(tool), width: def.group === "fib" ? 1 : 2 };
-    // A text is written in its Settings, which open as it's placed (as on TradingView).
-    if (tool === "text") d.text = "Text";
+    // A text (a callout's, a signpost's …) is written in its Settings, which open as it's placed.
+    if (def.startText) d.text = def.startText;
     if (tool === "gannSquareFixed") {
       // The price per bar that makes it square on screen as drawn; it keeps that from then on.
       const a = layer.toChart(100, 100);
@@ -81,8 +83,18 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     }
     cb.onAdd(d);
     cb.onSelect(d.id);
-    if (tool === "text") cb.onOpenSettings(d.id);
+    if (def.startText) cb.onOpenSettings(d.id);
   };
+
+  const done = (tool: ToolId, points: DrawPoint[]) => {
+    cb.placing.current = null;
+    layer.set({ preview: null });
+    finish(tool, points);
+    cb.onToolDone();
+  };
+
+  /** A brush's stroke while it's being drawn (pixels too, to skip points too close together). */
+  let stroke: { points: DrawPoint[]; last: { x: number; y: number } } | null = null;
 
   /** The press is the Eraser's or the Magic cursor's: the chart mustn't pan with it. */
   let held = false;
@@ -107,16 +119,25 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
   const place = (x: number, y: number, shift: boolean) => {
     const s = cb.state();
     if (!s.tool) return;
+    const def = TOOL_BY_ID.get(s.tool)!;
     const sofar = cb.placing.current ?? [];
-    const p = snapped(s.tool, pixelOf(sofar[sofar.length - 1]), x, y, shift, s.magnet);
+    const prev = pixelOf(sofar[sofar.length - 1]);
+    // A path or polyline goes on point by point, and ends when its last point (or, closing a
+    // polyline, its first) is clicked again.
+    if (def.variable === "clicks" && sofar.length >= def.points - 1) {
+      const first = pixelOf(sofar[0]);
+      const near = (q: { x: number; y: number } | null) => q !== null && Math.hypot(q.x - x, q.y - y) <= 6;
+      if (near(prev) || (s.tool === "polyline" && sofar.length >= 3 && near(first))) {
+        if (sofar.length >= def.points) done(s.tool, sofar);
+        return;
+      }
+    }
+    const p = snapped(s.tool, prev, x, y, shift, s.magnet);
     if (!p) return;
     const points = [...sofar, p];
-    const need = TOOL_BY_ID.get(s.tool)!.points;
+    const need = def.variable ? Infinity : def.points;
     if (points.length >= need) {
-      cb.placing.current = null;
-      layer.set({ preview: null });
-      finish(s.tool, points);
-      cb.onToolDone();
+      done(s.tool, points);
     } else {
       cb.placing.current = points;
       layer.set({ preview: { tool: s.tool, points: [...points, p], style: previewStyle(s.tool) } });
@@ -136,6 +157,14 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     if (s.tool) {
       swallow(e);
       el.focus({ preventScroll: true });
+      if (TOOL_BY_ID.get(s.tool)!.variable === "freehand") {
+        const p = pointAt(x, y, false);
+        if (p) {
+          stroke = { points: [p], last: { x, y } };
+          layer.set({ preview: { tool: s.tool, points: [p], style: previewStyle(s.tool) } });
+        }
+        return;
+      }
       place(x, y, e.shiftKey);
       pressAt = cb.state().tool && cb.placing.current ? { x, y } : null;
       return;
@@ -200,12 +229,33 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
   const onMove = (e: PointerEvent) => {
     const { x, y } = local(e);
     last = { x, y };
+    const tool = cb.state().tool;
+    if (stroke && tool) {
+      // The brush follows the pointer, a point every few pixels.
+      if (Math.hypot(x - stroke.last.x, y - stroke.last.y) >= 3) {
+        const p = pointAt(x, y, false);
+        if (p) {
+          stroke.points.push(p);
+          stroke.last = { x, y };
+          layer.set({ preview: { tool, points: stroke.points, style: previewStyle(tool) } });
+        }
+      }
+      return;
+    }
     if (drag) e.stopImmediatePropagation();
     update(x, y, e.shiftKey);
   };
 
   const onUp = (e: PointerEvent) => {
     held = false;
+    if (stroke) {
+      const tool = cb.state().tool;
+      const pts = stroke.points;
+      stroke = null;
+      if (tool && pts.length >= 2) done(tool, pts);
+      else layer.set({ preview: null });
+      return;
+    }
     if (drag && moved) cb.onUpdate(drag.id, { points: moved });
     drag = null;
     moved = null;

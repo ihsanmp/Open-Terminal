@@ -168,11 +168,12 @@ export function DrawingSettings({ drawing, template, onApply, onSaveTemplate, on
   const tabs: Tab[] =
     layout === "text"
       ? ["text", "coordinates", "visibility"]
-      : ["line", "hline", "vline", "box"].includes(layout)
+      : ["line", "hline", "vline", "cross", "box"].includes(layout) || features.textTab
         ? ["style", "text", "coordinates", "visibility"]
         : ["style", "coordinates", "visibility"];
   const [d, setD] = useState<Drawing>(drawing);
-  const [tab, setTab] = useState<Tab>(tabs[0]);
+  // A text written as it's placed (a callout's, a note's) opens on its Text tab.
+  const [tab, setTab] = useState<Tab>(def.startText && tabs.includes("text") ? "text" : tabs[0]);
   const [renaming, setRenaming] = useState(false);
   const o = optionsOf(tool, d.options);
   const setOpt = (patch: Partial<DrawingOptions>) => setD((v) => ({ ...v, options: { ...v.options, ...patch } }));
@@ -183,6 +184,9 @@ export function DrawingSettings({ drawing, template, onApply, onSaveTemplate, on
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
   }, [onClose]);
+
+  /** Notes, pins, callouts …: their box is solid in their color unless given its own. */
+  const solidBackground = layout === "shape" && !!features.textTab && !!features.fill;
 
   // ---- rows the layouts share ----
   /** The drawing's own line: color, width and style. */
@@ -236,7 +240,7 @@ export function DrawingSettings({ drawing, template, onApply, onSaveTemplate, on
       <span className={LABEL}>
         <Check label="Background" checked={o.fill} onChange={(v) => setOpt({ fill: v })} />
       </span>
-      <ColorPicker color={o.fillColor ?? withAlpha(d.color, o.fillOpacity)} onColor={(fillColor) => setOpt({ fillColor })} />
+      <ColorPicker color={o.fillColor ?? (solidBackground ? d.color : withAlpha(d.color, o.fillOpacity))} onColor={(fillColor) => setOpt({ fillColor })} />
     </Row>
   );
   /** A background in the levels' colors, at an opacity. */
@@ -421,8 +425,92 @@ export function DrawingSettings({ drawing, template, onApply, onSaveTemplate, on
           <>
             {extendRow}
             {lineRow("Channel lines")}
-            {middleRow}
+            {features.middle && middleRow}
             {backgroundColorRow}
+          </>
+        );
+      case "cross":
+        return (
+          <>
+            {lineRow("Line")}
+            <Check label="Show price" checked={o.priceLabel} onChange={(v) => setOpt({ priceLabel: v })} />
+            <Check label="Show time" checked={o.timeLabel} onChange={(v) => setOpt({ timeLabel: v })} />
+          </>
+        );
+      case "shape":
+        return (
+          <>
+            {lineRow(features.fill && features.dash ? "Border" : features.textTab && features.fill ? "Color" : "Line")}
+            {features.fill && backgroundColorRow}
+          </>
+        );
+      case "pattern":
+        return (
+          <>
+            {lineRow("Line")}
+            {features.fill && backgroundColorRow}
+            <Row>
+              <span className={LABEL}>
+                <Check label="Labels" checked={o.showLabels} onChange={(v) => setOpt({ showLabels: v })} />
+              </span>
+              <Select label="Labels font size" value={String(o.labelSize)} options={FONT_SIZES.map((s) => [String(s), String(s)])} onChange={(v) => setOpt({ labelSize: Number(v) })} />
+            </Row>
+          </>
+        );
+      case "position":
+        return (
+          <>
+            <Row>
+              <span className={`${LABEL} dim`}>Profit</span>
+              <ColorPicker color={o.profitColor ?? "rgba(8,153,129,0.25)"} onColor={(profitColor) => setOpt({ profitColor })} />
+            </Row>
+            <Row>
+              <span className={`${LABEL} dim`}>Stop</span>
+              <ColorPicker color={o.stopColor ?? "rgba(242,54,69,0.25)"} onColor={(stopColor) => setOpt({ stopColor })} />
+            </Row>
+            <Row>
+              <span className={LABEL}>
+                <Check label="Labels" checked={o.showLabels} onChange={(v) => setOpt({ showLabels: v })} />
+              </span>
+              <Select label="Labels font size" value={String(o.labelSize)} options={FONT_SIZES.map((s) => [String(s), String(s)])} onChange={(v) => setOpt({ labelSize: Number(v) })} />
+            </Row>
+          </>
+        );
+      case "regression":
+        return (
+          <>
+            {lineRow("Line")}
+            <Row>
+              <span className={`${LABEL} dim`}>Deviation</span>
+              <NumberField value={o.deviation} onValue={(deviation) => setOpt({ deviation: Math.max(0, deviation) })} />
+            </Row>
+            {extendRow}
+            {backgroundColorRow}
+          </>
+        );
+      case "vwap":
+        return (
+          <>
+            {lineRow("Line")}
+            <Check label="Label" checked={o.showLabels} onChange={(v) => setOpt({ showLabels: v })} />
+          </>
+        );
+      case "volume":
+        return (
+          <>
+            <Row>
+              <span className={`${LABEL} dim`}>Rows</span>
+              <NumberField value={o.rows} step="1" onValue={(rows) => setOpt({ rows: Math.min(200, Math.max(1, Math.round(rows))) })} />
+            </Row>
+            <Row>
+              <span className={`${LABEL} dim`}>Up volume</span>
+              <ColorPicker color={o.upColor ?? "rgba(41,98,255,0.45)"} onColor={(upColor) => setOpt({ upColor })} />
+            </Row>
+            <Row>
+              <span className={`${LABEL} dim`}>Down volume</span>
+              <ColorPicker color={o.downColor ?? "rgba(251,192,45,0.45)"} onColor={(downColor) => setOpt({ downColor })} />
+            </Row>
+            <Check label="Point of control" checked={o.pocLine} onChange={(v) => setOpt({ pocLine: v })} />
           </>
         );
       case "box":
@@ -482,11 +570,11 @@ export function DrawingSettings({ drawing, template, onApply, onSaveTemplate, on
       <>
         {fontRow(o.textColor ?? d.color, (textColor) => setOpt({ textColor }))}
         {textArea}
-        <Row>
+        {["line", "hline", "vline", "cross", "box"].includes(layout) && <Row>
           <span className={`${LABEL} dim`}>Text alignment</span>
           <Select label="Vertical alignment" value={o.textVAlign} options={V_ALIGN} onChange={(textVAlign) => setOpt({ textVAlign })} />
           <Select label="Horizontal alignment" value={o.textHAlign} options={H_ALIGN} onChange={(textHAlign) => setOpt({ textHAlign })} />
-        </Row>
+        </Row>}
       </>
     );
 
