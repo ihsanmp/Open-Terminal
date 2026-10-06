@@ -6,7 +6,7 @@
 // Levels that are prices (a Fibonacci retracement) are worked out in price and then placed, so they
 // stay right on a logarithmic scale; those that are times (time zones) in the chart's bar index.
 
-import type { DrawLevel, Drawing, DrawingOptions, HAlign, ToolId, VAlign } from "./tools";
+import { TOOL_BY_ID, type DrawLevel, type Drawing, type DrawingOptions, type HAlign, type ToolId, type VAlign } from "./tools";
 
 export type Anchor = { x: number; y: number; logical: number; price: number };
 
@@ -49,9 +49,14 @@ export type GeometryContext = {
   /** A bar index's time (unix seconds), and a time as the chart writes it. */
   timeOf?: (logical: number) => number;
   formatTime?: (time: number) => string;
+  /** The chart's bars by index (regression trend, anchored VWAP, volume profile). */
+  bars?: ReadonlyArray<Bar>;
 };
 
+export type Bar = { open: number; high: number; low: number; close: number; volume?: number };
+
 const FAR = 20_000;
+type Pt2 = { x: number; y: number };
 export const DASH: Record<string, number[]> = { solid: [], dashed: [6, 4], dotted: [1, 3] };
 
 /** TradingView's Fibonacci level colors. */
@@ -103,6 +108,12 @@ export function defaultLevels(tool: ToolId): DrawLevel[] | null {
       return plain([0.25, 0.5, 0.75], "#FF9800");
     case "gannFan":
       return GANN_FAN.map(([value, color]) => ({ value, color, visible: true }));
+    case "pitchfork":
+    case "schiffPitchfork":
+    case "modifiedSchiff":
+    case "insidePitchfork":
+      // TradingView's: the handle's own lines (1) and half-way (0.5) shown, the rest to turn on.
+      return [0.25, 0.382, 0.5, 0.618, 0.75, 1, 1.5, 1.75, 2].map((value) => ({ value, color: value === 1 ? "#2962FF" : fibColor(value), visible: value === 0.5 || value === 1 }));
     default:
       return null;
   }
@@ -112,12 +123,15 @@ export function defaultLevels(tool: ToolId): DrawLevel[] | null {
 export const gannLabel = (k: number) => (k >= 1 ? `${+k.toFixed(3)}/1` : `1/${+(1 / k).toFixed(3)}`);
 
 /** Options without a default of their own: unset means "the drawing's color" (or none). */
-type Unset = "levels" | "oneColor" | "fillColor" | "trendColor" | "middleColor" | "textColor" | "textBgColor" | "textBorderColor";
+type Unset = "levels" | "oneColor" | "fillColor" | "trendColor" | "middleColor" | "textColor" | "textBgColor" | "textBorderColor" | "profitColor" | "stopColor" | "upColor" | "downColor";
 export type ResolvedOptions = Required<Omit<DrawingOptions, Unset>> & Pick<DrawingOptions, Unset> & { levels: DrawLevel[] };
 
 const FILL_OPACITY: Partial<Record<ToolId, number>> = {
   channel: 0.12, rect: 0.15, gannBox: 0.06, gannSquare: 0.06, gannSquareFixed: 0.06, fibChannel: 0.08,
-  fibSpeedFan: 0.08, pitchfan: 0.08, gannFan: 0.08, fibTimeZone: 0.08, fibTrendTime: 0.08, measure: 0.18,
+  fibSpeedFan: 0.08, pitchfan: 0.08, gannFan: 0.08, fibTimeZone: 0.08, fibTrendTime: 0.08, measure: 0.18, priceRange: 0.18, dateRange: 0.18,
+  regression: 0.08, flatTopBottom: 0.12, disjointChannel: 0.12, pitchfork: 0.08, schiffPitchfork: 0.08, modifiedSchiff: 0.08, insidePitchfork: 0.08,
+  xabcd: 0.2, cypher: 0.2, headShoulders: 0.2, trianglePattern: 0.2, timeCycles: 0.1,
+  rotatedRect: 0.15, circle: 0.15, ellipse: 0.15, polyline: 0.15, triangle: 0.15, arc: 0.15,
 };
 /** Backgrounds TradingView starts without. */
 const NO_FILL: ToolId[] = ["fibTimeZone", "fibTrendTime"];
@@ -149,7 +163,7 @@ export function optionsOf(tool: ToolId, o: DrawingOptions | undefined): Resolved
     middleWidth: o?.middleWidth ?? 1,
     middleDash: o?.middleDash ?? "dashed",
     priceLabel: o?.priceLabel ?? true,
-    timeLabel: o?.timeLabel ?? false,
+    timeLabel: o?.timeLabel ?? tool === "crossLine",
     leftEnd: o?.leftEnd ?? "normal",
     rightEnd: o?.rightEnd ?? "normal",
     middlePoint: o?.middlePoint ?? false,
@@ -177,6 +191,14 @@ export function optionsOf(tool: ToolId, o: DrawingOptions | undefined): Resolved
     arcs: o?.arcs ?? true,
     counterclockwise: o?.counterclockwise ?? false,
     labelBackground: o?.labelBackground ?? true,
+    showLabels: o?.showLabels ?? true,
+    profitColor: o?.profitColor,
+    stopColor: o?.stopColor,
+    deviation: o?.deviation ?? 2,
+    rows: o?.rows ?? 24,
+    upColor: o?.upColor,
+    downColor: o?.downColor,
+    pocLine: o?.pocLine ?? true,
   };
 }
 
@@ -288,19 +310,63 @@ export function shapesFor(tool: ToolId, ctx: GeometryContext): Shape[] {
     const at = (d: number): [number, number] => [tip.x - s * Math.cos(ang + d), tip.y - s * Math.sin(ang + d)];
     out.push({ t: "poly", pts: [[tip.x, tip.y], at(0.42), at(-0.42)], fill: color, stroke: color, width: 1, closed: true });
   };
+  /** A label in a box of its color (white text), as TradingView's patterns and notes have them. */
+  const tag = (x: number, y: number, s: string, bg: string, align: "left" | "right" | "center" = "center", base: "top" | "middle" | "bottom" = "bottom", fg = "#ffffff", size?: number) =>
+    out.push({ t: "text", x, y, text: s, color: fg, align, base, bg, size });
+  /** The background inside a shape: its own color, or the line's at the shape's opacity. */
+  const area = o.fill ? (o.fillColor ?? withAlpha(color, o.fillOpacity)) : undefined;
+  const line = (pts: Array<{ x: number; y: number }>, closed = false, fill?: string, w: number = lw, c = color) =>
+    out.push({ t: "poly", pts: pts.map((q) => [q.x, q.y] as [number, number]), stroke: c, width: w, dash, closed, fill });
+  /** The drawing's own text, centered at (x, y), as its Text tab has it. */
+  const centerText = (x: number, y: number) => {
+    if (drawing.text) out.push({ t: "text", x, y, text: drawing.text, color: o.textColor ?? color, align: "center", base: "middle", size: o.fontSize, bold: o.bold, italic: o.italic });
+  };
+  /** A pattern point's name, above it at a peak and below it at a trough. */
+  const pointName = (pts: Anchor[], i: number, name: string) => {
+    if (!o.showLabels || !pts[i]) return;
+    const near = [pts[i - 1], pts[i + 1]].filter(Boolean);
+    const high = near.length === 0 || pts[i].y <= near.reduce((sum, q) => sum + q.y, 0) / near.length;
+    text(pts[i].x, high ? pts[i].y - 6 : pts[i].y + 6, name, color, "center", high ? "bottom" : "top", undefined, o.labelSize + 2);
+  };
+  /** A pattern's ratio of two legs, on the dashed line between the points it spans. */
+  const ratio = (p: Anchor | undefined, q: Anchor | undefined, value: number) => {
+    if (!p || !q || !Number.isFinite(value)) return;
+    seg(p.x, p.y, q.x, q.y, withAlpha(color, 0.7), 1, [4, 4]);
+    if (o.showLabels) tag((p.x + q.x) / 2, (p.y + q.y) / 2, value.toFixed(3), color, "center", "middle", "#ffffff", o.labelSize);
+  };
+  const leg = (p: Anchor, q: Anchor) => Math.abs(q.price - p.price);
+  const pct = (from: number, to: number) => (from !== 0 ? ((to - from) / from) * 100 : 0);
+  const signed = (v: number, s: string) => `${v >= 0 ? "+" : ""}${s}`;
+  /** A note's box: solid in its color (or its own), or none with Background off; its text white on it. */
+  const noteBg = o.fill ? (o.fillColor ?? color) : undefined;
+  const noteFg = o.textColor ?? (noteBg ? "#ffffff" : color);
+
   if (a.length === 0) return out;
   const [A, B, C] = a;
 
   // While placing, a tool with more points shows what it has so far.
-  if (a.length < 2 && !["hline", "hray", "vline", "text"].includes(tool)) return out;
+  if (a.length < 2 && (TOOL_BY_ID.get(tool)?.points ?? 2) > 1) return out;
 
   switch (tool) {
     case "trend":
     case "ray":
-    case "extended": {
-      // A ray is a trend line extended right; an extended line, both ways.
+    case "extended":
+    case "infoLine":
+    case "trendAngle": {
+      // A ray is a trend line extended right; an extended line, both ways. An info line always
+      // shows its stats; a trend angle its angle.
       const extL = tool === "extended" || o.extendLeft;
-      const extR = tool !== "trend" || o.extendRight;
+      const extR = tool === "ray" || tool === "extended" || o.extendRight;
+      if (tool === "infoLine")
+        Object.assign(o, { statsPriceRange: true, statsPercent: true, statsBars: true, statsDateRange: true, statsAngle: true, alwaysShowStats: true });
+      if (tool === "trendAngle") {
+        const deg = Math.atan2(A.y - B.y, B.x - A.x);
+        const r = Math.min(40, Math.max(20, Math.hypot(B.x - A.x, B.y - A.y) * 0.4));
+        seg(A.x, A.y, A.x + r * 1.4 * Math.sign(B.x - A.x || 1), A.y, withAlpha(color, 0.7), 1, [4, 4]);
+        const [s0, s1] = B.x >= A.x ? (deg >= 0 ? [-deg, 0] : [0, -deg]) : deg >= 0 ? [Math.PI, 2 * Math.PI - deg] : [-deg, Math.PI];
+        out.push({ t: "ellipse", cx: A.x, cy: A.y, rx: r, ry: r, start: s0, end: s1, color, width: 1 });
+        text(A.x + r + 4 * Math.sign(B.x - A.x || 1), A.y - 4, `${((deg * 180) / Math.PI).toFixed(2)}°`, color, B.x >= A.x ? "left" : "right", "bottom");
+      }
       const [x1, y1, x2, y2] = extendSeg(A.x, A.y, B.x, B.y, extL, extR);
       seg(x1, y1, x2, y2);
       if (o.leftEnd === "arrow" && !extL) arrowHead(A, B);
@@ -344,6 +410,97 @@ export function shapesFor(tool: ToolId, ctx: GeometryContext): Shape[] {
       // Read upwards, as on TradingView: Left is the bottom of the line.
       lineText({ x: A.x, y: H }, { x: A.x, y: 0 });
       break;
+    case "crossLine":
+      seg(-FAR, A.y, FAR, A.y);
+      seg(A.x, -FAR, A.x, FAR);
+      if (o.priceLabel) text(W - 4, A.y - 2, formatPrice(A.price), color, "right");
+      if (o.timeLabel && ctx.timeOf && ctx.formatTime) text(A.x, H - 3, ctx.formatTime(ctx.timeOf(A.logical)), "#ffffff", "center", "bottom", color);
+      lineText({ x: 0, y: A.y }, { x: W, y: A.y });
+      break;
+
+    case "regression": {
+      // The closes' least-squares line between the two times, with bands at ± deviations.
+      const bars = ctx.bars ?? [];
+      const i0 = Math.max(0, Math.ceil(Math.min(A.logical, B.logical)));
+      const i1 = Math.min(bars.length - 1, Math.floor(Math.max(A.logical, B.logical)));
+      if (i1 - i0 < 1) {
+        seg(A.x, A.y, B.x, B.y);
+        break;
+      }
+      const n = i1 - i0 + 1;
+      let sx = 0, sy = 0, sxy = 0, sxx = 0;
+      for (let i = i0; i <= i1; i++) {
+        sx += i;
+        sy += bars[i].close;
+        sxy += i * bars[i].close;
+        sxx += i * i;
+      }
+      const slope = (n * sxy - sx * sy) / (n * sxx - sx * sx || 1);
+      const icpt = (sy - slope * sx) / n;
+      let ss = 0;
+      for (let i = i0; i <= i1; i++) ss += (bars[i].close - (icpt + slope * i)) ** 2;
+      const dev = Math.sqrt(ss / n) * o.deviation;
+      const end = o.extendRight ? i1 + Math.max(n, 2000) : i1;
+      const at = (i: number, off: number) => ({ x: xOf(i), y: yOf(icpt + slope * i + off) });
+      const lines = [0, dev, -dev].map((off) => [at(i0, off), at(end, off)] as const);
+      if (lines.some(([p, q]) => p.x === null || p.y === null || q.x === null || q.y === null)) break;
+      const [[b0, b1], [u0, u1], [l0, l1]] = lines as unknown as Array<[Pt2, Pt2]>;
+      if (area) out.push({ t: "poly", pts: [[u0.x, u0.y], [u1.x, u1.y], [l1.x, l1.y], [l0.x, l0.y]], fill: area, closed: true });
+      seg(u0.x, u0.y, u1.x, u1.y);
+      seg(l0.x, l0.y, l1.x, l1.y);
+      seg(b0.x, b0.y, b1.x, b1.y, color, lw, [6, 4]);
+      break;
+    }
+
+    case "flatTopBottom":
+    case "disjointChannel": {
+      const [x1, y1, x2, y2] = extendSeg(A.x, A.y, B.x, B.y, o.extendLeft, o.extendRight);
+      seg(x1, y1, x2, y2);
+      if (!C) break;
+      // Flat: the third point's price all along. Disjoint: from it at the first time, with the
+      // trend line's slope the other way.
+      const ya = C.y;
+      const yb = tool === "flatTopBottom" ? C.y : yOf(C.price - (B.price - A.price));
+      if (yb === null) break;
+      const [px1, py1, px2, py2] = extendSeg(A.x, ya, B.x, yb, o.extendLeft, o.extendRight);
+      if (area) out.push({ t: "poly", pts: [[x1, y1], [x2, y2], [px2, py2], [px1, py1]], fill: area, closed: true });
+      seg(px1, py1, px2, py2);
+      break;
+    }
+
+    case "pitchfork":
+    case "schiffPitchfork":
+    case "modifiedSchiff":
+    case "insidePitchfork": {
+      if (!C) {
+        guide(A, B);
+        break;
+      }
+      // The handle starts at the pivot (moved, for Schiff's and the inside one) and runs through
+      // the middle of the other two points; the tines are its parallels through them.
+      const P =
+        tool === "schiffPitchfork" ? { x: A.x, y: (A.y + B.y) / 2 }
+        : tool === "modifiedSchiff" ? { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 }
+        : tool === "insidePitchfork" ? { x: (A.x + C.x) / 2, y: (A.y + C.y) / 2 }
+        : { x: A.x, y: A.y };
+      const M = { x: (B.x + C.x) / 2, y: (B.y + C.y) / 2 };
+      const len = Math.hypot(M.x - P.x, M.y - P.y) || 1;
+      const D = { x: ((M.x - P.x) / len) * FAR, y: ((M.y - P.y) / len) * FAR };
+      if (P.x !== A.x || P.y !== A.y) seg(A.x, A.y, P.x, P.y, withAlpha(color, 0.7), 1, [4, 4]);
+      seg(B.x, B.y, C.x, C.y, color, lw, dash);
+      seg(P.x, P.y, P.x + D.x, P.y + D.y);
+      const tines = [{ v: 0, c: color, s: M }];
+      for (const l of levels)
+        for (const side of [B, C]) tines.push({ v: side === B ? l.value : -l.value, c: l.color, s: { x: M.x + (side.x - M.x) * l.value, y: M.y + (side.y - M.y) * l.value } });
+      tines.sort((p, q) => p.v - q.v);
+      for (let i = 0; i + 1 < tines.length; i++) {
+        const [p, q] = [tines[i].s, tines[i + 1].s];
+        band([[p.x, p.y], [p.x + D.x, p.y + D.y], [q.x + D.x, q.y + D.y], [q.x, q.y]], tines[Math.abs(tines[i].v) > Math.abs(tines[i + 1].v) ? i : i + 1].c);
+      }
+      for (const t of tines) if (t.v !== 0) seg(t.s.x, t.s.y, t.s.x + D.x, t.s.y + D.y, t.c, lw, dash);
+      break;
+    }
+
     case "channel": {
       const [bx1, by1, bx2, by2] = extendSeg(A.x, A.y, B.x, B.y, o.extendLeft, o.extendRight);
       seg(bx1, by1, bx2, by2);
@@ -629,6 +786,412 @@ export function shapesFor(tool: ToolId, ctx: GeometryContext): Shape[] {
         if (o.showLevels) text(xb + 4, y, gannLabel(l.value), l.color, "left", "middle");
       }
       wedges(A, ends);
+      break;
+    }
+
+    // ---- patterns ----
+    case "xabcd":
+    case "cypher": {
+      const [X, PA, PB, PC, PD] = a;
+      if (area && PB) out.push({ t: "poly", pts: [[X.x, X.y], [PA.x, PA.y], [PB.x, PB.y]], fill: area, closed: true });
+      if (area && PD) out.push({ t: "poly", pts: [[PB.x, PB.y], [PC.x, PC.y], [PD.x, PD.y]], fill: area, closed: true });
+      line(a);
+      if (PB) ratio(X, PB, leg(PA, PB) / leg(X, PA));
+      if (tool === "xabcd") {
+        if (PC) ratio(PA, PC, leg(PB, PC) / leg(PA, PB));
+        if (PD) ratio(PB, PD, leg(PC, PD) / leg(PB, PC));
+        if (PD) ratio(X, PD, leg(PA, PD) / leg(X, PA));
+      } else {
+        if (PC) ratio(X, PC, leg(X, PC) / leg(X, PA));
+        if (PD) ratio(PB, PD, leg(PC, PD) / leg(X, PC));
+      }
+      ["X", "A", "B", "C", "D"].forEach((nm, i) => pointName(a, i, nm));
+      break;
+    }
+    case "abcd": {
+      const [PA, PB, PC, PD] = a;
+      line(a);
+      if (PC) ratio(PA, PC, leg(PB, PC) / leg(PA, PB));
+      if (PD) ratio(PB, PD, leg(PC, PD) / leg(PB, PC));
+      ["A", "B", "C", "D"].forEach((nm, i) => pointName(a, i, nm));
+      break;
+    }
+    case "headShoulders": {
+      // Each shoulder and the head filled down to the neckline (through the two troughs).
+      if (area) for (const [i, j, k] of [[0, 1, 2], [2, 3, 4], [4, 5, 6]]) if (a[k]) out.push({ t: "poly", pts: [a[i], a[j], a[k]].map((q) => [q.x, q.y] as [number, number]), fill: area, closed: true });
+      line(a);
+      if (a[4]) {
+        const [n1, n2] = [a[2], a[4]];
+        const slope = n2.x !== n1.x ? (n2.y - n1.y) / (n2.x - n1.x) : 0;
+        const x0 = a[0].x;
+        const x1 = (a[6] ?? n2).x;
+        seg(x0, n1.y + slope * (x0 - n1.x), x1, n1.y + slope * (x1 - n1.x), color, lw, [6, 4]);
+      }
+      pointName(a, 1, "Left Shoulder");
+      pointName(a, 3, "Head");
+      pointName(a, 5, "Right Shoulder");
+      break;
+    }
+    case "trianglePattern": {
+      const [PA, PB, PC, PD] = a;
+      if (PD) {
+        // Where its two sides meet: the apex the triangle narrows to.
+        const den = (PC.x - PA.x) * (PD.y - PB.y) - (PC.y - PA.y) * (PD.x - PB.x);
+        const t = den !== 0 ? ((PB.x - PA.x) * (PD.y - PB.y) - (PB.y - PA.y) * (PD.x - PB.x)) / den : NaN;
+        const apex = Number.isFinite(t) && t > 1 && t < 50 ? { x: PA.x + (PC.x - PA.x) * t, y: PA.y + (PC.y - PA.y) * t } : null;
+        if (area) out.push({ t: "poly", pts: (apex ? [PA, apex, PB] : [PA, PC, PD, PB]).map((q) => [q.x, q.y] as [number, number]), fill: area, closed: true });
+        const endA = apex ?? PC;
+        const endB = apex ?? PD;
+        seg(PA.x, PA.y, endA.x, endA.y, withAlpha(color, 0.8), 1, [4, 4]);
+        seg(PB.x, PB.y, endB.x, endB.y, withAlpha(color, 0.8), 1, [4, 4]);
+      }
+      line(a);
+      ["A", "B", "C", "D"].forEach((nm, i) => pointName(a, i, nm));
+      break;
+    }
+    case "threeDrives": {
+      line(a);
+      ratio(a[1], a[3], a[3] && a[2] ? leg(a[2], a[3]) / leg(a[1], a[2]) : NaN);
+      ratio(a[3], a[5], a[5] && a[4] ? leg(a[4], a[5]) / leg(a[3], a[4]) : NaN);
+      ratio(a[2], a[4], a[4] ? leg(a[3], a[4]) / leg(a[2], a[3]) : NaN);
+      pointName(a, 1, "Drive 1");
+      pointName(a, 3, "Drive 2");
+      pointName(a, 5, "Drive 3");
+      break;
+    }
+    case "elliottImpulse":
+    case "elliottCorrection":
+    case "elliottTriangle":
+    case "elliottDouble":
+    case "elliottTriple": {
+      const names = { elliottImpulse: "12345", elliottCorrection: "ABC", elliottTriangle: "ABCDE", elliottDouble: "WXY", elliottTriple: "WXYXZ" }[tool];
+      line(a);
+      [...names].forEach((nm, i) => pointName(a, i + 1, `(${nm})`));
+      break;
+    }
+    case "cyclicLines": {
+      // The span between the points, again and again to the right.
+      const span = B.logical - A.logical;
+      if (span === 0) break;
+      for (let k = 0; k < 400; k++) {
+        const x = xOf(A.logical + span * k);
+        if (x === null || (span > 0 ? x > W + 2 : x < -2)) break;
+        seg(x, -FAR, x, FAR);
+      }
+      break;
+    }
+    case "timeCycles": {
+      const span = B.logical - A.logical;
+      if (span === 0) break;
+      const ry = Math.abs(B.y - A.y) || Math.abs(B.x - A.x) / 2;
+      for (let k = 0; k < 400; k++) {
+        const x0 = xOf(A.logical + span * k);
+        const x1 = xOf(A.logical + span * (k + 1));
+        if (x0 === null || x1 === null || (span > 0 ? x0 > W + 2 : x0 < -2)) break;
+        out.push({ t: "ellipse", cx: (x0 + x1) / 2, cy: A.y, rx: Math.abs(x1 - x0) / 2, ry, start: Math.PI, end: 2 * Math.PI, color, width: lw, dash, fill: area });
+      }
+      break;
+    }
+    case "sineLine": {
+      // A peak at the first point, the trough after it at the second, on across the pane.
+      const half = B.x - A.x;
+      if (half === 0) break;
+      const mid = (A.y + B.y) / 2;
+      const amp = (B.y - A.y) / 2;
+      const pts: Anchor[] = [];
+      for (let x = -4; x <= W + 4; x += 3) pts.push({ x, y: mid - amp * Math.cos((Math.PI * (x - A.x)) / half), logical: 0, price: 0 });
+      line(pts);
+      break;
+    }
+
+    // ---- forecasting and measuring ----
+    case "longPosition":
+    case "shortPosition": {
+      // Entry, target and stop (worked out at 1:1 until it's moved): the target's zone in green,
+      // the stop's in red, and the risk/reward between them.
+      const stopPrice = C ? C.price : 2 * A.price - B.price;
+      const yS = C ? C.y : yOf(stopPrice);
+      if (yS === null) break;
+      let [x1, x2] = [Math.min(A.x, B.x), Math.max(A.x, B.x)];
+      if (x2 - x1 < 20) x2 = x1 + 20;
+      const zone = (y0: number, y1: number, fill: string) => out.push({ t: "poly", pts: [[x1, y0], [x2, y0], [x2, y1], [x1, y1]], fill, closed: true });
+      zone(A.y, B.y, o.profitColor ?? "rgba(8,153,129,0.25)");
+      zone(A.y, yS, o.stopColor ?? "rgba(242,54,69,0.25)");
+      seg(x1, A.y, x2, A.y, "#787B86", 1, []);
+      if (o.showLabels) {
+        const cx = (x1 + x2) / 2;
+        const up = B.y < A.y;
+        const rr = Math.abs(A.price - stopPrice) > 0 ? Math.abs(B.price - A.price) / Math.abs(A.price - stopPrice) : 0;
+        tag(cx, up ? B.y - 3 : B.y + 3, `Target: ${formatPrice(B.price)} (${signed(pct(A.price, B.price), pct(A.price, B.price).toFixed(2))}%)`, "#089981", "center", up ? "bottom" : "top", "#ffffff", o.labelSize + 1);
+        tag(cx, up ? yS + 3 : yS - 3, `Stop: ${formatPrice(stopPrice)} (${signed(pct(A.price, stopPrice), pct(A.price, stopPrice).toFixed(2))}%)`, "#F23645", "center", up ? "top" : "bottom", "#ffffff", o.labelSize + 1);
+        tag(cx, A.y, `Risk/Reward Ratio: ${rr.toFixed(2)}`, "#787B86", "center", "middle", "#ffffff", o.labelSize + 1);
+      }
+      break;
+    }
+    case "forecast": {
+      seg(A.x, A.y, B.x, B.y);
+      arrowHead(B, A);
+      out.push({ t: "ellipse", cx: A.x, cy: A.y, rx: 3.5, ry: 3.5, color, width: 1, fill: color });
+      const change = B.price - A.price;
+      const bars = Math.round(B.logical - A.logical);
+      const time = ctx.timeOf ? `, ${fmtDuration(ctx.timeOf(B.logical) - ctx.timeOf(A.logical))}` : "";
+      const up = B.y <= A.y;
+      tag(B.x, up ? B.y - 8 : B.y + 8, `${signed(change, formatPrice(change))} (${signed(change, pct(A.price, B.price).toFixed(2))}%)\nin ${bars} bars${time}`, change >= 0 ? "#089981" : "#F23645", "center", up ? "bottom" : "top", "#ffffff", o.labelSize + 1);
+      break;
+    }
+    case "anchoredVwap": {
+      // The volume-weighted average of each bar's typical price, from the anchored bar on.
+      const bars = ctx.bars ?? [];
+      const pts: Anchor[] = [];
+      let pv = 0;
+      let vol = 0;
+      for (let i = Math.max(0, Math.round(A.logical)); i < bars.length; i++) {
+        const b = bars[i];
+        const v = b.volume && b.volume > 0 ? b.volume : 1;
+        pv += ((b.high + b.low + b.close) / 3) * v;
+        vol += v;
+        const x = xOf(i);
+        const y = yOf(pv / vol);
+        if (x !== null && y !== null) pts.push({ x, y, logical: i, price: pv / vol });
+      }
+      if (pts.length > 1) line(pts);
+      else out.push({ t: "ellipse", cx: A.x, cy: A.y, rx: 3.5, ry: 3.5, color, width: 1, fill: color });
+      if (pts.length && o.showLabels) text(pts[pts.length - 1].x + 4, pts[pts.length - 1].y, "VWAP", color, "left", "middle", undefined, o.labelSize);
+      break;
+    }
+    case "volumeProfile": {
+      // The volume traded in each row of price between the two times, each bar's spread evenly
+      // over its range; up volume, then down, from the left edge; the busiest row's price.
+      const bars = ctx.bars ?? [];
+      const i0 = Math.max(0, Math.ceil(Math.min(A.logical, B.logical)));
+      const i1 = Math.min(bars.length - 1, Math.floor(Math.max(A.logical, B.logical)));
+      const xl = Math.min(A.x, B.x);
+      const xr = Math.max(A.x, B.x);
+      seg(xl, -FAR, xl, FAR, withAlpha(color, 0.35), 1, [4, 4]);
+      seg(xr, -FAR, xr, FAR, withAlpha(color, 0.35), 1, [4, 4]);
+      if (i1 < i0) break;
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let i = i0; i <= i1; i++) {
+        lo = Math.min(lo, bars[i].low);
+        hi = Math.max(hi, bars[i].high);
+      }
+      const rows = Math.max(1, Math.round(o.rows));
+      const step = (hi - lo) / rows || 1;
+      const up = new Array(rows).fill(0);
+      const down = new Array(rows).fill(0);
+      for (let i = i0; i <= i1; i++) {
+        const b = bars[i];
+        const v = b.volume ?? 0;
+        const r0 = Math.min(rows - 1, Math.floor((b.low - lo) / step));
+        const r1 = Math.min(rows - 1, Math.floor((b.high - lo) / step));
+        const share = v / (r1 - r0 + 1);
+        for (let r = r0; r <= r1; r++) (b.close >= b.open ? up : down)[r] += share;
+      }
+      const totals = up.map((u, r) => u + down[r]);
+      const max = Math.max(...totals) || 1;
+      const width = (xr - xl) * 0.3;
+      for (let r = 0; r < rows; r++) {
+        const yb = yOf(lo + step * r);
+        const yt = yOf(lo + step * (r + 1));
+        if (yb === null || yt === null) continue;
+        const [t1, b1] = [Math.min(yt, yb) + 0.5, Math.max(yt, yb) - 0.5];
+        const wu = (up[r] / max) * width;
+        const wd = (down[r] / max) * width;
+        out.push({ t: "poly", pts: [[xl, t1], [xl + wu, t1], [xl + wu, b1], [xl, b1]], fill: o.upColor ?? "rgba(41,98,255,0.45)", closed: true });
+        out.push({ t: "poly", pts: [[xl + wu, t1], [xl + wu + wd, t1], [xl + wu + wd, b1], [xl + wu, b1]], fill: o.downColor ?? "rgba(251,192,45,0.45)", closed: true });
+      }
+      if (o.pocLine) {
+        const poc = totals.indexOf(Math.max(...totals));
+        const y = yOf(lo + step * (poc + 0.5));
+        if (y !== null) seg(xl, y, xr, y, "#F23645", 1, []);
+      }
+      break;
+    }
+    case "priceRange":
+    case "dateRange": {
+      const prices = tool === "priceRange";
+      const c = prices ? (B.price >= A.price ? "#2962FF" : "#F23645") : B.logical >= A.logical ? "#2962FF" : "#F23645";
+      const [x1, x2] = [Math.min(A.x, B.x), Math.max(A.x, B.x)];
+      const [y1, y2] = [Math.min(A.y, B.y), Math.max(A.y, B.y)];
+      out.push({ t: "poly", pts: [[x1, y1], [x2, y1], [x2, y2], [x1, y2]], fill: o.fill ? withAlpha(c, o.fillOpacity) : undefined, stroke: o.fill ? undefined : c, width: 1, closed: true });
+      if (prices) {
+        const xm = (x1 + x2) / 2;
+        seg(xm, A.y, xm, B.y, c, 1, []);
+        arrowHead({ x: xm, y: B.y }, { x: xm, y: A.y });
+        const change = B.price - A.price;
+        const up = B.y <= A.y;
+        text(xm, up ? y1 - 4 : y2 + 4, `${signed(change, formatPrice(change))} (${signed(change, pct(A.price, B.price).toFixed(2))}%)`, o.labelBackground ? "#ffffff" : c, "center", up ? "bottom" : "top", o.labelBackground ? c : undefined, o.labelSize);
+      } else {
+        const ym = (y1 + y2) / 2;
+        seg(A.x, ym, B.x, ym, c, 1, []);
+        arrowHead({ x: B.x, y: ym }, { x: A.x, y: ym });
+        const bars = Math.round(B.logical - A.logical);
+        const time = ctx.timeOf ? `, ${fmtDuration(ctx.timeOf(B.logical) - ctx.timeOf(A.logical))}` : "";
+        text((x1 + x2) / 2, y2 + 4, `${bars} bars${time}`, o.labelBackground ? "#ffffff" : c, "center", "top", o.labelBackground ? c : undefined, o.labelSize);
+      }
+      break;
+    }
+
+    // ---- shapes ----
+    case "brush":
+      line(a, false, undefined, lw);
+      break;
+    case "highlighter":
+      line(a, false, undefined, lw * 5 + 6, withAlpha(color, 0.35));
+      break;
+    case "arrowMarker": {
+      // A broad arrow: its shaft from the first point, its head at the second.
+      const L = Math.hypot(B.x - A.x, B.y - A.y) || 1;
+      const [ux, uy] = [(B.x - A.x) / L, (B.y - A.y) / L];
+      const [nx, ny] = [-uy, ux];
+      const w = 4 + lw * 2;
+      const h = Math.min(L * 0.45, 26);
+      const at = (along: number, across: number): [number, number] => [A.x + ux * along + nx * across, A.y + uy * along + ny * across];
+      out.push({ t: "poly", pts: [at(0, -w / 2), at(L - h, -w / 2), at(L - h, -w * 1.6), [B.x, B.y], at(L - h, w * 1.6), at(L - h, w / 2), at(0, w / 2)], fill: color, closed: true });
+      if (drawing.text) out.push({ t: "text", x: A.x - ux * 6, y: A.y - uy * 6, text: drawing.text, color: o.textColor ?? color, align: ux >= 0 ? "right" : "left", base: "middle", size: o.fontSize, bold: o.bold, italic: o.italic });
+      break;
+    }
+    case "arrow":
+      seg(A.x, A.y, B.x, B.y);
+      arrowHead(B, A);
+      break;
+    case "arrowUp":
+    case "arrowDown": {
+      // Below the bar pointing up at it, or above it pointing down.
+      const d = tool === "arrowUp" ? 1 : -1;
+      const tip = A.y + 4 * d;
+      const w = 7 + lw;
+      out.push({ t: "poly", pts: [[A.x, tip], [A.x + w, tip + 11 * d], [A.x + w / 2.4, tip + 11 * d], [A.x + w / 2.4, tip + 26 * d], [A.x - w / 2.4, tip + 26 * d], [A.x - w / 2.4, tip + 11 * d], [A.x - w, tip + 11 * d]], fill: color, closed: true });
+      if (drawing.text) out.push({ t: "text", x: A.x, y: tip + 30 * d, text: drawing.text, color: o.textColor ?? color, align: "center", base: d > 0 ? "top" : "bottom", size: o.fontSize, bold: o.bold, italic: o.italic });
+      break;
+    }
+    case "rotatedRect": {
+      if (!C) {
+        seg(A.x, A.y, B.x, B.y);
+        break;
+      }
+      // One side from A to B; the other at C's distance from it.
+      const L = Math.hypot(B.x - A.x, B.y - A.y) || 1;
+      const [nx, ny] = [-(B.y - A.y) / L, (B.x - A.x) / L];
+      const d = (C.x - A.x) * nx + (C.y - A.y) * ny;
+      line([A, B, { x: B.x + nx * d, y: B.y + ny * d }, { x: A.x + nx * d, y: A.y + ny * d }], true, area);
+      centerText((A.x + B.x) / 2 + (nx * d) / 2, (A.y + B.y) / 2 + (ny * d) / 2);
+      break;
+    }
+    case "path":
+      line(a);
+      if (a.length > 1) arrowHead(a[a.length - 1], a[a.length - 2]);
+      break;
+    case "polyline":
+    case "triangle":
+      line(a, a.length > 2, a.length > 2 ? area : undefined);
+      if (a.length > 2) centerText(a.reduce((sx, q) => sx + q.x, 0) / a.length, a.reduce((sy, q) => sy + q.y, 0) / a.length);
+      break;
+    case "circle": {
+      const r = Math.hypot(B.x - A.x, B.y - A.y);
+      out.push({ t: "ellipse", cx: A.x, cy: A.y, rx: r, ry: r, color, width: lw, dash, fill: area });
+      centerText(A.x, A.y);
+      break;
+    }
+    case "ellipse":
+      out.push({ t: "ellipse", cx: (A.x + B.x) / 2, cy: (A.y + B.y) / 2, rx: Math.abs(B.x - A.x) / 2, ry: Math.abs(B.y - A.y) / 2, color, width: lw, dash, fill: area });
+      centerText((A.x + B.x) / 2, (A.y + B.y) / 2);
+      break;
+    case "arc": {
+      if (!C) {
+        guide(A, B);
+        break;
+      }
+      // The circle through its ends and the point it passes, drawn the way round that passes it.
+      const d = 2 * (A.x * (B.y - C.y) + B.x * (C.y - A.y) + C.x * (A.y - B.y));
+      if (Math.abs(d) < 1e-6) {
+        seg(A.x, A.y, B.x, B.y);
+        break;
+      }
+      const sq = (q: Anchor) => q.x * q.x + q.y * q.y;
+      const cx = (sq(A) * (B.y - C.y) + sq(B) * (C.y - A.y) + sq(C) * (A.y - B.y)) / d;
+      const cy = (sq(A) * (C.x - B.x) + sq(B) * (A.x - C.x) + sq(C) * (B.x - A.x)) / d;
+      const r = Math.hypot(A.x - cx, A.y - cy);
+      const ang = (q: Anchor) => Math.atan2(q.y - cy, q.x - cx);
+      const norm = (v: number) => ((v % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      const [aA, aB, aC] = [ang(A), ang(B), ang(C)];
+      const passes = norm(aC - aA) < norm(aB - aA);
+      const [s0, sweep] = passes ? [aA, norm(aB - aA)] : [aB, norm(aA - aB)];
+      out.push({ t: "ellipse", cx, cy, rx: r, ry: r, start: s0, end: s0 + sweep, color, width: lw, dash, fill: area });
+      break;
+    }
+    case "curve":
+    case "doubleCurve": {
+      // A Bézier curve between the ends, bent towards the other point(s).
+      const D = a[3];
+      if (!C) {
+        seg(A.x, A.y, B.x, B.y);
+        break;
+      }
+      const pts: Anchor[] = [];
+      for (let k = 0; k <= 48; k++) {
+        const t = k / 48;
+        const u = 1 - t;
+        const [x, y] =
+          tool === "doubleCurve" && D
+            ? [u * u * u * A.x + 3 * u * u * t * C.x + 3 * u * t * t * D.x + t * t * t * B.x, u * u * u * A.y + 3 * u * u * t * C.y + 3 * u * t * t * D.y + t * t * t * B.y]
+            : [u * u * A.x + 2 * u * t * C.x + t * t * B.x, u * u * A.y + 2 * u * t * C.y + t * t * B.y];
+        pts.push({ x, y, logical: 0, price: 0 });
+      }
+      line(pts);
+      break;
+    }
+
+    // ---- annotations ----
+    case "note": {
+      const bg = noteBg ?? color;
+      out.push({ t: "poly", pts: [[A.x - 7, A.y - 8], [A.x + 4, A.y - 8], [A.x + 7, A.y - 5], [A.x + 7, A.y + 8], [A.x - 7, A.y + 8]], fill: bg, closed: true });
+      seg(A.x - 4, A.y - 3, A.x + 4, A.y - 3, "#ffffff", 1, []);
+      seg(A.x - 4, A.y + 1, A.x + 4, A.y + 1, "#ffffff", 1, []);
+      seg(A.x - 4, A.y + 5, A.x + 1, A.y + 5, "#ffffff", 1, []);
+      if (drawing.text) out.push({ t: "text", x: A.x + 13, y: A.y, text: drawing.text, color: noteFg, align: "left", base: "middle", bg: noteBg, size: o.fontSize, bold: o.bold, italic: o.italic });
+      break;
+    }
+    case "priceNote": {
+      out.push({ t: "ellipse", cx: A.x, cy: A.y, rx: 3, ry: 3, color, width: 1, fill: color });
+      seg(A.x, A.y, B.x, B.y);
+      const label = drawing.text ? `${formatPrice(A.price)}  ${drawing.text}` : formatPrice(A.price);
+      out.push({ t: "text", x: B.x, y: B.y, text: label, color: o.textColor ?? "#ffffff", align: B.x >= A.x ? "left" : "right", base: "middle", bg: color, size: o.fontSize, bold: o.bold, italic: o.italic });
+      break;
+    }
+    case "pin": {
+      const bg = noteBg ?? color;
+      seg(A.x, A.y, A.x, A.y - 12, bg, 2, []);
+      out.push({ t: "ellipse", cx: A.x, cy: A.y - 18, rx: 7, ry: 7, color: bg, width: 1, fill: bg });
+      out.push({ t: "ellipse", cx: A.x, cy: A.y - 18, rx: 2.5, ry: 2.5, color: "#ffffff", width: 1, fill: "#ffffff" });
+      if (drawing.text) out.push({ t: "text", x: A.x, y: A.y - 29, text: drawing.text, color: noteFg, align: "center", base: "bottom", bg: noteBg, size: o.fontSize, bold: o.bold, italic: o.italic });
+      break;
+    }
+    case "callout": {
+      // A box of text at the second point, its pointer at the first.
+      out.push({ t: "poly", pts: [[A.x, A.y], [B.x - 7, B.y], [B.x + 7, B.y]], fill: noteBg ?? color, closed: true });
+      out.push({ t: "text", x: B.x, y: B.y, text: drawing.text || "Text", color: noteFg, align: "center", base: "middle", bg: noteBg, border: noteBg ? undefined : color, size: o.fontSize, bold: o.bold, italic: o.italic });
+      break;
+    }
+    case "priceLabel": {
+      out.push({ t: "poly", pts: [[A.x, A.y], [A.x + 5, A.y - 9], [A.x + 13, A.y - 9]], fill: noteBg ?? color, closed: true });
+      const label = drawing.text ? `${formatPrice(A.price)}  ${drawing.text}` : formatPrice(A.price);
+      out.push({ t: "text", x: A.x + 2, y: A.y - 8, text: label, color: noteFg, align: "left", base: "bottom", bg: noteBg, border: noteBg ? undefined : color, size: o.fontSize, bold: o.bold, italic: o.italic });
+      break;
+    }
+    case "signpost": {
+      const bg = noteBg ?? color;
+      seg(A.x, A.y, A.x, A.y - 40, bg, 2, []);
+      out.push({ t: "ellipse", cx: A.x, cy: A.y, rx: 3, ry: 3, color: bg, width: 1, fill: bg });
+      out.push({ t: "text", x: A.x, y: A.y - 40, text: drawing.text || "Text", color: noteFg, align: "center", base: "bottom", bg: noteBg, border: noteBg ? undefined : color, size: o.fontSize, bold: o.bold, italic: o.italic });
+      break;
+    }
+    case "flagMark": {
+      const bg = noteBg ?? color;
+      seg(A.x, A.y, A.x, A.y - 26, bg, 2, []);
+      out.push({ t: "poly", pts: [[A.x, A.y - 26], [A.x + 17, A.y - 20.5], [A.x, A.y - 15]], fill: bg, closed: true });
+      if (drawing.text) out.push({ t: "text", x: A.x + 20, y: A.y - 20, text: drawing.text, color: o.textColor ?? bg, align: "left", base: "middle", size: o.fontSize, bold: o.bold, italic: o.italic });
       break;
     }
 

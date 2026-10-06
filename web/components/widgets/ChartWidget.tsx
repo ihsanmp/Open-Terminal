@@ -278,6 +278,12 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   }, [tool, cursorMode]);
   const selected = drawings.find((d) => d.id === selectedDrawing) ?? null;
   const patchDrawing = (id: string, patch: Partial<Drawing>) => setDrawings((list) => list.map((d) => (d.id === id ? { ...d, ...patch } : d)));
+  /** A drawing's look changed: kept as its tool's for the next one drawn, as TradingView does. */
+  const restyle = (d: Drawing, patch: Partial<Drawing>) => {
+    patchDrawing(d.id, patch);
+    const next = { ...d, ...patch };
+    setDrawTemplates((m) => ({ ...m, [d.tool]: { color: next.color, width: next.width, dash: next.dash, options: next.options } }));
+  };
   const removeDrawing = (id: string) => {
     setDrawings((list) => list.filter((d) => d.id !== id));
     setSelectedDrawing(null);
@@ -821,6 +827,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       interval: intervalSeconds,
       formatPrice: (v) => fmt(v, pxPrecision),
       formatTime: (t) => formatChartTime(t, intraday, timezone),
+      bars: candles,
       intervalKind: timeframeKindOf(intervalSeconds),
     });
     main.attachPrimitive(layer);
@@ -1184,11 +1191,11 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
             <span className="dim px-1">{TOOL_BY_ID.get(selected.tool)?.label}</span>
             <ColorPicker
               color={selected.color}
-              onColor={(color) => patchDrawing(selected.id, { color })}
+              onColor={(color) => restyle(selected, { color })}
               width={selected.tool === "text" ? undefined : selected.width}
-              onWidth={selected.tool === "text" ? undefined : (width) => patchDrawing(selected.id, { width })}
+              onWidth={selected.tool === "text" ? undefined : (width) => restyle(selected, { width })}
               dash={TOOL_FEATURES[selected.tool].dash ? selected.dash ?? "solid" : undefined}
-              onDash={(dash) => patchDrawing(selected.id, { dash })}
+              onDash={(dash) => restyle(selected, { dash })}
             />
             <button className="px-1.5 h-6 border border-[var(--border)] dim hover:text-[var(--text)]" title="Settings (double-click the drawing)" onClick={() => setDrawingSettings(selected.id)}>
               ⚙ Settings
@@ -1211,7 +1218,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         <DrawingSettings
           drawing={drawings.find((d) => d.id === drawingSettings)!}
           template={drawTemplates[drawings.find((d) => d.id === drawingSettings)!.tool]}
-          onApply={(next) => patchDrawing(next.id, next)}
+          onApply={(next) => restyle(next, next)}
           onSaveTemplate={(t) => setDrawTemplates((m) => ({ ...m, [drawings.find((d) => d.id === drawingSettings)!.tool]: t }))}
           onClose={() => setDrawingSettings(null)}
         />

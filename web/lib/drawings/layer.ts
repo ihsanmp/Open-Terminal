@@ -5,8 +5,8 @@
 import type { CanvasRenderingTarget2D } from "fancy-canvas";
 import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Logical, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 import { fontPx } from "../font-scale";
-import { distanceTo, shapesFor, textBox, type Anchor, type Shape } from "./geometry";
-import { logicalOfTime, timeOfLogical, type Drawing, type DrawPoint, type TimeframeKind, type ToolId } from "./tools";
+import { distanceTo, shapesFor, textBox, type Anchor, type Bar, type Shape } from "./geometry";
+import { TOOL_BY_ID, logicalOfTime, timeOfLogical, type Drawing, type DrawPoint, type TimeframeKind, type ToolId } from "./tools";
 
 const FONT = "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif";
 const HANDLE = 5;
@@ -22,6 +22,8 @@ export type LayerData = {
   formatPrice: (p: number) => string;
   /** A time as the chart writes it (a vertical line's time label). */
   formatTime?: (t: number) => string;
+  /** The chart's bars, by index (for the tools that read them: regression, VWAP, volume profile). */
+  bars?: ReadonlyArray<Bar>;
   /** The chart's kind of interval, for each drawing's Visibility. */
   intervalKind: TimeframeKind;
 };
@@ -73,6 +75,21 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
     return logical === null || price === null ? null : { logical, price };
   }
 
+  /**
+   * A bar index → pane x, between bars too. The library places whole bar indexes only (a
+   * fraction comes back at 0), and a point drawn on another interval falls between this one's
+   * bars: an H1 point on a D1 chart, say. So it's placed in proportion between its two bars.
+   */
+  private xOf(logical: number): number | null {
+    const ts = this.attachedTo!.chart.timeScale();
+    const i = Math.floor(logical);
+    const f = logical - i;
+    const a = ts.logicalToCoordinate(i as Logical);
+    if (f < 1e-9 || a === null) return a;
+    const b = ts.logicalToCoordinate((i + 1) as Logical);
+    return b === null ? null : a + (b - a) * f;
+  }
+
   /** A drawing point → pane pixels. */
   toPixel(p: DrawPoint): { x: number; y: number } | null {
     return this.anchorsOf([p])?.[0] ?? null;
@@ -81,11 +98,10 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
   private anchorsOf(points: DrawPoint[]): Anchor[] | null {
     const at = this.attachedTo;
     if (!at) return null;
-    const ts = at.chart.timeScale();
     const out: Anchor[] = [];
     for (const p of points) {
       const logical = logicalOfTime(this.data.times, this.data.interval, p.time);
-      const x = ts.logicalToCoordinate(logical as Logical);
+      const x = this.xOf(logical);
       const y = at.series.priceToCoordinate(p.price);
       if (x === null || y === null) return null;
       out.push({ x, y, logical, price: p.price });
@@ -100,10 +116,11 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
       selected,
       timeOf: (l) => timeOfLogical(times, interval, l),
       formatTime: this.data.formatTime,
+      bars: this.data.bars,
       anchors,
       width,
       height,
-      xOf: (l) => at.chart.timeScale().logicalToCoordinate(l as Logical),
+      xOf: (l) => this.xOf(l),
       yOf: (p) => at.series.priceToCoordinate(p),
       formatPrice: this.data.formatPrice,
       drawing: style,
@@ -120,7 +137,7 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
       const shapes = this.shapes(d.tool, anchors, d, width, height, d.id === this.data.selected);
       this.drawn.set(d.id, { anchors, shapes });
       render(ctx, shapes);
-      if (d.id === this.data.selected) handles(ctx, anchors);
+      if (d.id === this.data.selected) handles(ctx, freehand(d.tool) ? [] : anchors);
     }
     const p = this.data.preview;
     if (p) {
@@ -135,7 +152,7 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
   /** The drawing (and handle) under a pane point: the selected one's handles first, then the topmost drawing. */
   pick(x: number, y: number): { id: string; handle: number | null } | null {
     const sel = this.data.selected ? this.drawn.get(this.data.selected) : undefined;
-    if (sel) {
+    if (sel && !freehand(this.data.drawings.find((d) => d.id === this.data.selected)?.tool)) {
       const h = sel.anchors.findIndex((a) => Math.hypot(a.x - x, a.y - y) <= HANDLE + 3);
       if (h >= 0) return { id: this.data.selected!, handle: h };
     }
@@ -230,6 +247,9 @@ function render(ctx: CanvasRenderingContext2D, shapes: Shape[]) {
   }
   ctx.restore();
 }
+
+/** A brush stroke: picked and moved whole, without a handle on each of its many points. */
+const freehand = (tool: ToolId | undefined) => tool !== undefined && TOOL_BY_ID.get(tool)?.variable === "freehand";
 
 function handles(ctx: CanvasRenderingContext2D, anchors: Anchor[]) {
   ctx.save();
