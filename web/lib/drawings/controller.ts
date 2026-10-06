@@ -4,11 +4,17 @@
 // doesn't pan while it does. A drawing being moved is only redrawn until the pointer is released,
 // then saved once. With the Eraser cursor a click removes the drawing under it; with the Magic
 // cursor a drag draws its trail (components/chart/CursorEffects) instead of panning.
+//
+// A point can be placed by a click or by pressing and dragging to it. Holding Shift snaps the
+// point being placed or dragged straight from the point before it (a box to a square), and a
+// drawing dragged whole to one axis (lib/drawings/snap); pressing or letting go of Shift
+// updates it where the pointer is.
 
 import type { IChartApi } from "lightweight-charts";
 import type { CursorMode } from "../chart-cursor";
 import { defaultColor, TOOL_BY_ID, timeOfLogical, type Drawing, type DrawPoint, type ToolId } from "./tools";
 import type { DrawingLayer } from "./layer";
+import { constrainMove, constrainPoint, refIndex, shiftKindOf } from "./snap";
 
 export type DrawState = {
   tool: ToolId | null;
@@ -88,6 +94,40 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     e.stopImmediatePropagation();
   };
 
+  /** Where the pointer is held from with Shift: the pixels of a drawing point. */
+  const pixelOf = (p: DrawPoint | undefined) => (p ? layer.toPixel(p) : null);
+  /** The pointer, held straight from `from` when Shift is down (no magnet then: it would bend it). */
+  const snapped = (tool: ToolId, from: { x: number; y: number } | null, x: number, y: number, shift: boolean, magnet: boolean) => {
+    if (!shift || !from) return pointAt(x, y, magnet);
+    const c = constrainPoint(shiftKindOf(tool), from, { x, y });
+    return pointAt(c.x, c.y, false);
+  };
+
+  /** The tool in hand's next point, at the pointer: the drawing is placed with its last. */
+  const place = (x: number, y: number, shift: boolean) => {
+    const s = cb.state();
+    if (!s.tool) return;
+    const sofar = cb.placing.current ?? [];
+    const p = snapped(s.tool, pixelOf(sofar[sofar.length - 1]), x, y, shift, s.magnet);
+    if (!p) return;
+    const points = [...sofar, p];
+    const need = TOOL_BY_ID.get(s.tool)!.points;
+    if (points.length >= need) {
+      cb.placing.current = null;
+      layer.set({ preview: null });
+      finish(s.tool, points);
+      cb.onToolDone();
+    } else {
+      cb.placing.current = points;
+      layer.set({ preview: { tool: s.tool, points: [...points, p], style: previewStyle(s.tool) } });
+    }
+  };
+
+  /** Where a press that placed a point began: let go far enough away, it places the next. */
+  let pressAt: { x: number; y: number } | null = null;
+  /** The pointer's last place and Shift, to follow Shift pressed or let go without a move. */
+  let last: { x: number; y: number } | null = null;
+
   const onDown = (e: PointerEvent) => {
     if (e.button !== 0) return;
     const { x, y } = local(e);
@@ -96,19 +136,8 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     if (s.tool) {
       swallow(e);
       el.focus({ preventScroll: true });
-      const p = pointAt(x, y, s.magnet);
-      if (!p) return;
-      const points = [...(cb.placing.current ?? []), p];
-      const need = TOOL_BY_ID.get(s.tool)!.points;
-      if (points.length >= need) {
-        cb.placing.current = null;
-        layer.set({ preview: null });
-        finish(s.tool, points);
-        cb.onToolDone();
-      } else {
-        cb.placing.current = points;
-        layer.set({ preview: { tool: s.tool, points: [...points, p], style: previewStyle(s.tool) } });
-      }
+      place(x, y, e.shiftKey);
+      pressAt = cb.state().tool && cb.placing.current ? { x, y } : null;
       return;
     }
     if (s.cursor === "magic") {
@@ -139,40 +168,59 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     moved = null;
   };
 
-  const onMove = (e: PointerEvent) => {
+  /** The pointer at (x, y): the drawing being dragged follows, or the one being placed. */
+  const update = (x: number, y: number, shift: boolean) => {
     const s = cb.state();
     if (drag) {
-      e.stopImmediatePropagation();
-      const { x, y } = local(e);
-      const dx = x - drag.x;
-      const dy = y - drag.y;
+      const d = s.drawings.find((v) => v.id === drag!.id);
       let points: DrawPoint[] | null;
       if (drag.handle !== null) {
-        const p = pointAt(x, y, s.magnet);
-        points = p ? drag.points.map((q, i) => (i === drag!.handle ? p : q)) : null;
+        const h = drag.handle;
+        const p = d ? snapped(d.tool, pixelOf(drag.points[refIndex(h)]), x, y, shift, s.magnet) : pointAt(x, y, s.magnet);
+        points = p ? drag.points.map((q, i) => (i === h ? p : q)) : null;
       } else {
+        const [dx, dy] = shift ? constrainMove(x - drag.x, y - drag.y) : [x - drag.x, y - drag.y];
         const next = drag.anchors.map((a) => pointAt(a.x + dx, a.y + dy, false));
         points = next.every(Boolean) ? (next as DrawPoint[]) : null;
       }
       if (!points) return;
       moved = points;
-      layer.set({ drawings: s.drawings.map((d) => (d.id === drag!.id ? { ...d, points } : d)) });
+      layer.set({ drawings: s.drawings.map((v) => (v.id === drag!.id ? { ...v, points } : v)) });
       return;
     }
     if (s.tool) {
-      const { x, y } = local(e);
       if (!inMainPane(x, y)) return;
-      const p = pointAt(x, y, s.magnet);
+      const sofar = cb.placing.current ?? [];
+      const p = snapped(s.tool, pixelOf(sofar[sofar.length - 1]), x, y, shift, s.magnet);
       if (!p) return;
-      layer.set({ preview: { tool: s.tool, points: [...(cb.placing.current ?? []), p], style: previewStyle(s.tool) } });
+      layer.set({ preview: { tool: s.tool, points: [...sofar, p], style: previewStyle(s.tool) } });
     }
   };
 
-  const onUp = () => {
+  const onMove = (e: PointerEvent) => {
+    const { x, y } = local(e);
+    last = { x, y };
+    if (drag) e.stopImmediatePropagation();
+    update(x, y, e.shiftKey);
+  };
+
+  const onUp = (e: PointerEvent) => {
     held = false;
     if (drag && moved) cb.onUpdate(drag.id, { points: moved });
     drag = null;
     moved = null;
+    // Pressed on a point and dragged to the next: placed where it's let go (TradingView's drag).
+    if (pressAt && cb.state().tool) {
+      const { x, y } = local(e);
+      if (Math.hypot(x - pressAt.x, y - pressAt.y) > 6 && inMainPane(x, y)) place(x, y, e.shiftKey);
+    }
+    pressAt = null;
+  };
+
+  /** Shift pressed or let go with the pointer still: what it holds changes at once. */
+  const onShift = (e: KeyboardEvent) => {
+    if (e.key !== "Shift" || !last) return;
+    if (drag || cb.state().tool) update(last.x, last.y, e.type === "keydown");
   };
 
   const onDblClick = (e: MouseEvent) => {
@@ -197,11 +245,15 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
   el.addEventListener("dblclick", onDblClick, { capture: true });
   window.addEventListener("pointermove", onMove, { capture: true });
   window.addEventListener("pointerup", onUp);
+  window.addEventListener("keydown", onShift);
+  window.addEventListener("keyup", onShift);
   return () => {
     el.removeEventListener("pointerdown", onDown, { capture: true });
     el.removeEventListener("mousedown", onMouseDown, { capture: true });
     el.removeEventListener("dblclick", onDblClick, { capture: true });
     window.removeEventListener("pointermove", onMove, { capture: true });
     window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("keydown", onShift);
+    window.removeEventListener("keyup", onShift);
   };
 }
