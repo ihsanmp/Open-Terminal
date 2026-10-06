@@ -265,6 +265,35 @@ describe("BTC Spl-P/L & MVRV RoC", () => {
   });
 });
 
+describe("BTC: Profit/Loss Momentum Meter", () => {
+  const day = 86_400;
+  const start = Date.UTC(2022, 0, 1) / 1000;
+  const time = Array.from({ length: 30 }, (_, k) => start + k * day);
+  // The share in profit: 97 % for two weeks (greed), then 45 % (fear).
+  const data = { supply: { time, inProfit: time.map((_, k) => (k < 15 ? 0.97 : 0.45)) }, mvrv: { time: [], value: [] } };
+
+  it("averages profit % − loss % over its length and signals past the threshold", async () => {
+    const { btcProfitLossMomentum } = await import("../indicators/btc-pl-momentum");
+    const params: Params = defaultParams(INDICATOR_BY_ID.get("btc-pl-momentum")!);
+    const chart = barsOf(Array.from({ length: 30 }, () => flat(100)), day, start);
+    const r = btcProfitLossMomentum(chart, params, data);
+    const m = r.plots.momentum;
+    expect(m[5]).toBeNaN(); // the 7-day average needs 7 days
+    expect(m[10]).toBeCloseTo(94, 6); // 97 % in profit, 3 % in loss
+    expect(m[25]).toBeCloseTo(-10, 6);
+    expect(r.barColors![10]).toBe(params.sellColor); // ≥ 90: sell
+    expect(r.barColors![25]).toBe(params.buyColor); // ≤ 10: buy
+    expect(r.barColors![17]).toBeUndefined(); // in between, while the average comes down
+    expect(r.bgColors![10]).toMatch(/^rgba\(242,54,69,0.25\)$/);
+    expect(r.hlines!.map((h) => h.price)).toEqual([100, 80, 40, 20, 0]);
+  });
+
+  it("waits for the on-chain data", async () => {
+    const { btcProfitLossMomentum } = await import("../indicators/btc-pl-momentum");
+    expect(btcProfitLossMomentum(AAPL, {}, null)).toEqual({ plots: {} });
+  });
+});
+
 describe("Whale & Institution Alerts", () => {
   const day = 86_400;
   const start = Date.UTC(2026, 0, 1) / 1000;
