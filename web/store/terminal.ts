@@ -89,8 +89,10 @@ type TerminalState = {
   /** Starred chart intervals, shown on every chart's toolbar (TradingView's favorites). */
   favoriteIntervals: string[];
   commandOpen: boolean;
+  /** What the symbol search opens with (the letters typed on a chart). */
+  commandQuery: string;
   setActiveSymbol: (s: string) => void;
-  setCommandOpen: (open: boolean) => void;
+  setCommandOpen: (open: boolean, query?: string) => void;
   setView: (view: View) => void;
   ensurePage: (type: WidgetType) => void;
   addWidget: (type: WidgetType, symbol?: string) => void;
@@ -243,8 +245,9 @@ export const useTerminal = create<TerminalState>()(
       watchlist: ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL", "META", "SPY"],
       favoriteIntervals: [],
       commandOpen: false,
+      commandQuery: "",
       setActiveSymbol: (s) => set({ activeSymbol: s.toUpperCase() }),
-      setCommandOpen: (open) => set({ commandOpen: open }),
+      setCommandOpen: (open, query = "") => set({ commandOpen: open, commandQuery: query }),
       setView: (view) => set({ view }),
       ensurePage: (type) => set((st) => (st.pages.some((p) => p.type === type) ? {} : { pages: [...st.pages, newPage(st, type)] })),
       addWidget: (type, symbol) =>
