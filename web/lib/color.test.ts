@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PALETTE, opacityOf, parseColor, toHex, withOpacity } from "./color";
+import { PALETTE, contrastText, opacityOf, parseColor, toHex, withOpacity } from "./color";
 import { timeframeKind } from "./ta/types";
 
 describe("style editor colors", () => {
@@ -29,5 +29,17 @@ describe("style editor colors", () => {
     expect(timeframeKind(86_400)).toBe("days");
     expect(timeframeKind(604_800)).toBe("weeks");
     expect(timeframeKind(2_592_000)).toBe("months");
+  });
+});
+
+describe("text on a label", () => {
+  it("is black on light colors and white on dark ones, as the chart's own labels are", () => {
+    expect(contrastText("#FFFFFF")).toBe("#000000"); // white candles: the countdown was white on white
+    expect(contrastText("rgba(255,255,255,1)")).toBe("#000000");
+    expect(contrastText("#FFEB3B")).toBe("#000000");
+    expect(contrastText("#ff9900")).toBe("#ffffff"); // the line chart's orange, as the library labels it
+    expect(contrastText("#089981")).toBe("#ffffff");
+    expect(contrastText("#F23645")).toBe("#ffffff");
+    expect(contrastText("#000000")).toBe("#ffffff");
   });
 });
