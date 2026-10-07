@@ -26,6 +26,13 @@ export const toHex = (c: string) => {
   return `#${hex2(r)}${hex2(g)}${hex2(b)}`.toUpperCase();
 };
 
+/** Black or white text to read on a color, by the chart library's own rule for its axis labels
+ *  (so a label drawn beside one of its own matches it). */
+export function contrastText(c: string): "#000000" | "#ffffff" {
+  const { r, g, b } = parseColor(c);
+  return 0.199 * r + 0.687 * g + 0.114 * b > 160 ? "#000000" : "#ffffff";
+}
+
 /** Opacity 0–100 of a color. */
 export const opacityOf = (c: string) => Math.round(parseColor(c).a * 100);
 

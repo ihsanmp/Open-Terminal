@@ -3,6 +3,7 @@
 // label.new() / plotshape(shape.xcross) drawings.
 // Modeled on the official bands-indicator / session-highlighting plugin examples.
 import type { CanvasRenderingTarget2D } from "fancy-canvas";
+import { contrastText } from "../color";
 import type { Box, Label, Line, LineDash } from "./types";
 import type {
   IChartApi,
@@ -515,7 +516,8 @@ export class CountdownPrimitive extends PrimitiveBase {
             ctx.fillStyle = s.color;
             ctx.fillRect(0, top, mediaSize.width, Math.ceil(self.labelHeight));
             ctx.font = `${fontSize}px ${FONT}`;
-            ctx.fillStyle = "#ffffff";
+            // Readable on any candle color (white text vanished on white candles).
+            ctx.fillStyle = contrastText(s.color);
             ctx.textBaseline = "middle";
             ctx.textAlign = "left";
             ctx.fillText(s.text, Math.round(fontSize * 0.75), top + self.labelHeight / 2 + 0.5);
