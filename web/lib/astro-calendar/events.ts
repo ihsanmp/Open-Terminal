@@ -2,10 +2,15 @@
 // elements; checked to a fraction of a degree): stations (retrograde / direct), sign ingresses,
 // exact major aspects between the planets, new and full moons, and eclipses.
 //
-// Positions are sampled once a day (00:00 UTC) and each event's moment is interpolated between
-// the two days around it, which is well within the day for everything listed here.
+// Positions are sampled once a day (00:00 UTC) with the fast approximate elements, and each event's
+// moment is interpolated between the two days around it: within an hour for the Sun, the Moon and
+// the fast planets. The slow planets (Jupiter … Pluto) move so little a day that the elements'
+// ~0.1° error is up to a day, so their events — and any where the two bodies close in slowly — are
+// then timed with precise positions (./precise.ts), and dropped if those show no such event.
+// Eclipses are told by Meeus' method, not by the Moon's latitude alone.
 
 import { geocentric, type Body } from "../ta/astro";
+import { eclipseAt, preciseLon, refineZero, type EclipseKind } from "./precise";
 
 export type EventKind = "station" | "ingress" | "aspect" | "lunation" | "eclipse";
 
@@ -54,6 +59,17 @@ const ASPECTS = [
 ] as const;
 
 const DAY = 86_400;
+/** Closing in slower than this (degrees a day), an event is timed with the precise positions. */
+const SLOW_RATE = 0.6;
+const ECLIPSE: Record<EclipseKind, { title: string; id: string; glyph: string }> = {
+  "total-solar": { title: "Total Solar Eclipse", id: "Gerhana matahari total", glyph: "🌑" },
+  "annular-solar": { title: "Annular Solar Eclipse", id: "Gerhana matahari cincin", glyph: "🌘" },
+  "hybrid-solar": { title: "Hybrid Solar Eclipse", id: "Gerhana matahari hibrida (cincin–total)", glyph: "🌘" },
+  "partial-solar": { title: "Partial Solar Eclipse", id: "Gerhana matahari sebagian", glyph: "🌘" },
+  "total-lunar": { title: "Total Lunar Eclipse", id: "Gerhana bulan total", glyph: "🌒" },
+  "partial-lunar": { title: "Partial Lunar Eclipse", id: "Gerhana bulan sebagian", glyph: "🌒" },
+  "penumbral-lunar": { title: "Penumbral Lunar Eclipse", id: "Gerhana bulan penumbra", glyph: "🌒" },
+};
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const diff = (a: number, b: number) => ((a - b + 540) % 360) - 180; // signed a − b, −180 … 180
 /** "Scorpio 8°29′" */
@@ -98,15 +114,24 @@ export function buildEvents(fromDay: number, toDay: number): AstroEvent[] {
       const f = crossing(v0, v1, 10);
       if (f === null) continue;
       const rx = v0 > 0;
-      const time = at(k, f - 0.5);
+      let time = at(k, f - 0.5);
+      let where = L[k];
+      if (SLOW.has(p)) {
+        // The moment its motion turns, with the precise positions (6 hours either side).
+        const motion = (t: number) => diff(preciseLon(p, t + 10_800), preciseLon(p, t - 10_800));
+        const exact = refineZero(motion, time);
+        if (exact === null) continue;
+        time = exact;
+        where = preciseLon(p, time);
+      }
       push({
         time,
         kind: "station",
         title: `${p} ${rx ? "Retrograde" : "Direct"}`,
         glyph: `${GLYPH[p]}${rx ? "℞" : "D"}`,
         detail: rx
-          ? `${NAME_ID[p]} berhenti lalu tampak bergerak mundur dari Bumi, di ${position(L[k])}.`
-          : `${NAME_ID[p]} berhenti mundur dan kembali bergerak maju, di ${position(L[k])}.`,
+          ? `${NAME_ID[p]} berhenti lalu tampak bergerak mundur dari Bumi, di ${position(where)}.`
+          : `${NAME_ID[p]} berhenti mundur dan kembali bergerak maju, di ${position(where)}.`,
         keys: [`${rx ? "rx" : "direct"}:${p}`],
         horizon: SLOW.has(p) ? 20 : 10,
         bodies: [p],
@@ -124,9 +149,15 @@ export function buildEvents(fromDay: number, toDay: number): AstroEvent[] {
       const boundary = (diff(L[k + 1], L[k]) > 0 ? s1 : s0) * 30;
       const f = crossing(diff(L[k], boundary), diff(L[k + 1], boundary), 40) ?? 0.5;
       const sign = s1;
+      let time = at(k, f);
+      if (SLOW.has(p)) {
+        const exact = refineZero((t) => diff(preciseLon(p, t), boundary), time);
+        if (exact === null) continue;
+        time = exact;
+      }
       const cardinal = p === "Sun" && sign % 3 === 0 ? ["Ekuinoks Maret", "Solstis Juni", "Ekuinoks September", "Solstis Desember"][[0, 3, 6, 9].indexOf(sign)] : null;
       push({
-        time: at(k, f),
+        time,
         kind: "ingress",
         title: cardinal ?? `${p} enters ${SIGNS[sign]}`,
         glyph: `${GLYPH[p]}${SIGN_GLYPH[sign]}`,
@@ -154,12 +185,22 @@ export function buildEvents(fromDay: number, toDay: number): AstroEvent[] {
             const f = crossing(diff(norm(A[k] - B[k]), target), diff(norm(A[k + 1] - B[k + 1]), target), 40);
             if (f === null) continue;
             const slowPair = SLOW.has(a) && SLOW.has(b);
+            let time = at(k, f);
+            let [la, lb] = [A[k], B[k]];
+            // Closing in slowly (a slow planet's, or one near its station): timed precisely.
+            const closing = Math.abs(diff(A[k + 1], A[k]) - diff(B[k + 1], B[k]));
+            if ((SLOW.has(a) || SLOW.has(b)) && closing < SLOW_RATE) {
+              const exact = refineZero((t) => diff(norm(preciseLon(a, t) - preciseLon(b, t)), target), time);
+              if (exact === null) continue;
+              time = exact;
+              [la, lb] = [preciseLon(a, time), preciseLon(b, time)];
+            }
             push({
-              time: at(k, f),
+              time,
               kind: "aspect",
               title: `${a} ${asp.name} ${b}`,
               glyph: `${GLYPH[a]}${asp.glyph}${GLYPH[b]}`,
-              detail: `${NAME_ID[a]} (${position(A[k])}) dan ${NAME_ID[b]} (${position(B[k])}) membentuk sudut ${asp.angle}° tepat.`,
+              detail: `${NAME_ID[a]} (${position(la)}) dan ${NAME_ID[b]} (${position(lb)}) membentuk sudut ${asp.angle}° tepat.`,
               keys: [`aspect:${a}-${b}:${asp.name}`, `aspect:${a}-${b}:${asp.nature}`, `aspect:${asp.name}${slowPair ? ":slow" : ""}`],
               horizon: slowPair ? 10 : 5,
               bodies: [a, b],
@@ -178,9 +219,7 @@ export function buildEvents(fromDay: number, toDay: number): AstroEvent[] {
       const time = at(k, f);
       const moon = geocentric("Moon", time);
       const sign = Math.floor(moon.lon / 30);
-      const beta = Math.abs(moon.lat);
-      // Eclipse limits on the Moon's latitude at the lunation (Meeus ch. 54, rounded).
-      const eclipse = phase === "new" ? (beta < 1.55 ? "solar" : null) : beta < 0.95 ? "lunar" : beta < 1.55 ? "penumbral" : null;
+      const eclipse = eclipseAt(time, phase);
       push({
         time,
         kind: "lunation",
@@ -191,17 +230,20 @@ export function buildEvents(fromDay: number, toDay: number): AstroEvent[] {
         horizon: 5,
         bodies: ["Moon", "Sun"],
       });
-      if (eclipse)
+      if (eclipse) {
+        const e = ECLIPSE[eclipse.kind];
+        const solar = phase === "new";
         push({
           time,
           kind: "eclipse",
-          title: eclipse === "solar" ? "Solar Eclipse" : eclipse === "lunar" ? "Lunar Eclipse" : "Penumbral Lunar Eclipse",
-          glyph: eclipse === "solar" ? "🌘" : "🌒",
-          detail: `${eclipse === "solar" ? "Gerhana matahari" : eclipse === "lunar" ? "Gerhana bulan" : "Gerhana bulan penumbra"}: ${phase === "new" ? "bulan baru" : "purnama"} dekat node Bulan (lintang Bulan ${beta.toFixed(2)}°), di ${position(moon.lon)}.`,
-          keys: [`eclipse:${eclipse === "solar" ? "solar" : "lunar"}`, "eclipse"],
+          title: e.title,
+          glyph: e.glyph,
+          detail: `${e.id}${eclipse.kind.startsWith("partial") || eclipse.kind.startsWith("penumbral") ? ` (magnitudo ${eclipse.magnitude.toFixed(2)})` : ""}: ${solar ? "bulan baru" : "purnama"} dekat node Bulan (gamma ${eclipse.gamma.toFixed(3)}), di ${position(moon.lon)}.`,
+          keys: [`eclipse:${solar ? "solar" : "lunar"}`, "eclipse"],
           horizon: 10,
           bodies: ["Moon", "Sun"],
         });
+      }
     }
 
   return events.sort((x, y) => x.time - y.time);

@@ -31,7 +31,7 @@ const VERDICT_STYLE: Record<Verdict, string> = {
 };
 const ASSET_LABEL: Record<Asset, string> = { GOLD: "GOLD", BTC: "BTC" };
 
-// The whole catalogue is computed once (about half a second) and shared by every calendar.
+// The whole catalogue is computed once (under a second) and shared by every calendar.
 let catalogue: { events: AstroEvent[]; byKey: Map<string, number[]> } | null = null;
 function getCatalogue() {
   if (!catalogue) {
@@ -242,15 +242,19 @@ function EventDialog({ event, events, byKey, version, onClose }: { event: AstroE
             <div className="text-fs-11 dim px-1 space-y-1">
               <p>
                 Dihitung offline dari riwayat harga (gold sejak 1990, BTC sejak 2011): untuk setiap kejadian yang sama di masa lalu, diukur pergerakan harga
-                beberapa hari bursa sesudahnya (dari penutupan H-1), lalu dibandingkan dengan pergerakan biasa pada periode yang sama panjang.
-                Bullish/Bearish bila selisihnya cukup konsisten (t ≥ 1), selain itu Netral.
+                beberapa hari bursa sesudahnya (dari penutupan H-1), lalu dibandingkan dengan pergerakan pasar pada hari-hari biasa yang kondisinya dan
+                masanya sama (ditimbang dengan cara yang sama), jadi yang dinilai hanya bagian &quot;dari kejadian astro&quot;. Bullish/Bearish bila bagian itu cukup
+                konsisten (t ≥ 1), selain itu Netral. Kejadian yang jendelanya tumpang-tindih tidak dihitung dua kali.
               </p>
               <p>
                 Adaptif sampai H-1: hanya harga sampai hari itu yang dipakai. Kejadian lampau yang terjadi saat kondisi pasar mirip dengan sekarang
                 (momentum 20 hari dan posisi terhadap rata-rata 50 hari) serta yang lebih baru diberi bobot lebih besar, jadi kesimpulan bisa berubah
                 setiap ada harga penutupan baru. Mulai H-1 kesimpulannya tetap.
               </p>
-              <p>Ini pola masa lalu, bukan ramalan: astrologi belum terbukti bisa memprediksi pasar, dan sebagian pola bisa muncul karena kebetulan.</p>
+              <p>
+                Ini pola masa lalu, bukan ramalan: astrologi belum terbukti bisa memprediksi pasar, dan sebagian pola bisa muncul karena kebetulan. Diuji
+                pada kejadian lampau (kesimpulan H-1 tiap kejadian, hanya dengan data sampai hari itu), tepatnya sekitar 50% untuk gold dan 54% untuk BTC.
+              </p>
             </div>
           )}
           {rows.map((r) => (

@@ -14,15 +14,18 @@
 // from its 50-day average), both in units of its recent volatility. Past events that came in a
 // similar state weigh more, as do recent ones (half-life HALF_LIFE_YEARS):
 //
-//   mean   = weighted mean of the returns after past events
-//   excess = mean − the asset's ordinary return over any `horizon` days (BTC drifts up strongly,
-//            so "it rose" alone would call almost everything bullish)
-//   t      = excess ÷ (weighted standard deviation ÷ √effective number of events)
+//   mean     = weighted mean of the returns after past events
+//   expected = the same weighted mean over every day, event or not: what the market did in that
+//              state and era anyway (BTC drifts up strongly, and drifted far more in its first
+//              years, so neither "it rose" nor the all-history average is the right yardstick)
+//   t        = (mean − expected) ÷ (weighted standard deviation ÷ √effective number of events)
 //
 // Bullish when t ≥ 1, bearish when t ≤ −1, neutral otherwise; the confidence follows |t| (≥ 1.65
-// medium, ≥ 2.33 high). The excess is split into the part the market's state alone would explain
-// (all days in a similar state, events or not) and the part left to the event. Returns beyond
-// three standard deviations are clipped so a single crash or squeeze doesn't decide the verdict.
+// medium, ≥ 2.33 high). Weighing the events and the yardstick alike, the verdict is the event's
+// own part: the market's state, and the era, count on both sides. Events whose windows overlap
+// (a broad kind like "any square") aren't independent, so the effective number is cut by how
+// much they overlap. Returns beyond three standard deviations are clipped so a single crash or
+// squeeze doesn't decide the verdict.
 // With fewer than MIN_SAMPLES events of that exact kind, the next broader kind is used (Mars–Saturn
 // tension, then any square), and the result says which.
 //
@@ -177,7 +180,7 @@ function returns(p: Prepared, h: number) {
 }
 
 export type Verdict = "Bullish" | "Bearish" | "Netral";
-export type Sample = { time: number; ret: number; /** 0 … 1: how much it counts (similar state, recent). */ w: number };
+export type Sample = { time: number; ret: number; /** 0 … 1: how much it counts (similar state, recent). */ w: number; /** The close it's measured from. */ i: number };
 export type MarketState = { mom: number; trend: number };
 export type Impact = {
   asset: Asset;
@@ -190,9 +193,11 @@ export type Impact = {
   n: number;
   /** The effective number of events once weighted. */
   neff: number;
-  /** Means as simple percentages. */
+  /** Means as simple percentages: after the events, over all periods, and what the market's state
+   *  and era would expect (the yardstick of the verdict). */
   meanPct: number;
   baselinePct: number;
+  expectedPct: number;
   excessPct: number;
   /** The excess split: what the market's state alone would explain, and what is left to the event. */
   marketPct: number;
@@ -234,7 +239,7 @@ export function impactOf(event: AstroEvent, byKey: Map<string, number[]>, asset:
   const R = returns(p, h);
   const count = end - h + 1; // h-day returns already over by `end`
   const empty: Impact = {
-    asset, verdict: "Netral", confidence: null, basis: event.keys[0], basisLevel: 0, horizon: h, n: 0, neff: 0, meanPct: 0, baselinePct: 0, excessPct: 0,
+    asset, verdict: "Netral", confidence: null, basis: event.keys[0], basisLevel: 0, horizon: h, n: 0, neff: 0, meanPct: 0, baselinePct: 0, expectedPct: 0, excessPct: 0,
     marketPct: 0, astroPct: 0, upRate: 0, baselineUpRate: 0, t: 0, samples: [], asOfDay: end >= 0 ? s.days[end] : h1, state: null, final,
   };
   if (end < 60 || count < 60) return empty;
@@ -260,7 +265,7 @@ export function impactOf(event: AstroEvent, byKey: Map<string, number[]>, asset:
       const i = indexOnOrBefore(s, day - 1); // the close the day before it
       if (i < 1 || i + h > end) continue; // before the data, or its outcome not known yet
       if (day - 1 - s.days[i] > 5) continue; // a gap in the data
-      out.push({ time, ret: R.r[i], w: weight(i) });
+      out.push({ time, ret: R.r[i], w: weight(i), i });
     }
     return out;
   };
@@ -280,7 +285,15 @@ export function impactOf(event: AstroEvent, byKey: Map<string, number[]>, asset:
     if (x.ret > 0) up += x.w;
   }
   const mean = W > 0 ? sum / W : 0;
-  const neff = W2 > 0 ? (W * W) / W2 : 0;
+  // Overlapping windows count once: the days they cover against the days they'd cover apart.
+  let covered = 0;
+  let reach = -Infinity;
+  for (const x of [...samples].sort((p1, p2) => p1.i - p2.i)) {
+    covered += Math.min(h, x.i + h - Math.max(x.i, reach));
+    reach = Math.max(reach, x.i + h);
+  }
+  const overlap = covered > 0 ? (n * h) / covered : 1;
+  const neff = W2 > 0 ? (W * W) / W2 / overlap : 0;
   let v = 0;
   for (const x of samples) v += x.w * (clip(x.ret) - mean) ** 2;
   const sd = W > 0 && neff > 1 ? Math.sqrt((v / W) * (neff / (neff - 1))) : 0;
@@ -295,8 +308,9 @@ export function impactOf(event: AstroEvent, byKey: Map<string, number[]>, asset:
   }
   const stateMean = sw > 0 ? sm / sw : baseMean;
 
-  const excess = mean - baseMean;
-  const t = n >= 2 && sd > 0 ? excess / (sd / Math.sqrt(neff)) : 0;
+  // The event's own part: against what the market did anyway, weighed the same way.
+  const excess = mean - stateMean;
+  const t = n >= 2 && sd > 0 && neff > 0 ? excess / (sd / Math.sqrt(neff)) : 0;
   const enough = n >= MIN_SAMPLES;
   const verdict: Verdict = !enough ? "Netral" : t >= 1 ? "Bullish" : t <= -1 ? "Bearish" : "Netral";
   const confidence = !enough || verdict === "Netral" ? null : Math.abs(t) >= 2.33 ? "tinggi" : Math.abs(t) >= 1.65 ? "sedang" : "rendah";
@@ -311,6 +325,7 @@ export function impactOf(event: AstroEvent, byKey: Map<string, number[]>, asset:
     neff,
     meanPct: pct(mean),
     baselinePct: pct(baseMean),
+    expectedPct: pct(stateMean),
     excessPct: pct(mean) - pct(baseMean),
     marketPct: pct(stateMean) - pct(baseMean),
     astroPct: pct(mean) - pct(stateMean),
@@ -360,7 +375,8 @@ export function trackRecord(event: AstroEvent, byKey: Map<string, number[]>, eve
     const im = impactOf(past, byKey, asset);
     const i = indexOnOrBefore(s, Math.floor(time / DAY) - 1);
     if (im.verdict === "Netral" || i < 0 || i + past.horizon >= s.close.length) continue;
-    const excess = pct(Math.log(s.close[i + past.horizon] / s.close[i])) - im.baselinePct;
+    // Right when it moved the way the verdict said, against the same yardstick.
+    const excess = pct(Math.log(s.close[i + past.horizon] / s.close[i])) - im.expectedPct;
     calls++;
     if (im.verdict === "Bullish" ? excess > 0 : excess < 0) right++;
   }
