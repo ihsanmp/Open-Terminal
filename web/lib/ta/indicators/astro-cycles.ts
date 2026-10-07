@@ -3,8 +3,8 @@
 //
 // Each wave is cos(h × angle between two planets): with harmonic h = 1 it peaks at one alignment
 // (conjunction or opposition) and bottoms at the other, once per synodic period; h = 4 adds the
-// squares, and so on. Positions come from JPL's planetary elements (see ../astro.ts), so the waves
-// are the real sky, not fitted sine curves. The defaults are the three cycles closest to an
+// squares, and so on. Positions come from JPL's planetary elements, corrected to precise ones for
+// Mars and beyond (see ../astro.ts), so the waves are the real sky, not fitted sine curves. The defaults are the three cycles closest to an
 // Astronacci BTC chart of 2025 – 2027 (correlation 0.8 – 0.98 with its waves): heliocentric
 // Jupiter–Neptune ×4 (~3.2 years), Mars–Uranus (~1.9 years) and Mars–Saturn (~2 years).
 //
@@ -51,7 +51,7 @@ export const astroCycles: IndicatorDef = {
   overlay: true,
   aliases: ["Astronacci", "Astrology", "Planetary Cycles", "Synodic", "Jupiter", "Mars", "Saturn", "Uranus", "Neptune"],
   description:
-    "Planetary cycles (real positions from JPL's elements) drawn as waves over BTC and projected ahead, like Astronacci's cycle charts. Defaults: Jupiter–Neptune ×4, Mars–Uranus and Mars–Saturn (heliocentric).",
+    "Planetary cycles (real, precise planet positions) drawn as waves over BTC and projected ahead, like Astronacci's cycle charts. Defaults: Jupiter–Neptune ×4, Mars–Uranus and Mars–Saturn (heliocentric).",
   legendInputs: [],
   inputs: [
     select("frame", "Positions", ["Heliocentric", "Geocentric"], "Heliocentric"),

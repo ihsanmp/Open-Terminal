@@ -1,53 +1,6 @@
-// Precise planet positions for timing the calendar's events, from astronomy-engine (MIT; VSOP87 and
-// friends, about an arcminute). The calendar finds its events with the fast approximate elements in
-// ../ta/astro.ts, which are off by up to ~0.1° for the slow planets: a day for Saturn changing sign,
-// where it moves 0.1° a day. Each event of a slow planet is then timed with these positions.
-//
-// And the eclipses, by Meeus' method (Astronomical Algorithms, ch. 54): whether a new or full moon
-// is one, and of what kind, from the Moon's distance to the node — not from its latitude alone,
-// which mistook near misses for eclipses (and a partial lunar eclipse for a penumbral one).
-
-import * as A from "astronomy-engine";
-
-export type PreciseBody = "Sun" | "Mercury" | "Venus" | "Mars" | "Jupiter" | "Saturn" | "Uranus" | "Neptune" | "Pluto";
-
-/** Apparent geocentric ecliptic longitude of date (degrees), as astrology's tropical zodiac counts it. */
-export function preciseLon(body: PreciseBody, t: number): number {
-  const time = A.MakeTime(new Date(t * 1000));
-  const v = A.GeoVector(A.Body[body], time, true);
-  return A.SphereFromVector(A.RotateVector(A.Rotation_EQJ_ECT(time), v)).lon;
-}
-
-/**
- * Where f (continuous, in degrees) is zero near t: bracketed a day, then a few days, either side,
- * then closed in by false position (Illinois) to within a minute. Null when it has no zero there
- * (the approximate positions saw an event that the precise ones don't).
- */
-export function refineZero(f: (t: number) => number, t: number, reach = 3 * 86_400): number | null {
-  for (const span of [86_400, reach]) {
-    let [a, b] = [t - span, t + span];
-    let [fa, fb] = [f(a), f(b)];
-    if (!Number.isFinite(fa) || !Number.isFinite(fb) || Math.sign(fa) === Math.sign(fb)) continue;
-    let side = 0;
-    for (let k = 0; k < 40 && b - a > 60; k++) {
-      const c = (a * fb - b * fa) / (fb - fa);
-      const fc = f(c);
-      if (fc === 0) return c;
-      if (Math.sign(fc) === Math.sign(fb)) {
-        [b, fb] = [c, fc];
-        if (side === -1) fa /= 2;
-        side = -1;
-      } else {
-        [a, fa] = [c, fc];
-        if (side === 1) fb /= 2;
-        side = 1;
-      }
-      if (Math.abs(fc) < 1e-5) return c; // under 0.04″: well inside a minute for any planet
-    }
-    return (a + b) / 2;
-  }
-  return null;
-}
+// The eclipses, by Meeus' method (Astronomical Algorithms, ch. 54): whether a new or full moon is
+// one, and of what kind, from the Moon's distance to the node — not from its latitude alone, which
+// mistook near misses for eclipses (and a partial lunar eclipse for a penumbral one).
 
 export type EclipseKind = "total-solar" | "annular-solar" | "hybrid-solar" | "partial-solar" | "total-lunar" | "partial-lunar" | "penumbral-lunar";
 

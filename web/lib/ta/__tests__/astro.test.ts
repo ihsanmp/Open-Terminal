@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { longitude, separation } from "../astro";
+import { dailyMotion, longitude, separation } from "../astro";
 import { astroCyclesCompute } from "../indicators/astro-cycles";
 import { INDICATOR_BY_ID, candlesToBars, defaultParams } from "../index";
 
@@ -15,6 +15,18 @@ describe("planet positions", () => {
     expect(off(separation("Mars", "Sun", at("2025-01-16T02:00:00Z")), 180)).toBeLessThan(0.5); // Mars opposition
     expect(off(separation("Venus", "Sun", at("2023-08-13T11:00:00Z")), 0)).toBeLessThan(0.5); // inferior conjunction
     expect(off(separation("Moon", "Sun", at("2024-01-25T17:54:00Z")), 180)).toBeLessThan(1); // full moon
+  });
+
+  it("times the slow planets to within hours, not a day", () => {
+    // Saturn moves 0.1° a day, Saturn–Neptune close in 0.04° a day: 0.01° is a few hours.
+    expect(off(longitude("Saturn", at("2025-05-25T03:35:00Z")), 0)).toBeLessThan(0.01); // enters Aries (was a day early)
+    expect(off(separation("Saturn", "Neptune", at("2026-02-20T16:54:00Z")), 0)).toBeLessThan(0.01); // conjunction (was 23 h early)
+    expect(off(longitude("Pluto", at("2024-11-19T20:29:00Z")), 300)).toBeLessThan(0.003); // enters Aquarius
+    // Saturn stations retrograde 2025-07-13 04:07 UTC: its motion turns within those hours.
+    expect(dailyMotion("Saturn", at("2025-07-13T00:00:00Z"))).toBeGreaterThan(0);
+    expect(dailyMotion("Saturn", at("2025-07-13T08:00:00Z"))).toBeLessThan(0);
+    // Heliocentric (the Astro Cycles' frame): Jupiter–Saturn's 2020 conjunction, 2 Nov 2020.
+    expect(off(separation("Jupiter", "Saturn", at("2020-11-02T12:00:00Z"), "heliocentric"), 0)).toBeLessThan(0.05);
   });
 
   it("has no Sun seen from the Sun nor Earth seen from Earth", () => {

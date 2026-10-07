@@ -1,9 +1,17 @@
 // Planet positions for the astro-cycle indicator.
 //
 // Planets: Keplerian elements and their rates from JPL's "Approximate Positions of the Planets"
-// (E. M. Standish, Table 1, valid 1800 – 2050 AD; public domain), good to a fraction of a degree
-// for the outer planets and well under a degree for the inner ones — far finer than a cycle needs.
-// Moon: the leading terms of Meeus' lunar longitude (about half a degree).
+// (E. M. Standish, Table 1, valid 1800 – 2050 AD; public domain): fast, and good to a few
+// arcminutes for the Sun and the inner planets. For Mars and beyond they are off by up to ~0.1°,
+// which for a slow planet is a day or more of its motion (Saturn changed sign a day early,
+// Saturn–Neptune came 23 hours early, a heliocentric Jupiter–Neptune turn days off). So those are
+// corrected to astronomy-engine's precise positions (MIT; light time and aberration included):
+// the difference is worked out every 10 days and interpolated, since it changes only slowly, and
+// costs a few thousand precise positions for decades of daily bars.
+// Moon: the leading terms of Meeus' lunar longitude (a few tenths of a degree: under an hour of
+// its motion).
+
+import * as AE from "astronomy-engine";
 //
 // Longitudes are ecliptic, in degrees 0 … 360. Geocentric is the sky as seen from Earth (what
 // astrology uses, retrograde loops included); heliocentric is the planets around the Sun, whose
@@ -80,6 +88,56 @@ function moonLatitude(t: number): number {
   return 5.128 * Math.sin(F) + 0.281 * Math.sin(M + F) + 0.278 * Math.sin(M - F) + 0.173 * Math.sin(2 * D - F);
 }
 
+/** Geocentric ecliptic longitude and latitude from the elements alone. */
+function rawGeocentric(body: Exclude<Body, "Earth" | "Moon">, T: number): [number, number] {
+  const [xe, ye, ze] = helio("Earth", T);
+  const [x, y, z] = body === "Sun" ? [0, 0, 0] : helio(body, T);
+  const [dx, dy, dz] = [x - xe, y - ye, z - ze];
+  return [norm(Math.atan2(dy, dx) / RAD + precession(T)), Math.atan2(dz, Math.hypot(dx, dy)) / RAD];
+}
+
+/** Heliocentric ecliptic longitude from the elements alone. */
+function rawHeliocentric(body: keyof typeof ELEMENTS, T: number): number {
+  const [x, y] = helio(body, T);
+  return norm(Math.atan2(y, x) / RAD + precession(T));
+}
+
+// ---- the correction to precise positions, for Mars and beyond ----
+
+type Corrected = "Mars" | "Jupiter" | "Saturn" | "Uranus" | "Neptune" | "Pluto";
+const CORRECTED = new Set<string>(["Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"]);
+const STEP = 10 * 86_400;
+const wrap = (d: number) => ((d + 540) % 360) - 180;
+/** Precise − approximate [longitude, latitude] at grid points, by frame and body. */
+const corrections = new Map<string, Map<number, [number, number]>>();
+
+function correctionAt(frame: "geo" | "helio", body: Corrected, k: number): [number, number] {
+  const key = `${frame}:${body}`;
+  const table = corrections.get(key) ?? corrections.set(key, new Map()).get(key)!;
+  const hit = table.get(k);
+  if (hit) return hit;
+  const t = k * STEP;
+  const time = AE.MakeTime(new Date(t * 1000));
+  const v = frame === "geo" ? AE.GeoVector(AE.Body[body], time, true) : AE.HelioVector(AE.Body[body], time);
+  const sky = AE.SphereFromVector(AE.RotateVector(AE.Rotation_EQJ_ECT(time), v));
+  const T = centuries(t);
+  const [lon, lat] = frame === "geo" ? rawGeocentric(body, T) : [rawHeliocentric(body, T), 0];
+  const c: [number, number] = [wrap(sky.lon - lon), sky.lat - lat];
+  table.set(k, c);
+  return c;
+}
+
+/** The correction at time t, between the grid points around it. */
+function correction(frame: "geo" | "helio", body: Corrected, t: number): [number, number] {
+  const x = t / STEP;
+  const k = Math.floor(x);
+  const f = x - k;
+  const [a, b] = [correctionAt(frame, body, k), correctionAt(frame, body, k + 1)];
+  return [a[0] + wrap(b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+}
+
+const corrected = (body: Body): body is Corrected => CORRECTED.has(body);
+
 /** Geocentric ecliptic longitude and latitude, and declination (degrees, north positive). */
 export function geocentric(body: Exclude<Body, "Earth">, t: number): { lon: number; lat: number; dec: number } {
   const T = centuries(t);
@@ -89,11 +147,12 @@ export function geocentric(body: Exclude<Body, "Earth">, t: number): { lon: numb
     lon = moonLongitude(t);
     lat = moonLatitude(t);
   } else {
-    const [xe, ye, ze] = helio("Earth", T);
-    const [x, y, z] = body === "Sun" ? [0, 0, 0] : helio(body, T);
-    const [dx, dy, dz] = [x - xe, y - ye, z - ze];
-    lon = norm(Math.atan2(dy, dx) / RAD + precession(T));
-    lat = Math.atan2(dz, Math.hypot(dx, dy)) / RAD;
+    [lon, lat] = rawGeocentric(body, T);
+    if (corrected(body)) {
+      const [dl, db] = correction("geo", body, t);
+      lon = norm(lon + dl);
+      lat += db;
+    }
   }
   const eps = (23.43929 - 0.0130042 * T) * RAD; // obliquity of the ecliptic
   const dec = Math.asin(Math.sin(lat * RAD) * Math.cos(eps) + Math.cos(lat * RAD) * Math.sin(eps) * Math.sin(lon * RAD)) / RAD;
@@ -115,14 +174,11 @@ export function longitude(body: Body, t: number, frame: "geocentric" | "heliocen
   if (body === "Moon") return moonLongitude(t);
   if (frame === "heliocentric") {
     if (body === "Sun") return NaN;
-    const [x, y] = helio(body, T);
-    return norm(Math.atan2(y, x) / RAD + precession(T));
+    const lon = rawHeliocentric(body, T);
+    return corrected(body) ? norm(lon + correction("helio", body, t)[0]) : lon;
   }
   if (body === "Earth") return NaN;
-  const [xe, ye] = helio("Earth", T);
-  if (body === "Sun") return norm(Math.atan2(-ye, -xe) / RAD + precession(T));
-  const [x, y] = helio(body, T);
-  return norm(Math.atan2(y - ye, x - xe) / RAD + precession(T));
+  return geocentric(body, t).lon;
 }
 
 /** The angle from body B to body A, 0 … 360 (0 = conjunction, 180 = opposition). */

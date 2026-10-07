@@ -2,15 +2,13 @@
 // elements; checked to a fraction of a degree): stations (retrograde / direct), sign ingresses,
 // exact major aspects between the planets, new and full moons, and eclipses.
 //
-// Positions are sampled once a day (00:00 UTC) with the fast approximate elements, and each event's
-// moment is interpolated between the two days around it: within an hour for the Sun, the Moon and
-// the fast planets. The slow planets (Jupiter … Pluto) move so little a day that the elements'
-// ~0.1° error is up to a day, so their events — and any where the two bodies close in slowly — are
-// then timed with precise positions (./precise.ts), and dropped if those show no such event.
-// Eclipses are told by Meeus' method, not by the Moon's latitude alone.
+// Positions are sampled once a day (00:00 UTC) and each event's moment is interpolated between the
+// two days around it: within an hour or two for everything listed here, the slow planets included
+// (../ta/astro.ts corrects them to precise positions; uncorrected they were up to a day off).
+// Eclipses are told by Meeus' method (./precise.ts), not by the Moon's latitude alone.
 
 import { geocentric, type Body } from "../ta/astro";
-import { eclipseAt, preciseLon, refineZero, type EclipseKind } from "./precise";
+import { eclipseAt, type EclipseKind } from "./precise";
 
 export type EventKind = "station" | "ingress" | "aspect" | "lunation" | "eclipse";
 
@@ -59,8 +57,6 @@ const ASPECTS = [
 ] as const;
 
 const DAY = 86_400;
-/** Closing in slower than this (degrees a day), an event is timed with the precise positions. */
-const SLOW_RATE = 0.6;
 const ECLIPSE: Record<EclipseKind, { title: string; id: string; glyph: string }> = {
   "total-solar": { title: "Total Solar Eclipse", id: "Gerhana matahari total", glyph: "🌑" },
   "annular-solar": { title: "Annular Solar Eclipse", id: "Gerhana matahari cincin", glyph: "🌘" },
@@ -114,16 +110,8 @@ export function buildEvents(fromDay: number, toDay: number): AstroEvent[] {
       const f = crossing(v0, v1, 10);
       if (f === null) continue;
       const rx = v0 > 0;
-      let time = at(k, f - 0.5);
-      let where = L[k];
-      if (SLOW.has(p)) {
-        // The moment its motion turns, with the precise positions (6 hours either side).
-        const motion = (t: number) => diff(preciseLon(p, t + 10_800), preciseLon(p, t - 10_800));
-        const exact = refineZero(motion, time);
-        if (exact === null) continue;
-        time = exact;
-        where = preciseLon(p, time);
-      }
+      const time = at(k, f - 0.5);
+      const where = L[k];
       push({
         time,
         kind: "station",
@@ -149,12 +137,7 @@ export function buildEvents(fromDay: number, toDay: number): AstroEvent[] {
       const boundary = (diff(L[k + 1], L[k]) > 0 ? s1 : s0) * 30;
       const f = crossing(diff(L[k], boundary), diff(L[k + 1], boundary), 40) ?? 0.5;
       const sign = s1;
-      let time = at(k, f);
-      if (SLOW.has(p)) {
-        const exact = refineZero((t) => diff(preciseLon(p, t), boundary), time);
-        if (exact === null) continue;
-        time = exact;
-      }
+      const time = at(k, f);
       const cardinal = p === "Sun" && sign % 3 === 0 ? ["Ekuinoks Maret", "Solstis Juni", "Ekuinoks September", "Solstis Desember"][[0, 3, 6, 9].indexOf(sign)] : null;
       push({
         time,
@@ -185,16 +168,8 @@ export function buildEvents(fromDay: number, toDay: number): AstroEvent[] {
             const f = crossing(diff(norm(A[k] - B[k]), target), diff(norm(A[k + 1] - B[k + 1]), target), 40);
             if (f === null) continue;
             const slowPair = SLOW.has(a) && SLOW.has(b);
-            let time = at(k, f);
-            let [la, lb] = [A[k], B[k]];
-            // Closing in slowly (a slow planet's, or one near its station): timed precisely.
-            const closing = Math.abs(diff(A[k + 1], A[k]) - diff(B[k + 1], B[k]));
-            if ((SLOW.has(a) || SLOW.has(b)) && closing < SLOW_RATE) {
-              const exact = refineZero((t) => diff(norm(preciseLon(a, t) - preciseLon(b, t)), target), time);
-              if (exact === null) continue;
-              time = exact;
-              [la, lb] = [preciseLon(a, time), preciseLon(b, time)];
-            }
+            const time = at(k, f);
+            const [la, lb] = [A[k], B[k]];
             push({
               time,
               kind: "aspect",
