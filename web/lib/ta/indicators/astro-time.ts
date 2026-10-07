@@ -11,7 +11,7 @@
 //   Gann Time Cycles       calendar-day counts (30 … 360, 1 – 5 years) from a pivot
 //   Fourier Cycles (Hurst) the strongest sine cycles in recent prices, summed and projected
 //
-// Planet positions from ../astro.ts (JPL elements). Event dates are found day by day, so they
+// Planet positions from ../astro.ts (JPL elements, corrected to precise ones for Mars and beyond). Event dates are found day by day, so they
 // carry into the future and are drawn past the last bar. Independent implementations, MIT.
 
 import * as ta from "../core";
