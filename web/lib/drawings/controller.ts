@@ -40,6 +40,8 @@ export type DrawCallbacks = {
   onOpenSettings: (id: string) => void;
   /** A drawing clicked with the Eraser. */
   onErase: (id: string) => void;
+  /** The look a tool's new drawings take (the one last given it), while placed and once placed. */
+  styleOf: (tool: ToolId) => Partial<Pick<Drawing, "color" | "width" | "dash" | "options">> | undefined;
 };
 
 type Bar = { open: number; high: number; low: number; close: number };
@@ -67,13 +69,16 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     return { time: timeOfLogical(times, interval, logical), price };
   };
 
-  const previewStyle = (tool: ToolId) => ({ color: defaultColor(tool), width: 1 as const });
+  /** A tool's look for a new drawing: its own default, then the one last given it. The drawing
+   *  being placed shows it already, so it doesn't change look as its last point goes down. */
+  const styleFor = (tool: ToolId) => ({ color: defaultColor(tool), width: (TOOL_BY_ID.get(tool)!.group === "fib" ? 1 : 2) as Drawing["width"], ...cb.styleOf(tool) });
+  const previewStyle = styleFor;
 
   const finish = (tool: ToolId, placed: DrawPoint[]) => {
     const def = TOOL_BY_ID.get(tool)!;
     // A position's stop comes from its entry and target until it's moved.
     const points = def.derive ? def.derive(placed) : placed;
-    const d: Drawing = { id: `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, tool, points, color: defaultColor(tool), width: def.group === "fib" ? 1 : 2 };
+    const d: Drawing = { id: `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, tool, points, ...styleFor(tool) };
     // A text (a callout's, a signpost's …) is written in its Settings, which open as it's placed.
     if (def.startText) d.text = def.startText;
     if (tool === "gannSquareFixed") {
