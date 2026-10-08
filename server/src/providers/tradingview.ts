@@ -80,7 +80,7 @@ export async function scanFundamentals(
 /** The periods a screener change can be over; 1D is the day's change, the rest TradingView's Perf.* columns. */
 export const CHANGE_PERIODS = ["1D", "1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
 export type ChangePeriod = (typeof CHANGE_PERIODS)[number];
-const PERF_COLUMNS: Array<[Exclude<ChangePeriod, "1D">, string]> = [
+export const PERF_COLUMNS: Array<[Exclude<ChangePeriod, "1D">, string]> = [
   ["1W", "Perf.W"],
   ["1M", "Perf.1M"],
   ["3M", "Perf.3M"],
@@ -298,10 +298,19 @@ const RESEARCH_COLUMNS = [
 
 export type ResearchProfile = { ticker: string } & Record<(typeof RESEARCH_COLUMNS)[number], any>;
 
-async function globalScan(body: unknown): Promise<Array<{ s: string; d: any[] }>> {
-  const res = await fetch("https://scanner.tradingview.com/global/scan", { method: "POST", headers: HEADERS, body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(`tradingview scan ${res.status}`);
+/** One request to a market's scanner (america, indonesia, coin, global …). */
+export async function scanAt(market: string, body: unknown): Promise<Array<{ s: string; d: any[] }>> {
+  const res = await fetch(`https://scanner.tradingview.com/${market}/scan`, { method: "POST", headers: HEADERS, body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(`tradingview ${market} scan ${res.status}`);
   return (await res.json())?.data ?? [];
+}
+
+const globalScan = (body: unknown) => scanAt("global", body);
+
+/** A TradingView stock listing (IDX + BBCA) as the Yahoo-style symbol the rest of the app uses (BBCA.JK). */
+export function yahooSymbolOf(exchange: string, code: string): string {
+  if (US_EXCHANGES.includes(exchange)) return code.replace(".", "-");
+  return (exchange === "HKEX" ? code.padStart(4, "0") : code) + yahooSuffixFor(exchange);
 }
 
 export async function researchProfile(symbol: string): Promise<ResearchProfile> {

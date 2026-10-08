@@ -6,6 +6,7 @@ import * as stooq from "../providers/stooq.js";
 import * as nasdaq from "../providers/nasdaq.js";
 import * as fred from "../providers/fred.js";
 import * as macro from "../providers/macro.js";
+import * as heatmap from "../providers/heatmap.js";
 import * as tradingview from "../providers/tradingview.js";
 import * as coingecko from "../providers/coingecko.js";
 import * as binance from "../providers/binance.js";
@@ -717,9 +718,14 @@ async function marketRows(): Promise<tradingview.MarketRow[]> {
 
 marketRouter.get("/heatmap", async (req, res) => {
   try {
-    const rows = await marketRows();
-    const top = rows.filter((r) => r.marketCap).slice(0, 150);
-    res.json(top);
+    const market = String(req.query.market ?? "us");
+    if (!heatmap.isHeatmapMarket(market)) return res.status(400).json({ error: `unknown market ${market}` });
+    const cells =
+      market === "us"
+        ? heatmap.usCells(await marketRows())
+        : await cached(`heatmap:${market}`, 15_000, () => heatmap.heatmapCells(market));
+    if (cells.length === 0) throw new Error(`no ${market} heatmap data`);
+    res.json(cells);
   } catch (err) {
     fail(req, res, err);
   }
