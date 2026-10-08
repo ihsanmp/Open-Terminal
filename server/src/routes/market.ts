@@ -5,6 +5,7 @@ import * as yahoo from "../providers/yahoo.js";
 import * as stooq from "../providers/stooq.js";
 import * as nasdaq from "../providers/nasdaq.js";
 import * as fred from "../providers/fred.js";
+import * as macro from "../providers/macro.js";
 import * as tradingview from "../providers/tradingview.js";
 import * as coingecko from "../providers/coingecko.js";
 import * as binance from "../providers/binance.js";
@@ -683,47 +684,25 @@ marketRouter.get("/indices", async (req, res) => {
   }
 });
 
-// ---- macro: treasury yield curve (FRED) + key indexes via ETF proxies (Nasdaq) ----
-
-const YIELD_SERIES: Array<{ id: string; tenor: string }> = [
-  { id: "DGS3MO", tenor: "3M" },
-  { id: "DGS5", tenor: "5Y" },
-  { id: "DGS10", tenor: "10Y" },
-  { id: "DGS30", tenor: "30Y" },
-];
-
-const INDEX_PROXIES: Record<string, string> = {
-  SPY: "S&P 500 (SPY)",
-  DIA: "Dow Jones (DIA)",
-  QQQ: "Nasdaq 100 (QQQ)",
-  IWM: "Russell 2000 (IWM)",
-  GLD: "Gold (GLD)",
-  USO: "WTI Crude (USO)",
-  TLT: "20Y+ Treasury (TLT)",
-  UUP: "Dollar Index (UUP)",
-};
+// ---- macro: the US curve, spreads, yields abroad and the main markets, live from TradingView's
+// chart feed (FRED's daily yields when it's out of reach), and the economy from FRED ----
 
 marketRouter.get("/macro", async (req, res) => {
   try {
-    const [yieldResults, vix, quotes] = await Promise.all([
-      Promise.allSettled(YIELD_SERIES.map((s) => cached(`fred:${s.id}`, 300_000, () => fred.latest(s.id)))),
-      cached("fred:VIXCLS", 300_000, () => fred.latest("VIXCLS")).catch(() => null),
-      getQuotes(Object.keys(INDEX_PROXIES)),
+    const [bars, economy] = await Promise.all([
+      cached("macro:tv", 15_000, () => tvchart.bars(macro.macroSymbols(), "1D", macro.SPARK_BARS, 15_000)).catch(() => ({})),
+      cached("macro:economy", 6 * 3_600_000, () => macro.economy()).catch(() => []),
     ]);
-    const yields = YIELD_SERIES.map((s, i) => {
-      const r = yieldResults[i];
-      return { tenor: s.tenor, value: r.status === "fulfilled" ? r.value?.value ?? null : null };
-    }).filter((y) => y.value !== null);
-
-    const indexes = quotes.map((q) => ({
-      symbol: q.symbol,
-      label: INDEX_PROXIES[q.symbol] ?? q.symbol,
-      price: q.price,
-      changePercent: q.changePercent,
-    }));
-
-    if (yields.length === 0 && indexes.length === 0) throw new Error("no macro data from any provider");
-    res.json({ yields, vix: vix?.value ?? null, indexes });
+    const live = macro.assemble(bars);
+    let curve = live.curve;
+    let curveSource: "tradingview" | "fred" = "tradingview";
+    if (curve.every((c) => c.value === null)) {
+      curve = await cached("macro:fred-curve", 600_000, () => macro.fredCurve());
+      curveSource = "fred";
+    }
+    const anyMarket = live.markets.some((g) => g.items.some((x) => x.value !== null));
+    if (curve.every((c) => c.value === null) && !anyMarket && economy.length === 0) throw new Error("no macro data from any provider");
+    res.json({ ...live, curve, spreads: macro.spreadsOf(curve), economy, curveSource });
   } catch (err) {
     fail(req, res, err);
   }
@@ -831,6 +810,18 @@ function buildRecapSummary(d: {
   }
   return parts.join(" ");
 }
+
+/** The market recap's indices and commodities, by ETF (quotes come from the stock providers). */
+const INDEX_PROXIES: Record<string, string> = {
+  SPY: "S&P 500 (SPY)",
+  DIA: "Dow Jones (DIA)",
+  QQQ: "Nasdaq 100 (QQQ)",
+  IWM: "Russell 2000 (IWM)",
+  GLD: "Gold (GLD)",
+  USO: "WTI Crude (USO)",
+  TLT: "20Y+ Treasury (TLT)",
+  UUP: "Dollar Index (UUP)",
+};
 
 marketRouter.get("/recap", async (req, res) => {
   try {
