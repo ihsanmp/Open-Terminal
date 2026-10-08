@@ -6,6 +6,7 @@ import type { CanvasRenderingTarget2D } from "fancy-canvas";
 import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Logical, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 import { fontPx } from "../font-scale";
 import { distanceTo, shapesFor, textBox, type Anchor, type Bar, type Shape } from "./geometry";
+import { handlesOf, type Handle } from "./handles";
 import { TOOL_BY_ID, logicalOfTime, timeOfLogical, type Drawing, type DrawPoint, type TimeframeKind, type ToolId } from "./tools";
 
 const FONT = "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif";
@@ -137,7 +138,7 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
       const shapes = this.shapes(d.tool, anchors, d, width, height, d.id === this.data.selected);
       this.drawn.set(d.id, { anchors, shapes });
       render(ctx, shapes);
-      if (d.id === this.data.selected) handles(ctx, freehand(d.tool) ? [] : anchors);
+      if (d.id === this.data.selected) handles(ctx, freehand(d.tool) ? [] : handlesOf(d.tool, anchors));
     }
     const p = this.data.preview;
     if (p) {
@@ -152,8 +153,9 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
   /** The drawing (and handle) under a pane point: the selected one's handles first, then the topmost drawing. */
   pick(x: number, y: number): { id: string; handle: number | null } | null {
     const sel = this.data.selected ? this.drawn.get(this.data.selected) : undefined;
-    if (sel && !freehand(this.data.drawings.find((d) => d.id === this.data.selected)?.tool)) {
-      const h = sel.anchors.findIndex((a) => Math.hypot(a.x - x, a.y - y) <= HANDLE + 3);
+    const selTool = this.data.drawings.find((d) => d.id === this.data.selected)?.tool;
+    if (sel && selTool && !freehand(selTool)) {
+      const h = handlesOf(selTool, sel.anchors).findIndex((a) => Math.hypot(a.x - x, a.y - y) <= HANDLE + 3);
       if (h >= 0) return { id: this.data.selected!, handle: h };
     }
     const ids = [...this.drawn.keys()].reverse();
@@ -251,11 +253,13 @@ function render(ctx: CanvasRenderingContext2D, shapes: Shape[]) {
 /** A brush stroke: picked and moved whole, without a handle on each of its many points. */
 const freehand = (tool: ToolId | undefined) => tool !== undefined && TOOL_BY_ID.get(tool)?.variable === "freehand";
 
-function handles(ctx: CanvasRenderingContext2D, anchors: Anchor[]) {
+/** Handles: a circle on a point or corner, a rounded square on a side (TradingView's). */
+function handles(ctx: CanvasRenderingContext2D, list: Handle[]) {
   ctx.save();
-  for (const a of anchors) {
+  for (const a of list) {
     ctx.beginPath();
-    ctx.arc(a.x, a.y, HANDLE, 0, 2 * Math.PI);
+    if (a.square) ctx.roundRect(a.x - HANDLE + 0.5, a.y - HANDLE + 0.5, 2 * HANDLE - 1, 2 * HANDLE - 1, 2);
+    else ctx.arc(a.x, a.y, HANDLE, 0, 2 * Math.PI);
     ctx.fillStyle = "#131313";
     ctx.fill();
     ctx.lineWidth = 2;

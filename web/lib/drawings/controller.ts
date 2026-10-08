@@ -14,6 +14,7 @@ import type { IChartApi } from "lightweight-charts";
 import type { CursorMode } from "../chart-cursor";
 import { defaultColor, TOOL_BY_ID, timeOfLogical, type Drawing, type DrawPoint, type ToolId } from "./tools";
 import type { DrawingLayer } from "./layer";
+import { handleFrom, moveHandle } from "./handles";
 import { constrainMove, constrainPoint, refIndex, shiftKindOf } from "./snap";
 
 export type DrawState = {
@@ -205,8 +206,9 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
       let points: DrawPoint[] | null;
       if (drag.handle !== null) {
         const h = drag.handle;
-        const p = d ? snapped(d.tool, pixelOf(drag.points[refIndex(h)]), x, y, shift, s.magnet) : pointAt(x, y, s.magnet);
-        points = p ? drag.points.map((q, i) => (i === h ? p : q)) : null;
+        // A point, a corner or (a rectangle's) side: Shift holds it from the handle opposite.
+        const p = d ? snapped(d.tool, handleFrom(d.tool, h, drag.anchors, refIndex), x, y, shift, s.magnet) : pointAt(x, y, s.magnet);
+        points = p ? (d ? moveHandle(d.tool, h, drag.points, p) : drag.points.map((q, i) => (i === h ? p : q))) : null;
       } else {
         const [dx, dy] = shift ? constrainMove(x - drag.x, y - drag.y) : [x - drag.x, y - drag.y];
         const next = drag.anchors.map((a) => pointAt(a.x + dx, a.y + dy, false));
