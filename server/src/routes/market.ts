@@ -729,6 +729,10 @@ marketRouter.get("/screener", async (req, res) => {
   try {
     let rows = await marketRows();
     const num = (v: unknown) => (v === undefined ? undefined : Number(v));
+    const period = (tradingview.CHANGE_PERIODS as readonly string[]).includes(String(req.query.period))
+      ? (String(req.query.period) as tradingview.ChangePeriod)
+      : "1D";
+    const chg = (r: tradingview.MarketRow) => tradingview.changeOver(r, period);
     const f = {
       sector: req.query.sector ? String(req.query.sector) : undefined,
       marketCapMin: num(req.query.marketCapMin),
@@ -739,16 +743,18 @@ marketRouter.get("/screener", async (req, res) => {
     rows = rows.filter((r) => {
       if (f.sector && r.sector !== f.sector) return false;
       if (f.marketCapMin !== undefined && (r.marketCap ?? 0) < f.marketCapMin) return false;
-      if (f.changeMin !== undefined && (r.changePercent ?? -Infinity) < f.changeMin) return false;
-      if (f.changeMax !== undefined && (r.changePercent ?? Infinity) > f.changeMax) return false;
+      if (f.changeMin !== undefined && (chg(r) ?? -Infinity) < f.changeMin) return false;
+      if (f.changeMax !== undefined && (chg(r) ?? Infinity) > f.changeMax) return false;
       if (f.volumeMin !== undefined && (r.volume ?? 0) < f.volumeMin) return false;
       return true;
     });
     const sortKey = String(req.query.sort ?? "marketCap") as keyof tradingview.MarketRow;
     const dir = req.query.dir === "asc" ? 1 : -1;
+    // "changePercent" sorts by the change over the chosen period.
+    const key = (r: tradingview.MarketRow) => (sortKey === "changePercent" ? chg(r) : (r[sortKey] as number | null));
     rows = [...rows].sort((a, b) => {
-      const av = (a[sortKey] as number | null) ?? -Infinity;
-      const bv = (b[sortKey] as number | null) ?? -Infinity;
+      const av = key(a) ?? -Infinity;
+      const bv = key(b) ?? -Infinity;
       return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
     });
     res.json(rows.slice(0, 500));
