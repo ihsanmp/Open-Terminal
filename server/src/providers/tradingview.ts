@@ -77,11 +77,25 @@ export async function scanFundamentals(
   return out;
 }
 
+/** The periods a screener change can be over; 1D is the day's change, the rest TradingView's Perf.* columns. */
+export const CHANGE_PERIODS = ["1D", "1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
+export type ChangePeriod = (typeof CHANGE_PERIODS)[number];
+const PERF_COLUMNS: Array<[Exclude<ChangePeriod, "1D">, string]> = [
+  ["1W", "Perf.W"],
+  ["1M", "Perf.1M"],
+  ["3M", "Perf.3M"],
+  ["6M", "Perf.6M"],
+  ["YTD", "Perf.YTD"],
+  ["1Y", "Perf.Y"],
+];
+
 export type MarketRow = {
   symbol: string;
   name: string;
   price: number | null;
   changePercent: number | null;
+  /** % change over each longer period. */
+  perf: Partial<Record<ChangePeriod, number | null>>;
   volume: number | null;
   marketCap: number | null;
   sector: string;
@@ -94,7 +108,7 @@ export async function marketScan(limit = 1500): Promise<MarketRow[]> {
     method: "POST",
     headers: HEADERS,
     body: JSON.stringify({
-      columns: ["description", "close", "change", "market_cap_basic", "sector", "volume", "exchange"],
+      columns: ["description", "close", "change", "market_cap_basic", "sector", "volume", "exchange", ...PERF_COLUMNS.map(([, c]) => c)],
       filter: [
         { left: "type", operation: "equal", right: "stock" },
         { left: "typespecs", operation: "has", right: ["common"] },
@@ -108,12 +122,13 @@ export async function marketScan(limit = 1500): Promise<MarketRow[]> {
   const rows: Array<{ s: string; d: any[] }> = json?.data ?? [];
   return rows
     .map((r) => {
-      const [name, close, change, marketCap, sector, volume, exchange] = r.d;
+      const [name, close, change, marketCap, sector, volume, exchange, ...perfs] = r.d;
       return {
         symbol: r.s.split(":")[1],
         name: name ?? r.s.split(":")[1],
         price: close ?? null,
         changePercent: change ?? null,
+        perf: Object.fromEntries(PERF_COLUMNS.map(([p], i) => [p, typeof perfs[i] === "number" ? perfs[i] : null])),
         marketCap: marketCap ?? null,
         sector: sector || "Other",
         volume: volume ?? null,
@@ -124,6 +139,11 @@ export async function marketScan(limit = 1500): Promise<MarketRow[]> {
     // markets — noisy, illiquid duplicates of companies better represented
     // elsewhere; drop them so the heatmap/screener only shows primary US listings.
     .filter((r) => r.symbol && r.exchange !== "OTC");
+}
+
+/** A row's % change over a period: the day's for 1D, else that period's. */
+export function changeOver(r: MarketRow, period: ChangePeriod): number | null {
+  return period === "1D" ? r.changePercent : (r.perf[period] ?? null);
 }
 
 export type EarningsInfo = {
