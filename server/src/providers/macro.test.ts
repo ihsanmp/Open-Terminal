@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assemble, GLOBAL_10Y, lastAndChange, macroSymbols, MARKETS, spreadsOf, US_CURVE } from "./macro.js";
+import { assemble, GLOBAL_10Y, lastAndChange, macroSymbols, MARKETS, refsOf, spreadsOf, US_CURVE } from "./macro.js";
 
 const bar = (close: number, day: number) => ({ time: day * 86_400, open: close, high: close, low: close, close, volume: null });
 
@@ -20,7 +20,7 @@ describe("macro page", () => {
     // 10Y − 2Y = 0.4 pp = 40 bp, both up 5 bp: unchanged.
     expect(m.spreads[0]).toEqual({ label: "2s10s", value: 40, changeBp: 0 });
     // Symbols with no data are shown empty, not dropped.
-    expect(m.markets[0].items[0]).toMatchObject({ label: "S&P 500", value: null, spark: [] });
+    expect(m.markets[0].items[0]).toMatchObject({ label: "S&P 500", value: null, spark: [], refs: {} });
     // Each row carries its closes for its small chart.
     expect(ten.spark).toEqual([4.8, 4.85]);
   });
@@ -38,6 +38,24 @@ describe("macro page", () => {
       { label: "3M10Y", value: -70, changeBp: -4 },
       { label: "5s30s", value: 25, changeBp: -1 },
     ]);
+  });
+
+  it("finds the close each period's change starts from", () => {
+    // Daily closes from 2025-01-01 (close = day number), to 2026-03-15.
+    const start = Date.UTC(2025, 0, 1) / 86_400_000;
+    const days = Array.from({ length: 439 }, (_, k) => start + k);
+    const refs = refsOf(days.map((d) => bar(d, d)));
+    const last = days[days.length - 1];
+    expect(refs["1D"]).toBe(last - 1);
+    expect(refs["1W"]).toBe(last - 7);
+    expect(refs["1M"]).toBe(last - 30);
+    expect(refs["1Y"]).toBe(last - 365);
+    expect(refs.YTD).toBe(Date.UTC(2025, 11, 31) / 86_400_000); // the last close of 2025
+    // A period the bars don't reach back over is left out.
+    const short = refsOf(days.slice(-20).map((d) => bar(d, d)));
+    expect(short["1M"]).toBeUndefined();
+    expect(short.YTD).toBeUndefined(); // starts after the new year: no close from before it
+    expect(short["1W"]).toBe(last - 7);
   });
 
   it("asks TradingView for every symbol once", () => {

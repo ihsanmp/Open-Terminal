@@ -15,7 +15,10 @@ import { fontPx } from "../../lib/font-scale";
 // previous close and a three-month line — and the US economy. A row opens its chart at the top;
 // from there it can go to the Chart page.
 
-type Spark = { spark?: number[] };
+/** The periods a change can be shown over (the server sends the close each starts from). */
+const PERIODS = ["1D", "1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
+type Period = (typeof PERIODS)[number];
+type Spark = { spark?: number[]; refs?: Partial<Record<Period, number>> };
 type CurvePoint = { tenor: string; symbol: string; value: number | null; changeBp: number | null } & Spark;
 type Spread = { label: string; value: number | null; changeBp: number | null };
 type MarketItem = { symbol: string; label: string; value: number | null; change: number | null; changePct: number | null } & Spark;
@@ -278,12 +281,35 @@ export default function MacroWidget() {
     refetchInterval: poll,
   });
   const [sel, setSel] = useState<Selected>({ symbol: "TVC:US10Y", label: "US 10Y Yield", isYield: true });
+  const [period, setPeriod] = useWidgetSetting<Period>("macroChgPeriod", "1D");
 
   if (error) return <div className="p-2 down">Error: {(error as Error).message}</div>;
   if (!data) return <div className="p-2 dim">Loading macro data…</div>;
 
   const rowClass = (symbol: string) => `cursor-pointer ${sel.symbol === symbol ? "bg-[#1f1a10]" : ""}`;
   const curve = data.curve.filter((c) => c.value !== null);
+
+  // Each change over the chosen period: from the close it starts from (the day before's change
+  // from the server when that's all there is, as with FRED's curve).
+  const refOf = (x: Spark) => x.refs?.[period] ?? null;
+  const bpOver = (value: number | null, x: Spark, dayBp: number | null) => {
+    const r = refOf(x);
+    if (value === null || r === null) return period === "1D" ? dayBp : null;
+    return Math.round((value - r) * 1000) / 10;
+  };
+  const pctOver = (value: number | null, x: Spark, dayPct: number | null) => {
+    const r = refOf(x);
+    if (value === null || r === null || r === 0) return period === "1D" ? dayPct : null;
+    return ((value - r) / r) * 100;
+  };
+  const SPREAD_TENORS: Record<string, [string, string]> = { "2s10s": ["2Y", "10Y"], "3M10Y": ["3M", "10Y"], "5s30s": ["5Y", "30Y"] };
+  const spreadOver = (sp: Spread) => {
+    const [a, b] = SPREAD_TENORS[sp.label] ?? [];
+    const [short, long] = [data.curve.find((c) => c.tenor === a), data.curve.find((c) => c.tenor === b)];
+    const [rs, rl] = [short ? refOf(short) : null, long ? refOf(long) : null];
+    if (sp.value === null || rs === null || rl === null) return period === "1D" ? sp.changeBp : null;
+    return Math.round((sp.value - (rl - rs) * 100) * 10) / 10;
+  };
 
   return (
     <div className="p-1 flex flex-col gap-1">
@@ -294,6 +320,14 @@ export default function MacroWidget() {
           setView("chart");
         }}
       />
+      <div className="flex items-center gap-1 px-1 text-fs-11" role="group" aria-label="Change over">
+        <span className="dim mr-1">Change over</span>
+        {PERIODS.map((p) => (
+          <button key={p} className={`term-btn ${p === period ? "active" : ""}`} onClick={() => setPeriod(p)} aria-pressed={p === period}>
+            {p}
+          </button>
+        ))}
+      </div>
       <div className="grid gap-1" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(calc(19rem * var(--font-scale)), 1fr))" }}>
         <Panel title="US Treasury Yields" right={<span className="normal-case">{data.curveSource === "fred" ? "FRED (daily)" : "live"}</span>}>
           <div className="h-24 px-1">
@@ -311,7 +345,7 @@ export default function MacroWidget() {
               <tr>
                 <th>Tenor</th>
                 <th>Yield</th>
-                <th>Chg (bp)</th>
+                <th>Chg {period} (bp)</th>
                 <th>3M</th>
               </tr>
             </thead>
@@ -322,7 +356,7 @@ export default function MacroWidget() {
                   <td>
                     <Flash value={c.value}>{fmt(c.value, 3)}%</Flash>
                   </td>
-                  <td className={pctClass(c.changeBp)}>{signed(c.changeBp, 1)}</td>
+                  <td className={pctClass(bpOver(c.value, c, c.changeBp))}>{signed(bpOver(c.value, c, c.changeBp), 1)}</td>
                   <td>
                     <Sparkline values={c.spark} />
                   </td>
@@ -334,7 +368,7 @@ export default function MacroWidget() {
             {data.spreads.map((s) => (
               <span key={s.label} title={s.label === "3M10Y" ? "Below zero: the curve is inverted" : undefined}>
                 <span className="dim">{s.label}</span> <span className={s.value !== null && s.value < 0 ? "down" : "text-[var(--text)]"}>{signed(s.value, 1, " bp")}</span>{" "}
-                <span className={`text-fs-10 ${pctClass(s.changeBp)}`}>({signed(s.changeBp, 1)})</span>
+                <span className={`text-fs-10 ${pctClass(spreadOver(s))}`}>({signed(spreadOver(s), 1)} {period})</span>
               </span>
             ))}
           </div>
@@ -346,7 +380,7 @@ export default function MacroWidget() {
               <tr>
                 <th>Country</th>
                 <th>Yield</th>
-                <th>Chg (bp)</th>
+                <th>Chg {period} (bp)</th>
                 <th>3M</th>
               </tr>
             </thead>
@@ -357,7 +391,7 @@ export default function MacroWidget() {
                   <td>
                     <Flash value={y.value}>{fmt(y.value, 3)}%</Flash>
                   </td>
-                  <td className={pctClass(y.changeBp)}>{signed(y.changeBp, 1)}</td>
+                  <td className={pctClass(bpOver(y.value, y, y.changeBp))}>{signed(bpOver(y.value, y, y.changeBp), 1)}</td>
                   <td>
                     <Sparkline values={y.spark} />
                   </td>
@@ -374,7 +408,7 @@ export default function MacroWidget() {
                 <tr>
                   <th>Name</th>
                   <th>Last</th>
-                  <th>Chg%</th>
+                  <th>Chg% {period}</th>
                   <th>3M</th>
                 </tr>
               </thead>
@@ -385,8 +419,8 @@ export default function MacroWidget() {
                     <td>
                       <Flash value={q.value}>{fmt(q.value, digitsFor(q.value, false))}</Flash>
                     </td>
-                    <td className={pctClass(q.changePct)}>
-                      <Flash value={q.changePct}>{signed(q.changePct, 2, "%")}</Flash>
+                    <td className={pctClass(pctOver(q.value, q, q.changePct))}>
+                      <Flash value={pctOver(q.value, q, q.changePct)}>{signed(pctOver(q.value, q, q.changePct), 2, "%")}</Flash>
                     </td>
                     <td>
                       <Sparkline values={q.spark} />
