@@ -37,12 +37,14 @@ const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:3000";
 app.use(cors({ origin: webOrigin }));
 // Before the general body parser: the workspace backup has its own, larger limit.
 app.use("/api/workspace", requireApiKey, workspaceRouter);
+// Portfolio data requires a shared secret (see auth.ts); its own body limit carries chart photos
+// and journal workbooks as base64.
+app.use("/api/portfolios", requireApiKey, express.json({ limit: "40mb" }), portfolioRouter);
 app.use(express.json());
 
 app.use("/api/research", researchRouter);
 app.use("/api", marketRouter);
-// Portfolio data and the paid AI endpoint require a shared secret; see auth.ts.
-app.use("/api/portfolios", requireApiKey, portfolioRouter);
+// The paid AI endpoint requires a shared secret; see auth.ts.
 app.use(
   "/api/ai",
   requireApiKey,
