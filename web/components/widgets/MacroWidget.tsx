@@ -1,11 +1,11 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { AreaSeries, createChart, type IChartApi, type UTCTimestamp } from "lightweight-charts";
+import { useEffect, useRef, useState } from "react";
+import { AreaSeries, BarSeries, CandlestickSeries, LineSeries, createChart, type IChartApi, type UTCTimestamp } from "lightweight-charts";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip } from "recharts";
 import { apiGet, fmt, pctClass, type Candle } from "../../lib/api";
-import { useTerminal } from "../../store/terminal";
+import { useTerminal, useWidgetSetting } from "../../store/terminal";
 import Flash from "../Flash";
 import { sessionRefreshMs, usePoll } from "../../lib/refresh";
 import { fontPx } from "../../lib/font-scale";
@@ -34,12 +34,36 @@ type MacroData = {
 type Selected = { symbol: string; label: string; isYield: boolean };
 
 const KEY_TENORS = new Set(["2Y", "10Y", "30Y"]);
+/** The chart's timeframes: [interval, label, intraday]. */
+const TIMEFRAMES: Array<[string, string, boolean]> = [
+  ["5m", "5m", true],
+  ["15m", "15m", true],
+  ["1h", "1H", true],
+  ["4h", "4H", true],
+  ["1D", "D", false],
+  ["1W", "W", false],
+  ["1M", "M", false],
+];
+/** How the chart draws the prices, as on the Chart page. */
+const CHART_TYPES: Array<[string, string]> = [
+  ["area", "Area"],
+  ["line", "Line"],
+  ["candles", "Candles"],
+  ["bars", "Bars"],
+];
+const UP = "#26a69a";
+const DOWN = "#ef5350";
+
+/** The spans the range buttons bring into view (days). */
 const RANGES: Array<[string, number]> = [
+  ["1D", 1],
+  ["1W", 7],
   ["1M", 31],
   ["3M", 92],
   ["6M", 183],
   ["1Y", 366],
   ["5Y", 1827],
+  ["All", Infinity],
 ];
 
 /** Decimals for a level: yields to 3, FX pairs to 4, the rest to 2. */
@@ -75,66 +99,140 @@ function Panel({ title, right, children }: { title: string; right?: React.ReactN
   );
 }
 
-/** The selected symbol's daily chart, over the chosen range. */
+/** The selected symbol's chart: dragged and zoomed like the Chart page's, at the chosen timeframe,
+ *  the range buttons bringing a span into view. */
 function DetailChart({ sel, onOpen }: { sel: Selected; onOpen: () => void }) {
-  const [range, setRange] = useState("1Y");
+  const [interval, setInterval_] = useWidgetSetting("macroInterval", "1D");
+  const [range, setRange] = useWidgetSetting("macroRange", "1Y");
+  const [chartType, setChartType] = useWidgetSetting("macroChartType", "area");
   const ref = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const intraday = TIMEFRAMES.find(([v]) => v === interval)?.[2] ?? false;
   const { data, error, isLoading } = useQuery({
-    queryKey: ["history", sel.symbol, "5Y", "1D"],
-    queryFn: () => apiGet<Candle[]>(`/api/history/${encodeURIComponent(sel.symbol)}?range=5Y&interval=1D`),
-    staleTime: 300_000,
+    queryKey: ["history", sel.symbol, "5Y", interval],
+    queryFn: () => apiGet<Candle[]>(`/api/history/${encodeURIComponent(sel.symbol)}?range=5Y&interval=${interval}`),
+    staleTime: intraday ? 30_000 : 300_000,
   });
-  const days = RANGES.find(([r]) => r === range)?.[1] ?? 366;
-  const shown = useMemo(() => {
-    if (!data?.length) return [];
-    const from = data[data.length - 1].time - days * 86_400;
-    return data.filter((c) => c.time >= from);
-  }, [data, days]);
+  // The first close in view, for the move shown in the header.
+  const [firstShown, setFirstShown] = useState<number | null>(null);
 
   useEffect(() => {
     const el = ref.current;
-    if (!el || shown.length === 0) return;
+    if (!el || !data?.length) return;
+    const local = (t: number) => new Date(t * 1000);
     const chart = createChart(el, {
       autoSize: true,
       layout: { background: { color: "transparent" }, textColor: "#808080", fontSize: fontPx(10), attributionLogo: false },
       grid: { vertLines: { visible: false }, horzLines: { color: "#1c1c1c" } },
       rightPriceScale: { borderColor: "#262626" },
-      timeScale: { borderColor: "#262626" },
+      timeScale: { borderColor: "#262626", timeVisible: intraday, rightOffset: 3 },
+      localization: {
+        timeFormatter: (t: number) =>
+          intraday
+            ? local(t).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" })
+            : local(t).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
+      },
       crosshair: { vertLine: { labelVisible: true }, horzLine: { labelVisible: true } },
-      handleScroll: false,
-      handleScale: false,
+      // Drag to move, the wheel to zoom, the axes to stretch: as on the Chart page.
+      handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+      handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true } },
     });
-    const up = shown[shown.length - 1].close >= shown[0].close;
-    const color = up ? "#26a69a" : "#ef5350";
-    const digits = digitsFor(shown[shown.length - 1].close, sel.isYield);
-    const series = chart.addSeries(AreaSeries, {
-      lineColor: color,
-      topColor: up ? "rgba(38,166,154,0.25)" : "rgba(239,83,80,0.25)",
-      bottomColor: "rgba(0,0,0,0)",
-      lineWidth: 2,
-      crosshairMarkerVisible: false,
-      priceFormat: { type: "price", precision: digits, minMove: 1 / 10 ** digits },
-    });
-    series.setData(shown.map((c) => ({ time: c.time as UTCTimestamp, value: c.close })));
-    chart.timeScale().fitContent();
+    const digits = digitsFor(data[data.length - 1].close, sel.isYield);
+    const priceFormat = { type: "price" as const, precision: digits, minMove: 1 / 10 ** digits };
+    const time = (c: Candle) => c.time as UTCTimestamp;
+    // Candles and bars in their own colors; a line or area takes the move in view's color.
+    let recolor: ((up: boolean) => void) | null = null;
+    if (chartType === "candles") {
+      const series = chart.addSeries(CandlestickSeries, { upColor: UP, downColor: DOWN, borderUpColor: UP, borderDownColor: DOWN, wickUpColor: UP, wickDownColor: DOWN, priceFormat });
+      series.setData(data.map((c) => ({ time: time(c), open: c.open, high: c.high, low: c.low, close: c.close })));
+    } else if (chartType === "bars") {
+      const series = chart.addSeries(BarSeries, { upColor: UP, downColor: DOWN, priceFormat });
+      series.setData(data.map((c) => ({ time: time(c), open: c.open, high: c.high, low: c.low, close: c.close })));
+    } else if (chartType === "line") {
+      const series = chart.addSeries(LineSeries, { lineWidth: 2, crosshairMarkerVisible: false, priceFormat });
+      series.setData(data.map((c) => ({ time: time(c), value: c.close })));
+      recolor = (up) => series.applyOptions({ color: up ? UP : DOWN });
+    } else {
+      const series = chart.addSeries(AreaSeries, { lineWidth: 2, crosshairMarkerVisible: false, priceFormat });
+      series.setData(data.map((c) => ({ time: time(c), value: c.close })));
+      recolor = (up) =>
+        series.applyOptions({ lineColor: up ? UP : DOWN, topColor: up ? "rgba(38,166,154,0.25)" : "rgba(239,83,80,0.25)", bottomColor: "rgba(0,0,0,0)" });
+    }
+    // The header's move (and a line's color) follow what's in view.
+    const onRange = (r: { from: number; to: number } | null) => {
+      if (!r) return;
+      const i = Math.min(data.length - 1, Math.max(0, Math.ceil(r.from)));
+      const first = data[i].close;
+      setFirstShown(first);
+      recolor?.(data[data.length - 1].close >= first);
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(onRange);
     chartRef.current = chart;
     return () => {
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);
       chart.remove();
       chartRef.current = null;
     };
-  }, [shown, sel.isYield]);
+  }, [data, sel.isYield, intraday, chartType]);
 
-  const first = shown[0]?.close ?? null;
-  const last = shown[shown.length - 1]?.close ?? null;
-  const change = first !== null && last !== null ? last - first : null;
+  // A range button brings that span (up to the latest bar) into view; a new chart opens on it once
+  // it has its width (before that the library has nothing to fit the span in).
+  const rangeRef = useRef(range);
+  rangeRef.current = range;
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !data?.length) return;
+    const show = () => {
+      if (chartRef.current !== chart) return;
+      const days = RANGES.find(([r]) => r === rangeRef.current)?.[1] ?? Infinity;
+      const last = data[data.length - 1].time;
+      const from = last - days * 86_400;
+      if (!Number.isFinite(days) || from <= data[0].time) chart.timeScale().fitContent();
+      else chart.timeScale().setVisibleRange({ from: from as UTCTimestamp, to: last as UTCTimestamp });
+    };
+    // Now, and again when it next gets its size: a chart just made lays itself out then.
+    const ts = chart.timeScale();
+    show();
+    const onSize = (width: number) => {
+      if (width <= 0) return;
+      ts.unsubscribeSizeChange(onSize);
+      show();
+    };
+    ts.subscribeSizeChange(onSize);
+    return () => {
+      if (chartRef.current === chart) ts.unsubscribeSizeChange(onSize);
+    };
+  }, [range, data, chartType]);
+
+  const last = data?.length ? data[data.length - 1].close : null;
+  const change = firstShown !== null && last !== null ? last - firstShown : null;
   return (
     <Panel
       title={`${sel.label} · ${sel.symbol}`}
       right={
-        <span className="flex gap-1 normal-case tracking-normal">
+        <span className="flex items-center gap-1 normal-case tracking-normal">
+          {TIMEFRAMES.map(([v, label]) => (
+            <button key={v} className={`px-1.5 ${v === interval ? "text-[var(--amber)]" : "hover:text-[var(--text)]"}`} onClick={() => setInterval_(v)} title={`Timeframe ${label}`}>
+              {label}
+            </button>
+          ))}
+          <span className="w-px h-3 bg-[var(--border)] mx-1" />
+          <select
+            value={chartType}
+            onChange={(e) => setChartType(e.target.value)}
+            className="bg-[var(--panel)] border border-[var(--border)] px-1 cursor-pointer"
+            aria-label="Chart type"
+            title="Chart type"
+          >
+            {CHART_TYPES.map(([v, label]) => (
+              <option key={v} value={v}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <span className="w-px h-3 bg-[var(--border)] mx-1" />
           {RANGES.map(([r]) => (
-            <button key={r} className={`px-1.5 ${r === range ? "text-[var(--amber)]" : "hover:text-[var(--text)]"}`} onClick={() => setRange(r)}>
+            <button key={r} className={`px-1.5 ${r === range ? "text-[var(--amber)]" : "hover:text-[var(--text)]"}`} onClick={() => setRange(r)} title={`Show ${r}`}>
               {r}
             </button>
           ))}
@@ -145,12 +243,16 @@ function DetailChart({ sel, onOpen }: { sel: Selected; onOpen: () => void }) {
       }
     >
       <div className="px-2 pt-1 flex items-baseline gap-3">
-        <span className="text-fs-18 text-[var(--text)]">{fmt(last, digitsFor(last, sel.isYield))}{sel.isYield ? "%" : ""}</span>
+        <span className="text-fs-18 text-[var(--text)]">
+          {fmt(last, digitsFor(last, sel.isYield))}
+          {sel.isYield ? "%" : ""}
+        </span>
         <span className={pctClass(change)}>
           {sel.isYield ? signed(change === null ? null : change * 100, 1, " bp") : signed(change, digitsFor(last, false))}
-          {!sel.isYield && first ? ` (${signed(((last! - first) / first) * 100, 2, "%")})` : ""}
-          <span className="dim"> · {range}</span>
+          {!sel.isYield && firstShown ? ` (${signed(((last! - firstShown) / firstShown) * 100, 2, "%")})` : ""}
+          <span className="dim"> · in view</span>
         </span>
+        <span className="dim text-fs-10 ml-auto">drag to move · wheel to zoom · double-click an axis to reset</span>
       </div>
       {/* About half the screen: room to read the move. */}
       <div className="h-[max(calc(20rem*var(--font-scale)),50vh)] relative">
