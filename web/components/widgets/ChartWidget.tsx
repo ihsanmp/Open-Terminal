@@ -835,7 +835,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     const detachDrawing = attachDrawing(el, chart, layer, times as number[], intervalSeconds, candles, {
       state: () => drawStateRef.current,
       placing: placingRef,
-      onAdd: (d) => setDrawingsRef.current((list) => [...list, { ...d, ...drawTemplatesRef.current[d.tool] }]),
+      onAdd: (d) => setDrawingsRef.current((list) => [...list, d]),
+      styleOf: (tool) => drawTemplatesRef.current[tool],
       onUpdate: (id, patch) => setDrawingsRef.current((list) => list.map((d) => (d.id === id ? { ...d, ...patch } : d))),
       onSelect: setSelectedDrawing,
       onToolDone: () => setTool(null),
