@@ -177,5 +177,5 @@ button.term-btn.active {
 /* The chart's cursor (lib/chart-cursor) over its panes only; the axes keep their own. A pane's
    row holds the left axis, the pane, then the right axis. */
 .chart-cursor [data-chart-pane] > td:nth-child(2) canvas {
-  cursor: var(--chart-cursor) !important;
+  cursor: var(--chart-cursor-hover, var(--chart-cursor)) !important;
 }

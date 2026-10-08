@@ -51,6 +51,53 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     const r = el.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
+  // The live canvas: the drawing being dragged or placed, over the main pane (layer.ts: Live).
+  const canvas = document.createElement("canvas");
+  canvas.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;z-index:3";
+  el.appendChild(canvas);
+  const drawLive = () => {
+    const w = chart.timeScale().width();
+    const h = chart.panes()[0]?.getHeight() ?? 0;
+    const dpr = window.devicePixelRatio || 1;
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+    }
+    const ctx = canvas.getContext("2d")!;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    layer.paintLive(ctx, w, h);
+  };
+  layer.liveSink = drawLive;
+  // Scrolled or zoomed meanwhile: the live drawing moves with the chart.
+  chart.timeScale().subscribeVisibleLogicalRangeChange(drawLive);
+
+  // The pointer over the chart, as TradingView's: a hand over a drawing, a resize arrow over a
+  // rectangle's corner or side, a move cross over a point, a closed hand while dragging one.
+  const setCursor = (cursor: string | null) => {
+    if (cursor) el.style.setProperty("--chart-cursor-hover", cursor);
+    else el.style.removeProperty("--chart-cursor-hover");
+  };
+  const cursorOver = (hit: { id: string; handle: number | null } | null): string | null => {
+    if (!hit) return null;
+    if (hit.handle === null) return drag ? "grabbing" : "pointer";
+    const d = cb.state().drawings.find((v) => v.id === hit.id);
+    if (d?.tool === "rect") {
+      const a = layer.anchorsOfDrawing(d.id);
+      if (hit.handle >= 4) return hit.handle <= 5 ? "ns-resize" : "ew-resize";
+      if (a && a.length === 2) {
+        // A corner: the diagonal it stretches along, from the corner opposite.
+        const [A, B] = a;
+        const [cx, cy] = [[A.x, A.y], [B.x, B.y], [A.x, B.y], [B.x, A.y]][hit.handle];
+        return (cx - (A.x + B.x) / 2) * (cy - (A.y + B.y) / 2) > 0 ? "nwse-resize" : "nesw-resize";
+      }
+    }
+    return "move";
+  };
+
   const inMainPane = (x: number, y: number) => x >= 0 && y >= 0 && x <= chart.timeScale().width() && y <= (chart.panes()[0]?.getHeight() ?? 0);
 
   /** A pane point as a drawing point, snapped to the bar's open, high, low or close with the magnet on. */
@@ -87,6 +134,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
       const b = layer.toChart(200, 200);
       if (a && b && b.logical !== a.logical) d.ratio = Math.abs(b.price - a.price) / Math.abs(b.logical - a.logical);
     }
+    layer.add(d);
     cb.onAdd(d);
     cb.onSelect(d.id);
     if (def.startText) cb.onOpenSettings(d.id);
@@ -94,8 +142,8 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
 
   const done = (tool: ToolId, points: DrawPoint[]) => {
     cb.placing.current = null;
-    layer.set({ preview: null });
     finish(tool, points);
+    layer.setLive(null);
     cb.onToolDone();
   };
 
@@ -146,7 +194,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
       done(s.tool, points);
     } else {
       cb.placing.current = points;
-      layer.set({ preview: { tool: s.tool, points: [...points, p], style: previewStyle(s.tool) } });
+      layer.setLive({ preview: { tool: s.tool, points: [...points, p], style: previewStyle(s.tool) } });
     }
   };
 
@@ -167,7 +215,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
         const p = pointAt(x, y, false);
         if (p) {
           stroke = { points: [p], last: { x, y } };
-          layer.set({ preview: { tool: s.tool, points: [p], style: previewStyle(s.tool) } });
+          layer.setLive({ preview: { tool: s.tool, points: [p], style: previewStyle(s.tool) } });
         }
         return;
       }
@@ -201,6 +249,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     el.focus({ preventScroll: true });
     drag = { id: d.id, handle: hit.handle, x, y, points: d.points, anchors: layer.anchorsOfDrawing(d.id) ?? [] };
     moved = null;
+    setCursor(cursorOver(hit));
   };
 
   /** The pointer at (x, y): the drawing being dragged follows, or the one being placed. */
@@ -219,9 +268,9 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
         const next = drag.anchors.map((a) => pointAt(a.x + dx, a.y + dy, false));
         points = next.every(Boolean) ? (next as DrawPoint[]) : null;
       }
-      if (!points) return;
+      if (!points || !d) return;
       moved = points;
-      layer.set({ drawings: s.drawings.map((v) => (v.id === drag!.id ? { ...v, points } : v)) });
+      layer.setLive({ drawing: { ...d, points } });
       return;
     }
     if (s.tool) {
@@ -229,7 +278,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
       const sofar = cb.placing.current ?? [];
       const p = snapped(s.tool, pixelOf(sofar[sofar.length - 1]), x, y, shift, s.magnet);
       if (!p) return;
-      layer.set({ preview: { tool: s.tool, points: [...sofar, p], style: previewStyle(s.tool) } });
+      layer.setLive({ preview: { tool: s.tool, points: [...sofar, p], style: previewStyle(s.tool) } });
     }
   };
 
@@ -244,12 +293,18 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
         if (p) {
           stroke.points.push(p);
           stroke.last = { x, y };
-          layer.set({ preview: { tool, points: stroke.points, style: previewStyle(tool) } });
+          layer.setLive({ preview: { tool, points: stroke.points, style: previewStyle(tool) } });
         }
       }
       return;
     }
-    if (drag) e.stopImmediatePropagation();
+    if (drag) {
+      e.stopImmediatePropagation();
+      layer.crosshairAt(x, y);
+    } else {
+      const s = cb.state();
+      setCursor(!s.tool && s.cursor !== "eraser" && s.cursor !== "magic" && inMainPane(x, y) && !(e.buttons & 1) ? cursorOver(layer.pick(x, y)) : null);
+    }
     update(x, y, e.shiftKey);
   };
 
@@ -260,10 +315,21 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
       const pts = stroke.points;
       stroke = null;
       if (tool && pts.length >= 2) done(tool, pts);
-      else layer.set({ preview: null });
+      else layer.setLive(null);
       return;
     }
-    if (drag && moved) cb.onUpdate(drag.id, { points: moved });
+    if (drag) {
+      if (moved) {
+        // The chart takes the drawing back where it was let go, in the same frame the live
+        // canvas lets it go.
+        const id = drag.id;
+        const points = moved;
+        layer.set({ drawings: cb.state().drawings.map((v) => (v.id === id ? { ...v, points } : v)) });
+        cb.onUpdate(id, { points });
+      }
+      layer.setLive(null);
+      setCursor(null);
+    }
     drag = null;
     moved = null;
     // Pressed on a point and dragged to the next: placed where it's let go (TradingView's drag).
@@ -312,5 +378,9 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("keydown", onShift);
     window.removeEventListener("keyup", onShift);
+    layer.liveSink = null;
+    chart.timeScale().unsubscribeVisibleLogicalRangeChange(drawLive);
+    canvas.remove();
+    setCursor(null);
   };
 }

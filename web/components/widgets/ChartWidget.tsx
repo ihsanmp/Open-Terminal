@@ -255,7 +255,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   drawStateRef.current = { tool, magnet, locked: drawingsLocked, drawings, selected: selectedDrawing, cursor: cursorMode };
   const pickTool = (t: ToolId | null) => {
     placingRef.current = null;
-    layerRef.current?.set({ preview: null });
+    layerRef.current?.setLive(null);
     setTool(t);
     if (t) {
       setSelectedDrawing(null);
