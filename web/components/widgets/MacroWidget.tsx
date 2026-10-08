@@ -152,7 +152,8 @@ function DetailChart({ sel, onOpen }: { sel: Selected; onOpen: () => void }) {
           <span className="dim"> · {range}</span>
         </span>
       </div>
-      <div className="h-[calc(13rem*var(--font-scale))] relative">
+      {/* About half the screen: room to read the move. */}
+      <div className="h-[max(calc(20rem*var(--font-scale)),50vh)] relative">
         {error ? (
           <div className="p-2 down">Error: {(error as Error).message}</div>
         ) : isLoading ? (
