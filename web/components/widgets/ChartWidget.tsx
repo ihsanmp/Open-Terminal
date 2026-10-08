@@ -502,8 +502,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     } else {
       main =
         chartType === "line"
-          ? chart.addSeries(LineSeries, { color: "#ff9900", lineWidth: 1, priceFormat: mainFormat })
-          : chart.addSeries(AreaSeries, { lineColor: "#ff9900", topColor: "rgba(255,153,0,0.25)", bottomColor: "rgba(255,153,0,0)", priceFormat: mainFormat });
+          ? chart.addSeries(LineSeries, { color: "#ff9900", lineWidth: 1, priceFormat: mainFormat, crosshairMarkerVisible: false })
+          : chart.addSeries(AreaSeries, { lineColor: "#ff9900", topColor: "rgba(255,153,0,0.25)", bottomColor: "rgba(255,153,0,0)", priceFormat: mainFormat, crosshairMarkerVisible: false });
       main.setData([...candles.map((c) => ({ time: c.time as UTCTimestamp, value: c.close })), ...future]);
     }
 
@@ -544,6 +544,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         const lineStyle = LINE_STYLE[o.dash ?? (plot.dotted ? "dotted" : plot.dashed ? "dashed" : "solid")];
         const common = {
           priceLineVisible: false,
+          // No dot where the crosshair crosses each line, as on TradingView.
+          crosshairMarkerVisible: false,
           lastValueVisible: !it.def.volumeOverlay && style.labelsOnPriceScale !== false,
           priceFormat,
           ...(scaleId ? { priceScaleId: scaleId } : {}),
@@ -577,7 +579,6 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
               lineVisible: kind !== "circles",
               pointMarkersVisible: kind === "circles",
               pointMarkersRadius: 1.5,
-              crosshairMarkerVisible: kind !== "circles",
             },
             paneIndex
           );
