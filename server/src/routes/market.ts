@@ -690,7 +690,7 @@ marketRouter.get("/indices", async (req, res) => {
 marketRouter.get("/macro", async (req, res) => {
   try {
     const [bars, economy] = await Promise.all([
-      cached("macro:tv", 15_000, () => tvchart.bars(macro.macroSymbols(), "1D", macro.SPARK_BARS, 15_000)).catch(() => ({})),
+      cached("macro:tv", 15_000, () => tvchart.bars(macro.macroSymbols(), "1D", macro.FETCH_BARS, 15_000)).catch(() => ({})),
       cached("macro:economy", 6 * 3_600_000, () => macro.economy()).catch(() => []),
     ]);
     const live = macro.assemble(bars);

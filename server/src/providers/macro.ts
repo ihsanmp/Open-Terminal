@@ -7,15 +7,47 @@ import * as fred from "./fred.js";
 import type { TvBar } from "./tvchart.js";
 
 /** The last ~3 months of daily closes, oldest first, for a row's small chart. */
-type Spark = { spark: number[] };
+/** The periods a change can be over, and the close it's measured from for each (refs). */
+export const PERIODS = ["1D", "1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
+export type Period = (typeof PERIODS)[number];
+type Refs = Partial<Record<Period, number>>;
+/** The last ~3 months of daily closes for a row's small chart, and the closes its changes start from. */
+type Spark = { spark: number[]; refs: Refs };
 export type CurvePoint = { tenor: string; symbol: string; value: number | null; changeBp: number | null } & Partial<Spark>;
 export type Spread = { label: string; value: number | null; changeBp: number | null };
 export type MarketItem = { symbol: string; label: string; value: number | null; change: number | null; changePct: number | null } & Spark;
 export type Yield10 = { symbol: string; label: string; value: number | null; changeBp: number | null } & Spark;
 
-/** Daily bars asked for: about three months, for the small charts. */
+/** Daily bars shown in a small chart (about three months), and asked for (over a year: YTD and 1Y). */
 export const SPARK_BARS = 66;
+export const FETCH_BARS = 400;
 const sparkOf = (bars: TvBar[] | null | undefined): number[] => (bars ?? []).map((b) => b.close).filter(Number.isFinite).slice(-SPARK_BARS);
+
+const PERIOD_DAYS: Partial<Record<Period, number>> = { "1W": 7, "1M": 30, "3M": 91, "6M": 182, "1Y": 365 };
+
+/**
+ * The close each period's change is measured from: the day before for 1D, the last close on or
+ * before that many days ago for the others, and the year's last close before it for YTD. A period
+ * the bars don't reach back over is left out.
+ */
+export function refsOf(bars: TvBar[] | null | undefined): Refs {
+  const ok = (bars ?? []).filter((b) => Number.isFinite(b.close));
+  if (ok.length < 2) return {};
+  const last = ok[ok.length - 1];
+  const before = (t: number, inclusive: boolean) => {
+    let found: number | undefined;
+    for (const b of ok) if (inclusive ? b.time <= t : b.time < t) found = b.close;
+    return found;
+  };
+  const refs: Refs = { "1D": ok[ok.length - 2].close };
+  for (const [p, days] of Object.entries(PERIOD_DAYS) as Array<[Period, number]>) {
+    const t = last.time - days * 86_400;
+    if (ok[0].time <= t) refs[p] = before(t, true);
+  }
+  const yearStart = Date.UTC(new Date(last.time * 1000).getUTCFullYear(), 0, 1) / 1000;
+  if (ok[0].time < yearStart) refs.YTD = before(yearStart, false);
+  return refs;
+}
 export type EconItem = { label: string; value: string | null; date: string | null; note?: string };
 export type Macro = {
   curve: CurvePoint[];
@@ -125,18 +157,18 @@ export function spreadsOf(curve: CurvePoint[]): Spread[] {
 export function assemble(bars: Record<string, TvBar[] | null>): Omit<Macro, "economy" | "curveSource"> {
   const curve = US_CURVE.map(({ tenor, symbol }) => {
     const q = lastAndChange(bars[symbol]);
-    return { tenor, symbol, value: q.value, changeBp: bp(q.change), spark: sparkOf(bars[symbol]) };
+    return { tenor, symbol, value: q.value, changeBp: bp(q.change), spark: sparkOf(bars[symbol]), refs: refsOf(bars[symbol]) };
   });
   return {
     curve,
     spreads: spreadsOf(curve),
     global10y: GLOBAL_10Y.map(([symbol, label]) => {
       const q = lastAndChange(bars[symbol]);
-      return { symbol, label, value: q.value, changeBp: bp(q.change), spark: sparkOf(bars[symbol]) };
+      return { symbol, label, value: q.value, changeBp: bp(q.change), spark: sparkOf(bars[symbol]), refs: refsOf(bars[symbol]) };
     }),
     markets: MARKETS.map(({ group, items }) => ({
       group,
-      items: items.map(([symbol, label]) => ({ symbol, label, ...lastAndChange(bars[symbol]), spark: sparkOf(bars[symbol]) })),
+      items: items.map(([symbol, label]) => ({ symbol, label, ...lastAndChange(bars[symbol]), spark: sparkOf(bars[symbol]), refs: refsOf(bars[symbol]) })),
     })),
   };
 }
