@@ -31,6 +31,13 @@ export type LayerData = {
 
 type Attached = { chart: IChartApi; series: ISeriesApi<SeriesType>; requestUpdate: () => void };
 
+/**
+ * The drawing under the pointer right now: one being dragged (shown with its handles) or being
+ * placed. It's drawn on a canvas of its own above the chart at every move; repainting the whole
+ * chart (candles, indicators, every drawing) for each move fell visibly behind the pointer.
+ */
+export type Live = { drawing: Drawing } | { preview: NonNullable<LayerData["preview"]> };
+
 export class DrawingLayer implements ISeriesPrimitive<Time> {
   private attachedTo: Attached | null = null;
   private data: LayerData;
@@ -65,6 +72,55 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
   set(next: Partial<LayerData>) {
     this.data = { ...this.data, ...next };
     this.attachedTo?.requestUpdate();
+  }
+
+  private live: Live | null = null;
+  /** Repaints the live canvas (attachDrawing's), at once rather than with the chart. */
+  liveSink: (() => void) | null = null;
+
+  /** What the live canvas shows; the chart leaves a dragged drawing to it meanwhile. */
+  setLive(live: Live | null) {
+    const was = this.live && "drawing" in this.live ? this.live.drawing.id : null;
+    this.live = live;
+    const now = live && "drawing" in live ? live.drawing.id : null;
+    if (now !== was) this.attachedTo?.requestUpdate();
+    this.liveSink?.();
+  }
+
+  /** A drawing added by hand before its owner passes the list back (no blank frame meanwhile). */
+  add(d: Drawing) {
+    this.set({ drawings: [...this.data.drawings.filter((x) => x.id !== d.id), d] });
+  }
+
+  /** The live drawing, on the live canvas (pane coordinates, like the chart's). */
+  paintLive(ctx: CanvasRenderingContext2D, width: number, height: number) {
+    const live = this.live;
+    if (!live || !this.attachedTo || this.data.hidden) return;
+    if ("drawing" in live) {
+      const d = live.drawing;
+      const anchors = this.anchorsOf(d.points);
+      if (!anchors) return;
+      render(ctx, this.shapes(d.tool, anchors, d, width, height, true));
+      handles(ctx, freehand(d.tool) ? [] : handlesOf(d.tool, anchors));
+    } else {
+      const p = live.preview;
+      const anchors = this.anchorsOf(p.points);
+      if (!anchors) return;
+      render(ctx, this.shapes(p.tool, anchors, p.style, width, height));
+      handles(ctx, anchors);
+    }
+  }
+
+  /**
+   * The crosshair put at pane pixels: a drag keeps the pointer's moves from the chart (so it
+   * doesn't pan), which would leave the crosshair where the drag began.
+   */
+  crosshairAt(x: number, y: number) {
+    const at = this.attachedTo;
+    if (!at) return;
+    const time = at.chart.timeScale().coordinateToTime(x);
+    const price = at.series.coordinateToPrice(y);
+    if (time !== null && price !== null) at.chart.setCrosshairPosition(price, time, at.series);
   }
 
   /** Pane pixels → the chart's bar index and price. */
@@ -131,8 +187,9 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
   private paint(ctx: CanvasRenderingContext2D, width: number, height: number) {
     this.drawn.clear();
     if (!this.attachedTo || this.data.hidden) return;
+    const liveId = this.live && "drawing" in this.live ? this.live.drawing.id : null;
     for (const d of this.data.drawings) {
-      if (d.visibility?.[this.data.intervalKind] === false) continue;
+      if (d.visibility?.[this.data.intervalKind] === false || d.id === liveId) continue;
       const anchors = this.anchorsOf(d.points);
       if (!anchors) continue;
       const shapes = this.shapes(d.tool, anchors, d, width, height, d.id === this.data.selected);
