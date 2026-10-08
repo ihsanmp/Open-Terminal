@@ -28,6 +28,13 @@ export default function IndicesWidget() {
 
   return (
     <table className="data-table">
+      <thead>
+        <tr>
+          <th className="!text-left">Index</th>
+          <th>Last</th>
+          <th title="Change from the previous session's close">Chg% 1D</th>
+        </tr>
+      </thead>
       <tbody>
         {REGIONS.map((region) => {
           const rows = data.filter((r) => r.region === region);
