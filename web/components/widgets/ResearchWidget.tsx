@@ -33,8 +33,10 @@ type Research = {
   };
   dcf: {
     freeCashFlow: N; netDebt: number; shares: N; growth: number; discountRate: number; terminalGrowth: number; years: number;
-    riskFree: number; beta: number; equityRiskPremium: number; revenueCagr: N;
+    riskFree: number; riskFreeSource?: string; beta: number; equityRiskPremium: number; revenueCagr: N;
   } | null;
+  /** Banks and insurers: the justified price-to-book model's inputs (statement currency). */
+  bookModel?: { bookValuePerShare: number; roe: number; roeYears: number; payout: N; growth: number; costOfEquity: number } | null;
   warnings: string[];
 };
 
@@ -295,6 +297,40 @@ function NumberField({ label, value, onChange, suffix }: { label: string; value:
   );
 }
 
+/** Justified P/B: what a bank's book is worth when it earns ROE, grows at g and its owners want r. */
+function BookModel({ r }: { r: Research }) {
+  const m = r.bookModel!;
+  const [inputs, setInputs] = useState({ roe: 0, growth: 0, costOfEquity: 0 });
+  useEffect(() => {
+    setInputs({ roe: round2(m.roe * 100), growth: round2(m.growth * 100), costOfEquity: round2(m.costOfEquity * 100) });
+  }, [m]);
+  const { roe, growth, costOfEquity } = { roe: inputs.roe / 100, growth: inputs.growth / 100, costOfEquity: inputs.costOfEquity / 100 };
+  const pb = costOfEquity > growth ? (roe - growth) / (costOfEquity - growth) : null;
+  const value = pb !== null && r.stmtToTrading ? pb * m.bookValuePerShare * r.stmtToTrading : null;
+  const up = upside(value, r.price);
+  return (
+    <Section title="Justified P/B (banks & insurers)">
+      <Stat label={`Book value / share (${r.currency})`} value={r.stmtToTrading ? fmtPrice(m.bookValuePerShare * r.stmtToTrading) : "—"} />
+      <NumberField label={`ROE (${m.roeYears}-year average)`} value={inputs.roe} suffix="%" onChange={(v) => setInputs((s) => ({ ...s, roe: v }))} />
+      <NumberField label="Growth (ROE × retention)" value={inputs.growth} suffix="%" onChange={(v) => setInputs((s) => ({ ...s, growth: v }))} />
+      <NumberField label="Cost of equity" value={inputs.costOfEquity} suffix="%" onChange={(v) => setInputs((s) => ({ ...s, costOfEquity: v }))} />
+      <div className="dim text-fs-10 py-1">
+        P/B = (ROE − g) / (r − g). Payout {pct(m.payout)}; cost of equity as the DCF&apos;s discount rate.
+      </div>
+      {pb === null ? (
+        <div className="down">Growth must stay below the cost of equity.</div>
+      ) : (
+        <>
+          <Stat label="Justified P/B" value={times(pb)} />
+          <Stat label="Current P/B" value={times(r.ttm?.pb)} />
+          <Stat label={`Fair value / share (${r.currency})`} value={fmtPrice(value)} className="font-bold" />
+          <Stat label="vs price" value={up === null ? "—" : `${up >= 0 ? "+" : ""}${pct(up)}`} className={pctClass(up)} />
+        </>
+      )}
+    </Section>
+  );
+}
+
 function Valuation({ r }: { r: Research }) {
   const d = r.dcf;
   const [inputs, setInputs] = useState({ growth: 0, discountRate: 0, terminalGrowth: 0, years: 5 });
@@ -321,7 +357,8 @@ function Valuation({ r }: { r: Research }) {
   return (
     <div className="p-2 grid grid-cols-2 gap-x-4">
       <div>
-        <Section title="Discounted cash flow">
+        {r.bookModel && <BookModel r={r} />}
+        <Section title={r.bookModel ? "Discounted cash flow (for reference — a bank's cash flow isn't its value)" : "Discounted cash flow"}>
           {!d || d.freeCashFlow === null ? (
             <div className="dim">Free cash flow is not reported, so a DCF can't be built.</div>
           ) : (
@@ -333,7 +370,7 @@ function Valuation({ r }: { r: Research }) {
               <NumberField label="Discount rate" value={inputs.discountRate} suffix="%" onChange={(v) => setInputs((s) => ({ ...s, discountRate: v }))} />
               <NumberField label="Terminal growth" value={inputs.terminalGrowth} suffix="%" onChange={(v) => setInputs((s) => ({ ...s, terminalGrowth: v }))} />
               <div className="dim text-fs-10 my-1">
-                Defaults: growth = revenue CAGR {pct(d.revenueCagr)} (capped −5…25%); discount = CAPM {pct(d.riskFree)} + β {fmt(d.beta)} × {pct(d.equityRiskPremium)} ERP.
+                Defaults: growth = revenue CAGR {pct(d.revenueCagr)} (capped −5…25%); discount = CAPM {pct(d.riskFree)}{d.riskFreeSource ? ` (${d.riskFreeSource})` : ""} + β {fmt(d.beta)} × {pct(d.equityRiskPremium)} ERP.
               </div>
               {result ? (
                 <>
@@ -422,7 +459,7 @@ function Analysts({ r }: { r: Research }) {
       <Section title="Recommendations">
         {buckets.map(([label, count, color]) => (
           <div key={label} className="flex items-center gap-2 py-0.5">
-            <span className="dim w-24 whitespace-nowrap">{label}</span>
+            <span className="dim w-[8em] shrink-0 whitespace-nowrap">{label}</span>
             <div className="flex-1 h-3 bg-[#161616]">
               <div className="h-3" style={{ width: `${(count / max) * 100}%`, background: color }} />
             </div>
@@ -442,11 +479,17 @@ function Analysts({ r }: { r: Research }) {
             <div className="absolute top-3.5 left-0 right-0 h-1 bg-[#262626]" />
             <div className="absolute top-3.5 h-1 bg-[var(--amber-dim)]" style={{ left: `${pos(lo)}%`, width: `${(pos(hi) ?? 0) - (pos(lo) ?? 0)}%` }} />
             <div className="absolute top-1.5 w-0.5 h-5 bg-[var(--amber)]" style={{ left: `${pos(a.targetAverage)}%` }} title="Average target" />
-            {r.price !== null && (
-              <div className="absolute top-0 -translate-x-1/2 text-fs-10" style={{ left: `${pos(r.price)}%` }} title="Current price">
-                ▼<div className="text-center -mt-0.5">{fmtPrice(r.price)}</div>
-              </div>
-            )}
+            {r.price !== null && (() => {
+              // Centred on the price, but pinned to the bar's edge when the price is at an end of it.
+              const at = pos(r.price) ?? 0;
+              const align = at < 8 ? "items-start" : at > 92 ? "items-end -translate-x-full" : "items-center -translate-x-1/2";
+              return (
+                <div className={`absolute top-0 flex flex-col text-fs-10 ${align}`} style={{ left: `${at}%` }} title="Current price">
+                  <span className="leading-none">▼</span>
+                  <span className="whitespace-nowrap">{fmtPrice(r.price)}</span>
+                </div>
+              );
+            })()}
           </div>
         ) : null}
       </Section>
@@ -466,7 +509,7 @@ function Peers({ r }: { r: Research }) {
   return (
     <div className="p-1">
       <div className="dim text-fs-10 px-1 mb-1">
-        Largest companies in {r.profile?.industry ?? "the same industry"} on the same market · market cap in USD · click to open
+        Largest companies in {r.profile?.industry ?? "the same industry"} and its kindred industries on the same market · market cap in USD · click to open
       </div>
       <table className="data-table">
         <thead>

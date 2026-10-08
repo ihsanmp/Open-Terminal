@@ -80,7 +80,7 @@ export function piotroski(cur: Values, prev: Values, prev2?: Values): { score: n
       passed: test(ok(cur.OperatingCashFlow) && ok(cur.NetIncome) && cur.OperatingCashFlow > cur.NetIncome, cur.OperatingCashFlow, cur.NetIncome),
       detail: "",
     },
-    { name: "Lower long-term leverage", passed: test(ok(lev) && ok(levPrev) && lev < levPrev, lev, levPrev), detail: `${pct(levPrev)} → ${pct(lev)} of assets` },
+    { name: "Lower long-term leverage", passed: test(ok(lev) && ok(levPrev) && (lev < levPrev || (lev === 0 && levPrev === 0)), lev, levPrev), detail: `${pct(levPrev)} → ${pct(lev)} of assets` },
     { name: "Higher current ratio", passed: test(ok(cr) && ok(crPrev) && cr > crPrev, cr, crPrev), detail: `${fx(crPrev)} → ${fx(cr)}` },
     { name: "No new shares issued", passed: test(ok(shares) && ok(sharesPrev) && shares <= sharesPrev, shares, sharesPrev), detail: "" },
     { name: "Higher gross margin", passed: test(ok(gm) && ok(gmPrev) && gm > gmPrev, gm, gmPrev), detail: `${pct(gmPrev)} → ${pct(gm)}` },

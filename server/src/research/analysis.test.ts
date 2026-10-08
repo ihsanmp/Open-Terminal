@@ -47,6 +47,11 @@ describe("piotroski", () => {
     expect(piotroski(cur, prev).score).toBe(0);
   });
 
+  it("passes the leverage test for a company with no long-term debt in either year", () => {
+    const res = piotroski({ ...base, LongTermDebt: 0 }, { ...base, LongTermDebt: 0 });
+    expect(res.checks.find((c) => c.name === "Lower long-term leverage")!.passed).toBe(true);
+  });
+
   it("marks tests with missing inputs as not evaluated instead of failed", () => {
     const cur: Values = { ...base, CurrentAssets: null };
     const res = piotroski(cur, base);
