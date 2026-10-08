@@ -235,9 +235,12 @@ function yahooSuffixFor(exchange: string): string {
 }
 
 export async function search(query: string): Promise<SearchResult[]> {
+  // "BBCA.JK": TradingView knows that listing as BBCA on IDX, and finds nothing useful for the
+  // whole string — so the code is searched on the exchange the suffix names.
+  const [code, exchange] = splitSuffixed(query) ?? [query, null];
   const url = `https://symbol-search.tradingview.com/symbol_search/v3/?text=${encodeURIComponent(
-    query
-  )}&hl=1&lang=en&search_type=undefined&domain=production&sort_by_country=US`;
+    code
+  )}&hl=1&lang=en&search_type=undefined&domain=production&sort_by_country=US${exchange ? `&exchange=${exchange}` : ""}`;
   const res = await fetch(url, { headers: HEADERS });
   if (!res.ok) throw new Error(`tradingview search ${res.status}`);
   const json = await res.json();
@@ -253,7 +256,7 @@ export async function search(query: string): Promise<SearchResult[]> {
         // Non-US listings get a Yahoo-compatible suffix (e.g. "ISP" -> "ISP.MI")
         // so quote/chart lookups downstream can actually resolve them — Nasdaq's
         // API only covers US tickers, and a bare symbol collides with US names.
-        symbol: symbol.includes(".") ? symbol : symbol + yahooSuffixFor(exchange),
+        symbol: symbol.includes(".") ? symbol : yahooSymbolOf(exchange, symbol),
         name: strip(r.description ?? r.symbol),
         exchange,
         type: r.type ?? "",
@@ -273,6 +276,16 @@ const SUFFIX_TO_TV: Record<string, string> = {
 };
 
 const US_EXCHANGES = ["NASDAQ", "NYSE", "AMEX"];
+
+/** A Yahoo-style suffixed ticker (BBCA.JK, 0700.HK) as its TradingView code and exchange, else null. */
+export function splitSuffixed(symbol: string): [code: string, exchange: string] | null {
+  const dot = symbol.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const exchange = SUFFIX_TO_TV[symbol.slice(dot + 1).toUpperCase()];
+  if (!exchange) return null;
+  const code = symbol.slice(0, dot).toUpperCase();
+  return [exchange === "HKEX" ? code.replace(/^0+/, "") : code, exchange];
+}
 
 /** Candidate TradingView tickers for a Yahoo-style symbol, most likely first. */
 export function tvTickers(symbol: string): string[] {
@@ -334,19 +347,43 @@ const PEER_COLUMNS = [
 ];
 
 /** Largest primary listings in the same industry and home market. */
+/**
+ * Industries TradingView splits that are one business to an investor: its "Major" and "Regional"
+ * banks are told apart by size in the US, yet Indonesia's BRI and Mandiri are "Regional" while
+ * BCA is "Major" — peers are drawn from the whole family.
+ */
+const PEER_FAMILIES: string[][] = [
+  ["Major Banks", "Regional Banks", "Savings Banks"],
+  ["Life/Health Insurance", "Property/Casualty Insurance", "Multi-Line Insurance", "Specialty Insurance"],
+  ["Integrated Oil", "Oil & Gas Production", "Oil Refining/Marketing"],
+  ["Electric Utilities", "Alternative Power Generation"],
+  ["Real Estate Development", "Real Estate Investment Trusts"],
+];
+/** Fewer peers than this in the industry and the sector's biggest fill in. */
+const MIN_PEERS = 5;
+
+export const peerIndustries = (industry: string) => PEER_FAMILIES.find((f) => f.includes(industry)) ?? [industry];
+
 export async function peers(profile: ResearchProfile, limit = 10): Promise<PeerRow[]> {
   const exchanges = US_EXCHANGES.includes(profile.exchange) ? US_EXCHANGES : [profile.exchange];
-  const rows = await globalScan({
-    columns: PEER_COLUMNS,
-    filter: [
-      { left: "industry", operation: "equal", right: profile.industry },
-      { left: "exchange", operation: "in_range", right: exchanges },
-      { left: "type", operation: "equal", right: "stock" },
-      { left: "is_primary", operation: "equal", right: true },
-    ],
-    sort: { sortBy: "market_cap_basic", sortOrder: "desc" },
-    range: [0, limit],
-  });
+  const scan = (left: "industry" | "sector", right: string[]) =>
+    globalScan({
+      columns: PEER_COLUMNS,
+      filter: [
+        { left, operation: "in_range", right },
+        { left: "exchange", operation: "in_range", right: exchanges },
+        { left: "type", operation: "equal", right: "stock" },
+        { left: "is_primary", operation: "equal", right: true },
+      ],
+      sort: { sortBy: "market_cap_basic", sortOrder: "desc" },
+      range: [0, limit],
+    });
+  let rows = await scan("industry", peerIndustries(profile.industry));
+  if (rows.length < MIN_PEERS && profile.sector) {
+    const more = await scan("sector", [profile.sector]).catch(() => []);
+    const have = new Set(rows.map((r) => r.s));
+    rows = [...rows, ...more.filter((r) => !have.has(r.s))].slice(0, limit);
+  }
   return rows.map((r) => {
     const [name, description, exchange, currency, close, mcap, pe, pb, evEbitda, netMargin, roe, growth, dy] = r.d;
     const suffix = yahooSuffixFor(exchange ?? "");

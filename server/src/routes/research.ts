@@ -25,15 +25,44 @@ const LABELS: Record<string, string> = {
 
 const PER_SHARE = new Set(["BasicEPS", "DilutedEPS"]);
 const ERP = 0.055; // equity risk premium used for the CAPM discount-rate default
+
+/**
+ * The CAPM risk-free rate is the 10-year government bond of the money the cash flows are in:
+ * an IDR company's are discounted at Indonesia's yield, not the US one.
+ */
+const BOND_BY_CURRENCY: Record<string, [country: string, label: string]> = {
+  IDR: ["ID", "Indonesia"], JPY: ["JP", "Japan"], GBP: ["GB", "UK"], CHF: ["CH", "Switzerland"], CNY: ["CN", "China"],
+  INR: ["IN", "India"], KRW: ["KR", "Korea"], AUD: ["AU", "Australia"], CAD: ["CA", "Canada"], BRL: ["BR", "Brazil"],
+  HKD: ["HK", "Hong Kong"], SGD: ["SG", "Singapore"], MYR: ["MY", "Malaysia"], TWD: ["TW", "Taiwan"], MXN: ["MX", "Mexico"],
+  THB: ["TH", "Thailand"], ZAR: ["ZA", "South Africa"], SEK: ["SE", "Sweden"], NOK: ["NO", "Norway"], DKK: ["DK", "Denmark"],
+  PLN: ["PL", "Poland"], TRY: ["TR", "Turkey"], PHP: ["PH", "Philippines"], NZD: ["NZ", "New Zealand"], ILS: ["IL", "Israel"],
+};
+/** Euro area: the company's own country's bond where it's quoted, else Germany's. */
+const EURO_BONDS: Record<string, string> = { France: "FR", Italy: "IT", Spain: "ES", Netherlands: "NL" };
+
+async function riskFreeFor(currency: string | null, country: string | null): Promise<{ rate: number; source: string }> {
+  const us = async () => ({ rate: ((await cached("fred:DGS10", 3_600_000, () => fred.latest("DGS10")))?.value ?? 4) / 100, source: "US 10Y" });
+  let bond: [string, string] | undefined = currency ? BOND_BY_CURRENCY[currency] : undefined;
+  if (currency === "EUR") bond = country && EURO_BONDS[country] ? [EURO_BONDS[country], country] : ["DE", "Germany"];
+  if (!bond) return us().catch(() => ({ rate: 0.04, source: "assumed" }));
+  const [code, label] = bond;
+  try {
+    const rows = await cached(`rf:${code}`, 3_600_000, () => tradingview.scanAt("global", { symbols: { tickers: [`TVC:${code}10Y`] }, columns: ["close"] }));
+    const y = rows[0]?.d[0];
+    if (typeof y === "number" && Number.isFinite(y)) return { rate: y / 100, source: `${label} 10Y` };
+  } catch {
+    // the US yield below, named as such
+  }
+  return us().catch(() => ({ rate: 0.04, source: "assumed" }));
+}
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 const settled = <T>(r: PromiseSettledResult<T>) => (r.status === "fulfilled" ? r.value : null);
 
 async function buildResearch(symbol: string) {
-  const [fundR, profR, rfR] = await Promise.allSettled([
+  const [fundR, profR] = await Promise.allSettled([
     // Yahoo covers every market; SEC XBRL is the official US fallback when Yahoo is rate-limited.
     yahoo.fundamentals(symbol).catch((err) => (symbol.includes(".") ? Promise.reject(err) : secedgar.annualFundamentals(symbol))),
     tradingview.researchProfile(symbol),
-    cached("fred:DGS10", 3_600_000, () => fred.latest("DGS10")),
   ]);
   const fund = settled(fundR);
   const prof = settled(profR);
@@ -57,7 +86,11 @@ async function buildResearch(symbol: string) {
   const statementCurrency = fund?.currency ?? currency;
   const rate = async (from: string | null) =>
     from && currency ? tradingview.fxRate(from, currency).catch(() => yahoo.fxRate(from, currency!)).catch(() => null) : 1;
-  const [stmtToTrading, fundamentalToTrading] = await Promise.all([rate(statementCurrency), rate(prof?.fundamental_currency_code ?? currency)]);
+  const [stmtToTrading, fundamentalToTrading, riskFree] = await Promise.all([
+    rate(statementCurrency),
+    rate(prof?.fundamental_currency_code ?? currency),
+    riskFreeFor(statementCurrency, prof?.country ?? null),
+  ]);
 
   const years = fund?.years ?? [];
   const values = years.map((y) => y.values);
@@ -73,13 +106,20 @@ async function buildResearch(symbol: string) {
   const shares = latest?.OrdinarySharesNumber ?? prof?.total_shares_outstanding ?? null;
   const marketCapStatement = price !== null && shares && stmtToTrading ? (price * shares) / stmtToTrading : null;
   const isFinancial = prof?.sector === "Finance";
-  if (isFinancial) warnings.push("Financial company: Altman Z, Beneish M and DCF are designed for non-financial firms — read them with care.");
+  if (isFinancial)
+    warnings.push("Financial company: Altman Z, Beneish M and DCF are designed for non-financial firms — use the justified P/B model under Valuation instead.");
 
   const bvps = latest?.StockholdersEquity && shares ? latest.StockholdersEquity / shares : null;
   const graham = grahamNumber(latest?.DilutedEPS ?? null, bvps);
 
   const beta = prof?.beta_1_year ?? 1;
-  const rf = (settled(rfR)?.value ?? 4) / 100;
+  const rf = riskFree.rate;
+  const discountRate = clamp(rf + beta * ERP, 0.05, 0.4);
+  // Banks and insurers are valued on their book: P/B = (ROE − g) / (r − g), with ROE averaged
+  // over the last three years and g what's kept of it (ROE × retention), held under r.
+  const roes = values.slice(-3).map((v) => (v.NetIncome != null && v.StockholdersEquity ? v.NetIncome / v.StockholdersEquity : null)).filter((x): x is number => x !== null);
+  const avgRoe = roes.length ? roes.reduce((a, b) => a + b, 0) / roes.length : null;
+  const payout = latest?.CashDividendsPaid != null && latest?.NetIncome ? clamp(Math.abs(latest.CashDividendsPaid) / latest.NetIncome, 0, 1) : null;
   const revenueCagr = cagr(values.map((v) => v.TotalRevenue));
   const convert = (x: number | null | undefined, k: number | null) => (x !== null && x !== undefined && k ? x * k : null);
 
@@ -131,14 +171,26 @@ async function buildResearch(symbol: string) {
       netDebt: (latest.TotalDebt ?? 0) - (latest.CashAndCashEquivalents ?? 0),
       shares,
       growth: clamp(revenueCagr ?? 0.05, -0.05, 0.25),
-      discountRate: clamp(rf + beta * ERP, 0.06, 0.15),
+      discountRate,
       terminalGrowth: 0.025,
       years: 5,
       riskFree: rf,
+      riskFreeSource: riskFree.source,
       beta,
       equityRiskPremium: ERP,
       revenueCagr,
     },
+    bookModel:
+      isFinancial && bvps !== null && avgRoe !== null
+        ? {
+            bookValuePerShare: bvps,
+            roe: avgRoe,
+            roeYears: roes.length,
+            payout,
+            growth: clamp(avgRoe * (1 - (payout ?? 0.5)), 0, discountRate - 0.01),
+            costOfEquity: discountRate,
+          }
+        : null,
     warnings,
   };
 }
