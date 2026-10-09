@@ -75,6 +75,8 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
   }
 
   private live: Live | null = null;
+  /** Whether a drawing is being placed or moved (attachDrawing's): the chart isn't rebuilt meanwhile. */
+  isBusy: () => boolean = () => false;
   /** Repaints the live canvas (attachDrawing's), at once rather than with the chart. */
   liveSink: (() => void) | null = null;
 

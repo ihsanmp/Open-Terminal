@@ -46,11 +46,31 @@ export const listRefreshMs = (symbols: string[]) => Math.min(60_000, ...symbols.
 /** Interval that is `open` while the US session runs and `closed` otherwise. */
 export const sessionRefreshMs = (open: number, closed: number) => () => (usSessionActive() ? open : closed);
 
+/** On battery, every refresh comes this many times less often (less CPU, network and repainting). */
+export const BATTERY_SLOWDOWN = 2;
+
+/** Whether the device runs on its battery (the Battery Status API; unknown counts as plugged in). */
+let onBattery = false;
+if (typeof navigator !== "undefined" && "getBattery" in navigator) {
+  (navigator as Navigator & { getBattery(): Promise<EventTarget & { charging: boolean }> })
+    .getBattery()
+    .then((b) => {
+      const read = () => (onBattery = !b.charging);
+      read();
+      b.addEventListener("chargingchange", read);
+    })
+    .catch(() => {});
+}
+export const isOnBattery = () => onBattery;
+
+/** An interval as the power source allows: spaced out on battery. */
+export const forPower = (ms: number, battery = onBattery) => (battery ? ms * BATTERY_SLOWDOWN : ms);
+
 /**
- * A react-query `refetchInterval` that stops while the widget is off-screen.
- * (react-query already pauses intervals while the whole window is hidden.)
+ * A react-query `refetchInterval` that stops while the widget is off-screen, and comes less often
+ * on battery. (react-query already pauses intervals while the whole window is hidden.)
  */
 export function usePoll(ms: number | (() => number)): () => number | false {
   const visible = useContext(WidgetVisibleContext);
-  return () => (visible ? (typeof ms === "function" ? ms() : ms) : false);
+  return () => (visible ? forPower(typeof ms === "function" ? ms() : ms) : false);
 }

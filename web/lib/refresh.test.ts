@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isCryptoSymbol, listRefreshMs, quoteRefreshMs, usSessionActive } from "./refresh";
+import { BATTERY_SLOWDOWN, forPower, isCryptoSymbol, listRefreshMs, quoteRefreshMs, usSessionActive } from "./refresh";
 
 // New York is UTC-4 in September (EDT).
 const ny = (iso: string) => new Date(`${iso}-04:00`);
@@ -44,5 +44,12 @@ describe("refresh intervals", () => {
     expect(isCryptoSymbol("PEPE-USD")).toBe(true);
     expect(isCryptoSymbol("BTC")).toBe(true);
     expect(isCryptoSymbol("BRK-B")).toBe(false);
+  });
+});
+
+describe("forPower", () => {
+  it("spaces refreshes out on battery only", () => {
+    expect(forPower(5_000, false)).toBe(5_000);
+    expect(forPower(5_000, true)).toBe(5_000 * BATTERY_SLOWDOWN);
   });
 });

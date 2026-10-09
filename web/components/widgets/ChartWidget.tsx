@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   createChart,
   createSeriesMarkers,
@@ -162,6 +162,32 @@ function pricePrecision(candles: Candle[]): number {
   return Math.min(12, Math.ceil(-Math.log10(ref)) + 3);
 }
 
+/**
+ * The bar under the pointer, kept out of the chart's state: as the pointer crosses bars only the
+ * legends that show its values re-render (Hovered), not the whole chart with its toolbars and menus.
+ */
+type HoverStore = { get: () => number | null; set: (i: number | null) => void; subscribe: (f: () => void) => () => void };
+function createHoverStore(): HoverStore {
+  let value: number | null = null;
+  const subs = new Set<() => void>();
+  return {
+    get: () => value,
+    set: (i) => {
+      if (i === value) return;
+      value = i;
+      subs.forEach((f) => f());
+    },
+    subscribe: (f) => {
+      subs.add(f);
+      return () => subs.delete(f);
+    },
+  };
+}
+function Hovered({ store, children }: { store: HoverStore; children: (i: number | null) => React.ReactNode }) {
+  const i = useSyncExternalStore(store.subscribe, store.get, store.get);
+  return <>{children(i)}</>;
+}
+
 /** Ticks once a second while a candle is still open, so it only re-renders this one label. */
 function BarCountdown({ barTime, intervalSeconds, market }: { barTime: number; intervalSeconds: number; market: Market }) {
   const [left, setLeft] = useState(() => secondsUntilClose(barTime, intervalSeconds, market));
@@ -210,7 +236,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   /** A price range the user set by hand (dragging or wheeling the price axis), kept across data refreshes. */
   const savedPrice = useRef<{ key: string; range: { from: number; to: number } } | null>(null);
   const [chartType, setChartType] = useWidgetSetting<ChartType>("chartType", "candles");
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const hover = useMemo(createHoverStore, []);
   const [paneTops, setPaneTops] = useState<number[]>([0]);
   // Price-scale width and time-scale height, so tables sit inside the plotting area like Pine's.
   const [axes, setAxes] = useState({ right: 60, bottom: 26 });
@@ -310,7 +336,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     // launch the API answers from its disk cache and marks it stale: ask again shortly.
     refetchInterval: (q) => (q.state.data?.stale ? 2_500 : poll()),
   });
-  const candles = useMemo(() => {
+  const liveCandles = useMemo(() => {
     const raw = history?.data;
     if (!raw || raw.length === 0) return raw;
     if (source.ticks) return rangeBars(raw, source.ticks * 10 ** -priceDigits(symbol, raw[raw.length - 1].close));
@@ -319,7 +345,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     return source.base === "1h" ? groupHours(raw, source.group, market.type, market.timezone) : groupDays(raw, source.group, market.type);
   }, [history?.data, source.ticks, source.group, source.base, symbol]);
 
-  const bars = useMemo(() => (candles && candles.length > 0 ? candlesToBars(candles) : null), [candles]);
+  const bars = useMemo(() => (liveCandles && liveCandles.length > 0 ? candlesToBars(liveCandles) : null), [liveCandles]);
 
   // On-chain series (Bitcoin Thermocap) are fetched only while an indicator that reads them is shown.
   const needsBtcDaily = instances.some((i) => !i.hidden && INDICATOR_BY_ID.get(i.id)?.needs?.includes("btcDaily"));
@@ -373,7 +399,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const ext = useMemo<ExternalData>(() => ({ btcDaily, chart: ctx, fetched }), [btcDaily, ctx, fetched]);
 
   const instancesKey = instancesJson;
-  const prepared = useMemo(() => {
+  const livePrepared = useMemo(() => {
     if (!bars) return null;
     const list = JSON.parse(instancesKey) as IndicatorInstance[];
     // An input can read another indicator's plot ("plot:<uid>:<key>"), so indicators are
@@ -429,6 +455,26 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     });
     return { times: times as UTCTimestamp[], total, items };
   }, [bars, ext, instancesKey]);
+
+  // New bars wait while a drawing is being placed or moved: putting them on the chart rebuilds
+  // it (a tenth of a second), which dropped the drawing under the pointer mid-move. They go on as
+  // soon as it's let go. Another symbol, interval, range or indicator list shows at once.
+  const dataKey = `${symbol}|${interval}|${range}|${instancesKey}`;
+  const [shown, setShown] = useState({ key: dataKey, candles: liveCandles, prepared: livePrepared });
+  useEffect(() => {
+    if (shown.key === dataKey && shown.candles === liveCandles && shown.prepared === livePrepared) return;
+    const apply = () => setShown({ key: dataKey, candles: liveCandles, prepared: livePrepared });
+    const busy = () => shown.key === dataKey && (layerRef.current?.isBusy() ?? false);
+    if (!busy()) return apply();
+    const id = setInterval(() => {
+      if (busy()) return;
+      clearInterval(id);
+      apply();
+    }, 250);
+    return () => clearInterval(id);
+  }, [dataKey, liveCandles, livePrepared, shown]);
+  const candles = shown.key === dataKey ? shown.candles : liveCandles;
+  const prepared = shown.key === dataKey ? shown.prepared : livePrepared;
 
   // Pane index per visible separate-pane indicator, in list order.
   const paneOf = useMemo(() => {
@@ -678,10 +724,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     let lastMeasure = 0;
     chart.subscribeCrosshairMove((param) => {
       const idx = param.logical === undefined ? null : Math.round(param.logical);
-      setHoverIndex((prev) => {
-        const next = idx !== null && idx >= 0 && idx < total ? idx : null;
-        return prev === next ? prev : next;
-      });
+      hover.set(idx !== null && idx >= 0 && idx < total ? idx : null);
       // Pane separators can be dragged without a resize event; re-measure at most twice a second.
       const now = performance.now();
       if (now - lastMeasure > 500) {
@@ -879,8 +922,12 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
 
   // ---- legend ----
   const n = candles?.length ?? 0;
-  const idx = hoverIndex ?? n - 1;
-  const candle = candles && n > 0 ? candles[Math.min(idx, n - 1)] : null;
+  /** The bar a legend shows: the hovered one, else the latest. */
+  const barAt = (hovered: number | null) => {
+    const idx = hovered ?? n - 1;
+    return { idx, candle: candles && n > 0 ? candles[Math.min(idx, n - 1)] : null, onLast: hovered === null || hovered >= n - 1 };
+  };
+  const candle = candles && n > 0 ? candles[n - 1] : null;
 
   const update = (uid: string, patch: Partial<IndicatorInstance>) =>
     saveInstances(latestIndicators(widget.id).map((i) => (i.uid === uid ? { ...i, ...patch } : i)));
@@ -889,9 +936,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const legendPrecision = chartStyle.precision !== "default" ? chartStyle.precision : candles && n > 0 ? pricePrecision(candles) : 2;
   const px = (v: number) => (chartStyle.precision === "default" ? fmtPrice(v) : fmt(v, chartStyle.precision));
   const legendMarket = useMemo<Market>(() => ({ type: ctx.type, timezone: ctx.timezone }), [ctx.type, ctx.timezone]);
-  const hoveringLastBar = hoverIndex === null || hoverIndex >= n - 1;
 
-  const legendRow = (it: Prepared) => (
+  const legendRow = (it: Prepared, idx: number) => (
     <div key={it.inst.uid} className="group flex gap-2 items-center pointer-events-auto w-fit max-w-full">
       <span className={`whitespace-nowrap ${shownOn(it, intervalSeconds) || it.error ? "text-[var(--text)]" : "text-[#4d4d4d]"}`}>
         {it.inst.style?.inputsInStatusLine === false ? it.def.short : it.label}
@@ -1024,32 +1070,45 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         onKeyDown={onChartKey}
       >
         {candle && (
+          <Hovered store={hover}>
+            {(hovered) => {
+              const { idx, candle, onLast } = barAt(hovered);
+              return (
+                candle && (
           <div className="absolute top-1 left-2 z-10 flex flex-col gap-0.5 text-fs-11 pointer-events-none max-w-[85%]">
             <div className="flex gap-3 bg-[rgba(10,10,10,0.7)] w-fit px-1">
               <span className="dim">
                 <span className="amber">{INTERVAL_LABEL[interval]}</span> {formatChartTime(candle.time, isIntradayInterval(intervalSeconds), timezone)}
               </span>
-              {hoveringLastBar && !rangeChart && <BarCountdown barTime={candle.time} intervalSeconds={intervalSeconds} market={legendMarket} />}
+              {onLast && !rangeChart && <BarCountdown barTime={candle.time} intervalSeconds={intervalSeconds} market={legendMarket} />}
               <span className="dim">O <span className="text-[var(--text)]">{px(candle.open)}</span></span>
               <span className="dim">H <span className="up">{px(candle.high)}</span></span>
               <span className="dim">L <span className="down">{px(candle.low)}</span></span>
               <span className="dim">C <span className={candle.close >= candle.open ? "up" : "down"}>{px(candle.close)}</span></span>
               <span className="dim">Vol <span className="text-[var(--text)]">{fmtBig(candle.volume)}</span></span>
             </div>
-            {mainLegend.map(legendRow)}
+            {mainLegend.map((it) => legendRow(it, idx))}
           </div>
+                )
+              );
+            }}
+          </Hovered>
         )}
-        {items
-          .filter((it) => paneOf.has(it.inst.uid))
-          .map((it) => (
-            <div
-              key={it.inst.uid}
-              className="absolute left-2 z-10 text-fs-11 pointer-events-none max-w-[85%]"
-              style={{ top: (paneTops[paneOf.get(it.inst.uid)!] ?? -9999) + 2 }}
-            >
-              {legendRow(it)}
-            </div>
-          ))}
+        <Hovered store={hover}>
+          {(hovered) =>
+            items
+              .filter((it) => paneOf.has(it.inst.uid))
+              .map((it) => (
+                <div
+                  key={it.inst.uid}
+                  className="absolute left-2 z-10 text-fs-11 pointer-events-none max-w-[85%]"
+                  style={{ top: (paneTops[paneOf.get(it.inst.uid)!] ?? -9999) + 2 }}
+                >
+                  {legendRow(it, barAt(hovered).idx)}
+                </div>
+              ))
+          }
+        </Hovered>
         {items
           .filter((it) => it.def.overlay && shownOn(it, intervalSeconds) && it.result.table)
           .map((it) => (
@@ -1080,6 +1139,11 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           onCursor={setCursorMode}
         />
         {longPressAt && candle && (
+          <Hovered store={hover}>
+            {(hovered) => {
+              const { candle } = barAt(hovered);
+              return (
+                candle && (
           // TradingView's values tooltip: the bar under a long press.
           <div
             role="tooltip"
@@ -1113,6 +1177,10 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
             <span className="dim">Vol</span>
             <span className="text-right">{fmtBig(candle.volume)}</span>
           </div>
+                )
+              );
+            }}
+          </Hovered>
         )}
         {scaleMenu && (
           <PriceScaleMenu
