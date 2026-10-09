@@ -269,11 +269,11 @@ export const oscillators: IndicatorDef[] = [
         const angle1 = Math.round((180 * Math.acos(1 / c)) / Math.PI);
         const angle = y2 > 0 ? -angle1 : angle1;
         colors.push(
-          ta.isNa(angle) ? undefined
+          ta.isNa(angle) ? "#FDD835"
           : angle >= 5 ? "#26C6DA" : angle >= 3.57 ? "#43A047" : angle >= 2.14 ? "#A5D6A7" : angle >= 0.71 ? "#009688"
           : angle <= -5 ? "#D50000" : angle <= -3.57 ? "#E91E63" : angle <= -2.14 ? "#FF6D00" : angle <= -0.71 ? "#FFB74D" : "#FDD835"
         );
-        return ta.isNa(angle) ? NaN : 1;
+        return 1;
       });
       return { plots: { zone }, colors: { zone: colors } };
     },
@@ -286,7 +286,7 @@ export const oscillators: IndicatorDef[] = [
       const x = ta.source(bars, s(p, "source"));
       let ud = 0;
       const updown = x.map((v, i) => {
-        if (i === 0) return (ud = 0);
+        if (i === 0) return (ud = -1);
         ud = v === x[i - 1] ? 0 : v > x[i - 1] ? (ud <= 0 ? 1 : ud + 1) : ud >= 0 ? -1 : ud - 1;
         return ud;
       });
@@ -375,19 +375,20 @@ export const oscillators: IndicatorDef[] = [
       { key: "signal", title: "Signal", color: C.orange },
     ],
     compute: (bars, p) => {
-      // EMA with a 2/length smoothing factor (DecisionPoint's custom smoothing).
-      const csf = (x: Series, len: number) => {
-        const seed = ta.sma(x, len);
+      // TradingView's library (ta.pmo): ewma(10 × ewma(roc, 2 / length1), 2 / length2), each
+      // started from its first value rather than an SMA, and the signal its ema2: the same with
+      // 2 / (length + 1). Seeding with an SMA left the early part of the chart off.
+      const ewma = (x: Series, a: number) => {
         const out = ta.fill(x.length);
         for (let i = 0; i < x.length; i++) {
           const prev = i > 0 ? out[i - 1] : NaN;
-          out[i] = ta.isNa(prev) ? seed[i] : prev + (x[i] - prev) * (2 / len);
+          out[i] = a * x[i] + (1 - a) * (ta.isNa(prev) ? x[i] : prev);
         }
         return out;
       };
-      const first = csf(ta.roc(ta.source(bars, s(p, "source")), 1), n(p, "len1"));
-      const pmo = csf(ta.scale(first, 10), n(p, "len2"));
-      return { plots: { pmo, signal: ta.ema(pmo, n(p, "sigLen")) }, hlines: lines(C.gray, 0) };
+      const first = ewma(ta.roc(ta.source(bars, s(p, "source")), 1), 2 / n(p, "len1"));
+      const pmo = ewma(ta.scale(first, 10), 2 / n(p, "len2"));
+      return { plots: { pmo, signal: ewma(pmo, 2 / (n(p, "sigLen") + 1)) }, hlines: lines(C.gray, 0) };
     },
   },
   {
@@ -410,9 +411,17 @@ export const oscillators: IndicatorDef[] = [
   },
   {
     id: "rci", name: "Rank Correlation Index", short: "RCI", category: "Oscillators", overlay: false,
-    inputs: [int("length", "Length", 10, 2), src()],
-    plots: [{ key: "rci", title: "RCI", color: C.blue }],
-    compute: (bars, p) => ({ plots: { rci: ta.rci(ta.source(bars, s(p, "source")), n(p, "length")) }, hlines: lines(C.gray, 80, 0, -80) }),
+    inputs: [int("length", "Length", 10, 2), src(), select("maType", "Smoothing Type", ["None", ...ta.MA_TYPES], "SMA"), int("maLength", "Smoothing Length", 14)],
+    plots: [
+      { key: "rci", title: "RCI", color: C.blue },
+      { key: "ma", title: "RCI-based MA", color: C.yellow },
+    ],
+    compute: (bars, p) => {
+      const rci = ta.rci(ta.source(bars, s(p, "source")), n(p, "length"));
+      const plots: Record<string, Series> = { rci };
+      if (s(p, "maType") !== "None") plots.ma = ta.maByType(s(p, "maType"), rci, n(p, "maLength"), bars.volume);
+      return { plots, hlines: lines(C.gray, 80, 0, -80) };
+    },
   },
   {
     id: "rciribbon", name: "RCI Ribbon", short: "RCI Ribbon", category: "Oscillators", overlay: false,
@@ -528,15 +537,15 @@ export const oscillators: IndicatorDef[] = [
     inputs: [int("turbo", "CCI Turbo Length", 6, 3), int("length", "CCI 14 Length", 14, 7)],
     plots: [
       { key: "hist", title: "Histogram", color: "#9598A1", style: "histogram" },
-      { key: "turbo", title: "CCI Turbo", color: "#4CAF50" },
-      { key: "cci", title: "CCI 14", color: "#FF0000" },
+      { key: "turbo", title: "CCI Turbo", color: "#009688" },
+      { key: "cci", title: "CCI 14", color: "#F44336" },
     ],
     compute: (bars, p) => {
       const turbo = ta.cci(bars.close, n(p, "turbo"));
       const c14 = ta.cci(bars.close, n(p, "length"));
       const colors = c14.map((_, i) => {
         const prev = [1, 2, 3, 4, 5].map((k) => (i - k >= 0 ? c14[i - k] : NaN));
-        return prev.every((v) => v > 0) ? alpha("#5B9CF6", 0.4) : prev.every((v) => v < 0) ? alpha("#EF5350", 0.4) : alpha("#9598A1", 0.4);
+        return prev.every((v) => v > 0) ? "#009688" : prev.every((v) => v < 0) ? "#F44336" : c14[i] < 0 ? "#009688" : "#F44336";
       });
       return {
         plots: { hist: c14, turbo, cci: c14 },
@@ -591,9 +600,10 @@ export const oscillators: IndicatorDef[] = [
       const sh = bb(n(p, "short"));
       const lo = bb(n(p, "long"));
       const trend = sh.m.map((m, i) => ((Math.abs(sh.l[i] - lo.l[i]) - Math.abs(sh.u[i] - lo.u[i])) / m) * 100);
+      const [posStrong, posWeak, negStrong, negWeak] = [alpha("#089981", 0.75), alpha("#089981", 0.5), alpha("#F23645", 0.75), alpha("#F23645", 0.5)];
       const colors = trend.map((v, i) => {
         const prev = i > 0 ? trend[i - 1] : NaN;
-        return v > 0 ? (v > prev ? "#089981" : "#B2DFDB") : v < prev ? "#F23645" : "#FFCDD2";
+        return v > 0 && v >= prev ? posStrong : v > 0 && v < prev ? posWeak : v < 0 && v > prev ? negWeak : v < 0 && v <= prev ? negStrong : posWeak;
       });
       return { plots: { trend }, colors: { trend: colors }, hlines: lines(C.gray, 0) };
     },

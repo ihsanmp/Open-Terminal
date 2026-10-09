@@ -1,5 +1,6 @@
 import * as ta from "../core";
 import { type Anchor, type Series } from "../core";
+import { formatMintick, inferMintick } from "../pine";
 import { C, alpha, b, bool, float, int, n, s, select, src, type Color, type IndicatorDef, type Marker } from "../types";
 
 const donchian = (high: Series, low: Series, len: number) =>
@@ -127,6 +128,20 @@ export const bands: IndicatorDef[] = [
   },
   {
     id: "chandelier", name: "Chandelier Exit", short: "CE", category: "Trend", overlay: true,
+    inputs: [int("length", "Length", 22), int("atrLength", "ATR Length", 22), float("mult", "ATR Multiplier", 3, 0.01, 0)],
+    plots: [
+      { key: "long", title: "Long Exit", color: C.blue },
+      { key: "short", title: "Short Exit", color: C.orange },
+    ],
+    compute: (bars, p) => {
+      // TradingView's built-in (ta.chandelier): the highest high less ATR × multiplier, and the
+      // lowest low plus it, both always drawn.
+      const a = ta.scale(ta.atr(bars, n(p, "atrLength")), n(p, "mult"));
+      return { plots: { long: ta.sub(ta.highest(bars.high, n(p, "length")), a), short: ta.add(ta.lowest(bars.low, n(p, "length")), a) } };
+    },
+  },
+  {
+    id: "chandelier-everget", name: "Chandelier Exit (everget)", short: "CE", category: "Community", overlay: true,
     inputs: [int("length", "ATR Period", 22), float("mult", "ATR Multiplier", 3), bool("useClose", "Use Close Price for Extremums", true)],
     plots: [
       { key: "long", title: "Long Stop", color: C.green },
@@ -266,9 +281,10 @@ export const bands: IndicatorDef[] = [
       const markers: Marker[] = [];
       const highs = ta.pivotHighs(bars.high, n(p, "leftH"), n(p, "rightH"));
       const lows = ta.pivotLows(bars.low, n(p, "leftL"), n(p, "rightL"));
+      const tick = inferMintick(bars);
       for (let i = 0; i < bars.length; i++) {
-        if (highs[i]) markers.push({ index: i, position: "aboveBar", shape: "arrowDown", color: C.red, text: bars.high[i].toFixed(2) });
-        if (lows[i]) markers.push({ index: i, position: "belowBar", shape: "arrowUp", color: C.green, text: bars.low[i].toFixed(2) });
+        if (highs[i]) markers.push({ index: i, position: "aboveBar", shape: "arrowDown", color: C.red, text: formatMintick(bars.high[i], tick) });
+        if (lows[i]) markers.push({ index: i, position: "belowBar", shape: "arrowUp", color: C.green, text: formatMintick(bars.low[i], tick) });
       }
       return { plots: {}, markers };
     },
