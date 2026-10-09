@@ -360,7 +360,7 @@ export const more: IndicatorDef[] = [
   {
     id: "gaps", name: "Gaps", short: "Gaps", category: "Support & Resistance", overlay: true,
     autoscale: false,
-    inputs: [int("maxGaps", "Max Number of Gaps", 15, 1, 500), bool("partial", "Close Gaps Partially", true), float("minSize", "Minimal Deviation (%)", 0, 0.1, 0)],
+    inputs: [int("maxGaps", "Max Number of Gaps", 15, 1, 500), bool("partial", "Close Gaps Partially", false), float("minSize", "Minimal Deviation (%)", 30, 1, 0, 100)],
     plots: [],
     compute: (bars, p) => ({ plots: {}, boxes: findGaps(bars, n(p, "maxGaps"), b(p, "partial"), n(p, "minSize")) }),
   },
@@ -630,8 +630,13 @@ function autoFib(bars: Bars, p: Record<string, number | string | boolean>) {
 
 // ---- Gaps ------------------------------------------------------------------------------
 
+/**
+ * Gaps as TradingView's built-in finds them: at least `minSizePct`% of the average high-low range
+ * of the last 14 bars, open until price trades through them (partly, with `partial`).
+ */
 export function findGaps(bars: Bars, maxGaps: number, partial: boolean, minSizePct: number): Box[] {
   const { high, low } = bars;
+  const avgRange = ta.sma(ta.sub(high, low), 14);
   type Gap = Box & { up: boolean; open: boolean };
   const gaps: Gap[] = [];
   const last = bars.length - 1;
@@ -641,17 +646,17 @@ export function findGaps(bars: Bars, maxGaps: number, partial: boolean, minSizeP
       if (!g.open) continue;
       g.x2 = i;
       if (g.up) {
-        if (low[i] <= g.bottom) g.open = false;
+        if (low[i] < g.bottom) g.open = false;
         else if (partial && low[i] < g.top) g.top = low[i];
       } else {
-        if (high[i] >= g.top) g.open = false;
+        if (high[i] > g.top) g.open = false;
         else if (partial && high[i] > g.bottom) g.bottom = high[i];
       }
     }
-    const minMove = (bars.close[i - 1] * minSizePct) / 100;
-    if (low[i] > high[i - 1] && low[i] - high[i - 1] > minMove) {
+    const minMove = ta.nz((avgRange[i] * minSizePct) / 100);
+    if (low[i] > high[i - 1] && low[i] - high[i - 1] >= minMove) {
       gaps.push({ x1: i - 1, x2: i, top: low[i], bottom: high[i - 1], up: true, open: true, bg: alpha(C.green, 0.25), border: alpha(C.green, 0.6) });
-    } else if (high[i] < low[i - 1] && low[i - 1] - high[i] > minMove) {
+    } else if (high[i] < low[i - 1] && low[i - 1] - high[i] >= minMove) {
       gaps.push({ x1: i - 1, x2: i, top: low[i - 1], bottom: high[i], up: false, open: true, bg: alpha(C.red, 0.25), border: alpha(C.red, 0.6) });
     }
   }

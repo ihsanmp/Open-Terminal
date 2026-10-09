@@ -236,17 +236,24 @@ export const volatility: IndicatorDef[] = [
   },
   {
     id: "rvi", name: "Relative Volatility Index", short: "RVI", category: "Volatility", overlay: false,
-    inputs: [int("length", "Length", 10), src(), int("offset", "Offset", 0, -500)],
-    plots: [{ key: "rvi", title: "RVI", color: C.purple }],
+    inputs: [int("length", "Length", 10), src(), int("offset", "Offset", 0, -500), select("maType", "Smoothing Type", ["None", ...ta.MA_TYPES], "SMA"), int("maLength", "Smoothing Length", 14)],
+    plots: [
+      { key: "rvi", title: "RVI", color: C.purple },
+      { key: "ma", title: "RVI-based MA", color: C.yellow },
+    ],
     compute: (bars, p) => {
       const x = ta.source(bars, s(p, "source"));
       const sd = ta.stdev(x, n(p, "length"));
       const ch = ta.change(x);
       const upper = ta.ema(sd.map((v, i) => (ta.isNa(ch[i]) || ta.isNa(v) ? NaN : ch[i] <= 0 ? 0 : v)), 14);
       const lower = ta.ema(sd.map((v, i) => (ta.isNa(ch[i]) || ta.isNa(v) ? NaN : ch[i] > 0 ? 0 : v)), 14);
+      const rvi = ta.zip(upper, lower, (u, l) => (u / (u + l)) * 100);
+      // TradingView's RVI-based MA (SMA 14 by default).
+      const plots: Record<string, Series> = { rvi };
+      if (s(p, "maType") !== "None") plots.ma = ta.maByType(s(p, "maType"), rvi, n(p, "maLength"), bars.volume);
       return {
-        plots: { rvi: ta.zip(upper, lower, (u, l) => (u / (u + l)) * 100) },
-        offsets: { rvi: n(p, "offset") },
+        plots,
+        offsets: { rvi: n(p, "offset"), ma: n(p, "offset") },
         hlines: [80, 50, 20].map((price) => ({ price, color: C.gray, dashed: true })),
         fills: [{ a: 80, b: 20, color: alpha(C.purple, 0.1) }],
       };

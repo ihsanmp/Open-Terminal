@@ -82,7 +82,7 @@ export const averages: IndicatorDef[] = [
   },
   {
     id: "kama", name: "Kaufman's Adaptive Moving Average", short: "KAMA", category: "Moving Averages", overlay: true,
-    inputs: [int("length", "Length", 14), int("fast", "Fast Length", 2), int("slow", "Slow Length", 30), src()],
+    inputs: [int("length", "ER Length", 10), int("fast", "Fast Length", 2), int("slow", "Slow Length", 30), src()],
     plots: [{ key: "ma", title: "KAMA", color: C.purple }],
     compute: (bars, p) => {
       const x = ta.source(bars, s(p, "source"));
