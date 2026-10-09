@@ -46,13 +46,6 @@ export type DrawCallbacks = {
 
 type Bar = { open: number; high: number; low: number; close: number };
 
-/** How far ahead of the pointer's last event a drawing being placed or dragged may be drawn (px). */
-const MAX_LEAD = 48;
-/** How far ahead in time it's drawn: about the frames the page takes to reach the screen. */
-const LEAD_MS = 20;
-/** No move for this long: the pointer has stopped, and the drawing goes where it really is. */
-const SETTLE_MS = 40;
-
 export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingLayer, times: number[], interval: number, bars: Bar[], cb: DrawCallbacks): () => void {
   const local = (e: MouseEvent) => {
     const r = el.getBoundingClientRect();
@@ -289,40 +282,6 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     }
   };
 
-  /**
-   * Where the pointer will be when this frame reaches the screen: the browser's own prediction,
-   * a short way ahead at most. The pointer itself is drawn by the hardware at once, while the page
-   * shows a move a few frames later, so a drawing placed at the event's position trails it. Clicks
-   * and the drop use the real position.
-   */
-  const recent: Array<{ x: number; y: number; t: number }> = [];
-  let settle = 0;
-  const ahead = (e: PointerEvent, x: number, y: number) => {
-    recent.push({ x, y, t: e.timeStamp });
-    while (recent.length > 4) recent.shift();
-    // The browser's prediction where it gives one (pen, touch, some mice); else the pointer's
-    // speed over its last few events, carried LEAD_MS on.
-    const predicted = e.getPredictedEvents?.() ?? [];
-    const p = predicted[predicted.length - 1];
-    let q: { x: number; y: number } | null = p ? local(p) : null;
-    const first = recent[0];
-    const dt = e.timeStamp - first.t;
-    if (!q && recent.length >= 3 && dt > 0 && dt < 100) q = { x: x + ((x - first.x) / dt) * LEAD_MS, y: y + ((y - first.y) / dt) * LEAD_MS };
-    if (!q) return { x, y };
-    const d = Math.hypot(q.x - x, q.y - y);
-    if (!(d > 0)) return { x, y };
-    const k = Math.min(1, MAX_LEAD / d);
-    return { x: x + (q.x - x) * k, y: y + (q.y - y) * k };
-  };
-  /** After a move drawn ahead: once the pointer rests, the drawing comes back under it. */
-  const settleAt = (x: number, y: number, shift: boolean) => {
-    clearTimeout(settle);
-    settle = window.setTimeout(() => {
-      recent.length = 0;
-      if (drag || cb.state().tool) update(x, y, shift);
-    }, SETTLE_MS);
-  };
-
   const onMove = (e: PointerEvent) => {
     const { x, y } = local(e);
     last = { x, y };
@@ -341,19 +300,12 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     }
     if (drag) {
       e.stopImmediatePropagation();
-      const a = ahead(e, x, y);
-      layer.crosshairAt(a.x, a.y);
-      update(a.x, a.y, e.shiftKey);
-      settleAt(x, y, e.shiftKey);
-      return;
+      layer.crosshairAt(x, y);
+    } else {
+      const s = cb.state();
+      setCursor(!s.tool && s.cursor !== "eraser" && s.cursor !== "magic" && inMainPane(x, y) && !(e.buttons & 1) ? cursorOver(layer.pick(x, y)) : null);
     }
-    const s = cb.state();
-    setCursor(!s.tool && s.cursor !== "eraser" && s.cursor !== "magic" && inMainPane(x, y) && !(e.buttons & 1) ? cursorOver(layer.pick(x, y)) : null);
-    if (s.tool) {
-      const a = ahead(e, x, y);
-      update(a.x, a.y, e.shiftKey);
-      settleAt(x, y, e.shiftKey);
-    }
+    update(x, y, e.shiftKey);
   };
 
   const onUp = (e: PointerEvent) => {
@@ -366,11 +318,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
       else layer.setLive(null);
       return;
     }
-    clearTimeout(settle);
-    recent.length = 0;
     if (drag) {
-      const at = local(e);
-      update(at.x, at.y, e.shiftKey);
       if (moved) {
         // The chart takes the drawing back where it was let go, in the same frame the live
         // canvas lets it go.
@@ -430,7 +378,6 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("keydown", onShift);
     window.removeEventListener("keyup", onShift);
-    clearTimeout(settle);
     layer.liveSink = null;
     chart.timeScale().unsubscribeVisibleLogicalRangeChange(drawLive);
     canvas.remove();
