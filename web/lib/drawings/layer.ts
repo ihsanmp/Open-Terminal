@@ -129,9 +129,16 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
   toChart(x: number, y: number): { logical: number; price: number } | null {
     const at = this.attachedTo;
     if (!at) return null;
-    const logical = at.chart.timeScale().coordinateToLogical(x);
+    // The library gives whole bars only (rounded up), so a point dragged along jumped bar to bar
+    // ahead of the pointer: the fraction is put back from the pixels past that bar.
+    const ts = at.chart.timeScale();
+    const bar = ts.coordinateToLogical(x);
     const price = at.series.coordinateToPrice(y);
-    return logical === null || price === null ? null : { logical, price };
+    if (bar === null || price === null) return null;
+    const a = ts.logicalToCoordinate(bar);
+    const b = ts.logicalToCoordinate((bar + 1) as Logical);
+    const logical = a !== null && b !== null && b !== a ? bar + (x - a) / (b - a) : bar;
+    return { logical, price };
   }
 
   /**
