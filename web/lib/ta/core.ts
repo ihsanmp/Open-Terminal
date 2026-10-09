@@ -436,8 +436,8 @@ export function dmi(b: Bars, diLen: number, adxLen: number): { plus: Series; min
   return { plus, minus, adx };
 }
 
-export function supertrend(b: Bars, factor: number, atrLen: number): { value: Series; direction: Series } {
-  const src = source(b, "hl2");
+/** Supertrend around `src` (hl2 for TradingView's own; scripts pass another, e.g. a median). */
+export function supertrend(b: Bars, factor: number, atrLen: number, src: Series = source(b, "hl2")): { value: Series; direction: Series } {
   const a = atr(b, atrLen);
   const n = b.length;
   const value = fill(n);
@@ -460,12 +460,39 @@ export function supertrend(b: Bars, factor: number, atrLen: number): { value: Se
     const st = dir === -1 ? lower : upper;
     value[i] = st;
     direction[i] = isNa(a[i]) ? NaN : dir;
-    if (isNa(a[i])) value[i] = NaN;
+    // Before the source or the ATR exists the bands are 0 in Pine (nz of na): nothing is drawn.
+    if (isNa(a[i]) || isNa(src[i])) value[i] = NaN;
     prevUpper = upper;
     prevLower = lower;
     prevST = st;
   }
   return { value, direction };
+}
+
+/**
+ * Pine's ta.percentile_nearest_rank: of the last `len` values, the one at rank ceil(pct% × len)
+ * in ascending order (the median for 50); na until there are `len` values.
+ */
+export function percentileNearestRank(x: Series, len: number, pct: number): Series {
+  const out = fill(x.length);
+  const rank = Math.max(1, Math.min(len, Math.ceil((pct / 100) * len)));
+  const win: number[] = [];
+  for (let i = 0; i < x.length; i++) {
+    if (i < len - 1) continue;
+    win.length = 0;
+    let ok = true;
+    for (let j = i - len + 1; j <= i; j++) {
+      if (isNa(x[j])) {
+        ok = false;
+        break;
+      }
+      win.push(x[j]);
+    }
+    if (!ok) continue;
+    win.sort((a, b) => a - b);
+    out[i] = win[rank - 1];
+  }
+  return out;
 }
 
 export function sar(b: Bars, start: number, inc: number, max: number): Series {

@@ -8,6 +8,7 @@
 // - UT Bot Alerts                             (open-source TradingView script, Pine v4)
 // - Volume Profile / Fixed Range              (© LonesomeTheBlue, MPL-2.0, Pine v5)
 // - Bollinger Bands Percentile + Stdev Channels (BBPct) (© Algoalpha X © Sushiboi77, MPL-2.0, Pine v5)
+// - Caspers Mastermind Supertrend v2           (© Caspers_Mastermind, MPL-2.0, Pine v6)
 
 import * as ta from "../core";
 import { type Bars, type Series } from "../core";
@@ -519,4 +520,53 @@ export function bbpct(bars: Bars, p: Params): IndicatorResult {
     ],
     markers,
   };
+}
+
+// =====================================================================================
+// Caspers Mastermind Supertrend v2 (© Caspers_Mastermind)
+// =====================================================================================
+
+// Pine v6's color.green and color.red.
+const V6_GREEN = "#4CAF50";
+const V6_RED = "#F23645";
+
+community2.push({
+  id: "caspers-mastermind-supertrend",
+  name: "Caspers Mastermind Supertrend v2",
+  short: "Caspers ST",
+  category: "Community",
+  overlay: true,
+  aliases: ["Caspers Mastermind", "Mastermind Supertrend", "Median Supertrend"],
+  legendInputs: ["lengthPeriod", "factor", "medianLength"],
+  inputs: [
+    int("lengthPeriod", "Mastermind Period", 5, 2),
+    float("factor", "Multiplier", 2.1, 0.05),
+    int("medianLength", "Median Length", 9),
+    // The script's long and short alerts, shown on the chart (this app has no alerts).
+    bool("showSignals", "Show Long/Short signals", false),
+  ],
+  plots: [{ key: "trend", title: "Caspers Mastermind Trend", color: V6_GREEN, width: 2 }],
+  compute: (bars, p) => caspersSupertrend(bars, p),
+});
+
+/**
+ * A Supertrend around the median close of the last `medianLength` bars (ta.percentile_nearest_rank
+ * at 50) instead of hl2, with an ATR of `lengthPeriod`: green on the lower band in an uptrend, red
+ * on the upper one in a downtrend.
+ */
+export function caspersSupertrend(bars: Bars, p: Params): IndicatorResult {
+  const median = ta.percentileNearestRank(bars.close, n(p, "medianLength"), 50);
+  const { value, direction } = ta.supertrend(bars, n(p, "factor"), n(p, "lengthPeriod"), median);
+  const markers: Marker[] = [];
+  if (b(p, "showSignals")) {
+    // The script names its alerts the other way round ("Long" fires as the line turns red); these
+    // follow the line's color: Long as it turns green (direction -1), Short as it turns red.
+    for (let i = 1; i < bars.length; i++) {
+      const [was, now] = [direction[i - 1], direction[i]];
+      if (!Number.isFinite(value[i]) || !Number.isFinite(was) || was === now) continue;
+      if (now < 0) markers.push({ index: i, position: "belowBar", shape: "arrowUp", color: V6_GREEN, text: "Long" });
+      else markers.push({ index: i, position: "aboveBar", shape: "arrowDown", color: V6_RED, text: "Short" });
+    }
+  }
+  return { plots: { trend: value }, colors: { trend: direction.map((d) => (d === 1 ? V6_RED : V6_GREEN)) }, markers };
 }
