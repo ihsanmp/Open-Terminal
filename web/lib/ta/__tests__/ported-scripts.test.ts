@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as ta from "../core";
 import fixture from "./fixtures/tradingview-daily.json";
 import { INDICATOR_BY_ID, candlesToBars, defaultParams, type Bars, type Params } from "../index";
 import { colorNew } from "../pine";
@@ -50,6 +51,31 @@ describe("Supertrend (KivancOzbulgen)", () => {
     const rows: C[] = [...Array.from({ length: 30 }, () => flat(100)), ...Array.from({ length: 15 }, (_, i) => flat(100 - 3 * (i + 1))), ...Array.from({ length: 15 }, (_, i) => flat(55 + 5 * (i + 1)))];
     const texts = (run("supertrend-kivanc", barsOf(rows)).labels ?? []).map((l) => l.text).filter(Boolean);
     expect(texts).toEqual(["Sell", "Buy"]);
+  });
+});
+
+describe("Caspers Mastermind Supertrend v2", () => {
+  it("takes Pine's nearest-rank median", () => {
+    expect(ta.percentileNearestRank([5, 1, 9, 3, 7], 5, 50)[4]).toBe(5);
+    expect(ta.percentileNearestRank([5, 1, 9, 3], 4, 50)[3]).toBe(3);
+    expect(ta.percentileNearestRank([5, 1, 9, 3], 4, 50)[2]).toBeNaN();
+  });
+
+  it("is TradingView's Supertrend run around the median close", () => {
+    const r = run("caspers-mastermind-supertrend", AAPL);
+    const median = ta.percentileNearestRank(AAPL.close, 9, 50);
+    const st = ta.supertrend(AAPL, 2.1, 5, median);
+    for (let i = 20; i < AAPL.length; i++) expect(r.plots.trend[i]).toBeCloseTo(st.value[i], 8);
+    // Red on the upper band (direction 1), green on the lower one.
+    for (let i = 20; i < AAPL.length; i++) expect(r.colors!.trend[i]).toBe(st.direction[i] === 1 ? "#F23645" : "#4CAF50");
+  });
+
+  it("marks the turns, Short as it turns red and Long as it turns green, only when asked", () => {
+    const rows: C[] = [...Array.from({ length: 30 }, (_, i) => flat(100 + i)), ...Array.from({ length: 20 }, (_, i) => flat(129 - 4 * (i + 1))), ...Array.from({ length: 20 }, (_, i) => flat(49 + 5 * (i + 1)))];
+    const bars = barsOf(rows);
+    expect(run("caspers-mastermind-supertrend", bars).markers).toEqual([]);
+    const texts = (run("caspers-mastermind-supertrend", bars, { showSignals: true }).markers ?? []).map((m) => m.text);
+    expect(texts.slice(-2)).toEqual(["Short", "Long"]);
   });
 });
 
