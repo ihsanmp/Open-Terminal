@@ -72,6 +72,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     layer.paintLive(ctx, w, h);
   };
   layer.liveSink = drawLive;
+  layer.isBusy = () => !!(drag || stroke || held || cb.placing.current || cb.state().tool);
   // Scrolled or zoomed meanwhile: the live drawing moves with the chart.
   chart.timeScale().subscribeVisibleLogicalRangeChange(drawLive);
 
@@ -379,6 +380,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     window.removeEventListener("keydown", onShift);
     window.removeEventListener("keyup", onShift);
     layer.liveSink = null;
+    layer.isBusy = () => false;
     chart.timeScale().unsubscribeVisibleLogicalRangeChange(drawLive);
     canvas.remove();
     setCursor(null);
