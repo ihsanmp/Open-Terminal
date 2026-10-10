@@ -17,6 +17,9 @@ export type Whale = {
   height: number;
   /** BTC moved to other addresses (change excluded). */
   btc: number;
+  /** The sending addresses (a few), and where it went, largest first (change excluded). */
+  from?: string[];
+  to?: Array<{ address: string; btc: number }>;
 };
 
 export type Fetch = (url: string) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
@@ -52,6 +55,24 @@ async function getJson<T>(f: Fetch, url: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Who sent a transaction and where it went (change left out): a few of each. */
+export function partiesOf(tx: Tx, keep = 3): { from: string[]; to: Array<{ address: string; btc: number }> } {
+  const fromAll = [...new Set(tx.vin.map((v) => v.prevout?.scriptpubkey_address).filter((a): a is string => Boolean(a)))];
+  const own = new Set(fromAll);
+  const sums = new Map<string, number>();
+  for (const o of tx.vout) if (o.scriptpubkey_address && !own.has(o.scriptpubkey_address)) sums.set(o.scriptpubkey_address, (sums.get(o.scriptpubkey_address) ?? 0) + o.value);
+  const to = [...sums.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, keep)
+    .map(([address, sats]) => ({ address, btc: Math.round((sats / 1e8) * 1e4) / 1e4 }));
+  return { from: fromAll.slice(0, keep), to };
+}
+
+/** A transaction as mempool.space gives it, for one read by txid. */
+export async function txParties(txid: string, f: Fetch = defaultFetch): Promise<{ from: string[]; to: Array<{ address: string; btc: number }> }> {
+  return partiesOf(await getJson<Tx>(f, `${API}/tx/${txid}`));
+}
+
 /** BTC a transaction sends to addresses other than its own inputs'. */
 export function movedBtc(tx: Tx): number {
   const from = new Set(tx.vin.map((v) => v.prevout?.scriptpubkey_address).filter(Boolean));
@@ -75,8 +96,9 @@ export async function syncWhales(f: Fetch = defaultFetch, pause = 1000): Promise
       const summary = await getJson<SummaryTx[]>(f, `${API}/v1/block/${b.id}/summary`);
       for (const s of summary.slice(1)) {
         if (s.value < FLOOR_BTC * 1e8) continue;
-        const btc = movedBtc(await getJson<Tx>(f, `${API}/tx/${s.txid}`));
-        if (btc >= FLOOR_BTC) store.txs.push({ txid: s.txid, time: b.timestamp, height: b.height, btc: Math.round(btc * 1e4) / 1e4 });
+        const tx = await getJson<Tx>(f, `${API}/tx/${s.txid}`);
+        const btc = movedBtc(tx);
+        if (btc >= FLOOR_BTC) store.txs.push({ txid: s.txid, time: b.timestamp, height: b.height, btc: Math.round(btc * 1e4) / 1e4, ...partiesOf(tx) });
       }
       store.height = b.height;
       const cutoff = b.timestamp - KEEP_S;

@@ -23,6 +23,7 @@ import * as newsfeeds from "../providers/newsfeeds.js";
 import * as treasurydirect from "../providers/treasurydirect.js";
 import * as watcherguru from "../providers/watcherguru.js";
 import * as moneyflow from "../providers/moneyflow.js";
+import * as transfers from "../providers/transfers.js";
 import * as newsArchive from "../news/archive.js";
 import { buildRecap, quotedTexts, withTranslations } from "../news/recap.js";
 import { toIndonesian } from "../news/translate.js";
@@ -611,6 +612,17 @@ marketRouter.get("/moneyflow/:symbol", async (req, res) => {
       return { symbol, method: taker ? "taker" : "clv", unit: taker ? "USDT" : null, periods };
     });
     res.json(data);
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// ---- an asset's transactions, from whom to whom (providers/transfers.ts) ----
+
+marketRouter.get("/transfers/:symbol", async (req, res) => {
+  const symbol = req.params.symbol.toUpperCase();
+  try {
+    res.json(await cached(`transfers:${symbol}`, 15_000, () => transfers.transfersOf(symbol, cryptoBase(symbol), onBinance)));
   } catch (err) {
     fail(req, res, err);
   }

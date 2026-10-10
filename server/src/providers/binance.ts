@@ -152,3 +152,11 @@ export async function flowKlines(base: string, interval: string, limit: number):
   const rows: any[] = await bfetch(`/api/v3/klines?symbol=${base.toUpperCase()}USDT&interval=${interval}&limit=${Math.min(1000, limit)}`);
   return rows.map((r) => [Math.round(r[0] / 1000), +r[7], +r[10]]);
 }
+
+export type AggTrade = { id: number; time: number; price: number; qty: number; buyerMaker: boolean };
+
+/** The latest trades (up to 1000), as Binance aggregates them: a buyer-maker trade is a taker sell. */
+export async function aggTrades(base: string, limit = 1000): Promise<AggTrade[]> {
+  const rows: any[] = await bfetch(`/api/v3/aggTrades?symbol=${base.toUpperCase()}USDT&limit=${Math.min(1000, limit)}`);
+  return rows.map((r) => ({ id: r.a, time: Math.round(r.T / 1000), price: +r.p, qty: +r.q, buyerMaker: Boolean(r.m) }));
+}
