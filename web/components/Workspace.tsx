@@ -7,7 +7,7 @@ import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { useTerminal, WidgetIdContext, type WidgetInstance } from "../store/terminal";
 import { WidgetVisibleContext } from "../lib/refresh";
-import QuoteWidget from "./widgets/QuoteWidget";
+import MoneyFlowWidget from "./widgets/MoneyFlowWidget";
 import ChartWidget from "./widgets/ChartWidget";
 import WatchlistWidget from "./widgets/WatchlistWidget";
 import NewsWidget from "./widgets/NewsWidget";
@@ -40,7 +40,7 @@ export function WidgetBody({ widget }: { widget: WidgetInstance }) {
 
 function WidgetContent({ widget }: { widget: WidgetInstance }) {
   switch (widget.type) {
-    case "quote": return <QuoteWidget widget={widget} />;
+    case "moneyflow": return <MoneyFlowWidget widget={widget} />;
     case "chart": return <ChartWidget widget={widget} />;
     case "watchlist": return <WatchlistWidget />;
     case "news": return <NewsWidget widget={widget} />;
@@ -126,7 +126,7 @@ export function SymbolTag({ widget, activeSymbol }: { widget: WidgetInstance; ac
 }
 
 export const TITLES: Record<string, string> = {
-  quote: "Quote", chart: "Chart", watchlist: "Watchlist", news: "News",
+  moneyflow: "Money Flow", chart: "Chart", watchlist: "Watchlist", news: "News",
   heatmap: "Heatmap", screener: "Screener", crypto: "Crypto",
   watcher: "Watcher Guru", bonds: "US Bonds", portfolio: "Portfolio", ai: "AI Assistant",
   calendar: "Calendar", insider: "Insider Transactions", tv: "Live TV", recap: "Market Recap",
@@ -134,7 +134,7 @@ export const TITLES: Record<string, string> = {
 };
 
 /** Widgets that show one symbol (their own, or the active one when linked). */
-export const SYMBOL_AWARE = new Set(["quote", "chart", "news", "insider", "research"]);
+export const SYMBOL_AWARE = new Set(["moneyflow", "chart", "news", "insider", "research"]);
 
 export default function Workspace() {
   const widgets = useTerminal((s) => s.widgets);

@@ -9,7 +9,7 @@ import type { IndicatorInstance } from "../lib/ta/types";
 import type { ChartStyle } from "../lib/chart-style";
 
 export type WidgetType =
-  | "quote"
+  | "moneyflow"
   | "chart"
   | "watchlist"
   | "news"
@@ -119,7 +119,7 @@ type TerminalState = {
 
 const DEFAULT_WIDGETS: WidgetInstance[] = [
   { id: "w-chart", type: "chart", linked: true },
-  { id: "w-quote", type: "quote", linked: true },
+  { id: "w-quote", type: "moneyflow", linked: true },
   { id: "w-watchlist", type: "watchlist", linked: false },
   { id: "w-news", type: "news", linked: true },
   { id: "w-macro", type: "watcher", linked: false },
@@ -134,7 +134,7 @@ const DEFAULT_LAYOUT: LayoutItem[] = [
 ];
 
 const SIZE_BY_TYPE: Record<WidgetType, { w: number; h: number }> = {
-  quote: { w: 5, h: 6 },
+  moneyflow: { w: 6, h: 12 },
   chart: { w: 7, h: 12 },
   watchlist: { w: 4, h: 7 },
   news: { w: 5, h: 8 },
@@ -235,10 +235,13 @@ function rememberWindowTab(id: string) {
   }
 }
 
-/** Pages and widgets that became others: v2 the Options page US Bonds, v3 Macro Watcher Guru. */
-const RENAMED: Array<[version: number, from: string, to: string]> = [
+/** Pages and widgets that became others: v2 the Options page US Bonds, v3 Macro Watcher Guru,
+ *  v4 Quote Money Flow. */
+const RENAMED: Array<[version: number, from: string, to: string, keepsSymbol?: boolean]> = [
   [2, "options", "bonds"],
   [3, "macro", "watcher"],
+  // Money Flow is about the symbol shown, as Quote was: it keeps it.
+  [4, "quote", "moneyflow", true],
 ];
 
 /** Saved tabs from an older version, with the pages and widgets renamed since. */
@@ -246,8 +249,10 @@ function upgrade(saved: unknown, version: number): unknown {
   const renames = RENAMED.filter(([v]) => v > version);
   if (!renames.length) return saved;
   const to = (type: string) => renames.reduce((t, [, from, into]) => (t === from ? into : t), type);
+  const keeps = (type: string) => renames.some(([, from, , keepsSymbol]) => from === type && keepsSymbol);
   const s = (saved ?? {}) as { tabs?: TabData[] };
-  const rename = <T extends { type: string }>(w: T): T => (to(w.type) === w.type ? w : { ...w, type: to(w.type), symbol: undefined, linked: true });
+  const rename = <T extends { type: string }>(w: T): T =>
+    to(w.type) === w.type ? w : keeps(w.type) ? { ...w, type: to(w.type) } : { ...w, type: to(w.type), symbol: undefined, linked: true };
   return {
     ...s,
     tabs: s.tabs?.map((t) => ({
@@ -368,9 +373,9 @@ export const useTerminal = create<TerminalState>()(
       name: WORKSPACE_KEY,
       // Saved per tab, so windows editing different tabs can't overwrite each other.
       storage: createWorkspaceStorage() as PersistStorage<unknown> | undefined,
-      // v1: tabs; v2: the Options page became US Bonds; v3: Macro became Watcher Guru. The window's
-      // own tab and the transient UI aren't saved.
-      version: 3,
+      // v1: tabs; v2: the Options page became US Bonds; v3: Macro became Watcher Guru; v4: Quote
+      // became Money Flow. The window's own tab and the transient UI aren't saved.
+      version: 4,
       partialize: (st) => ({ tabs: st.tabs, watchlist: st.watchlist, favoriteIntervals: st.favoriteIntervals }),
       migrate: (saved, version) => {
         if (version >= 1) return upgrade(saved, version) as TerminalState;
