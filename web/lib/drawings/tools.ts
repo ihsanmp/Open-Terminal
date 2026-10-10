@@ -31,7 +31,7 @@ export type ToolDef = {
   points: number;
   /** What it is, for its "?" hint. */
   hint: string;
-  /** Drawn by dragging (a brush), or click by click until the last point is clicked again (a path). */
+  /** Drawn by dragging (a brush), or click by click until a right-click or the last point clicked again (a path). */
   variable?: "freehand" | "clicks";
   /** Points worked out from those placed: a position's stop, from its entry and target. */
   derive?: (pts: DrawPoint[]) => DrawPoint[];
@@ -112,10 +112,10 @@ export const TOOLS: ToolDef[] = [
   { id: "arrowDown", label: "Arrow mark down", group: "shapes", section: "ARROWS", points: 1, hint: "An arrow pointing down at a bar." },
   { id: "rect", label: "Rectangle", group: "shapes", section: "SHAPES", points: 2, hint: "A box between two corners." },
   { id: "rotatedRect", label: "Rotated rectangle", group: "shapes", section: "SHAPES", points: 3, hint: "A box at an angle: one side, then its width." },
-  { id: "path", label: "Path", group: "shapes", section: "SHAPES", points: 2, hint: "Lines from point to point, ending in an arrow; click the last point again to finish.", variable: "clicks" },
+  { id: "path", label: "Path", group: "shapes", section: "SHAPES", points: 2, hint: "Lines from point to point, ending in an arrow; right-click (or click the last point again) to finish.", variable: "clicks" },
   { id: "circle", label: "Circle", group: "shapes", section: "SHAPES", points: 2, hint: "A circle: the center, then the radius." },
   { id: "ellipse", label: "Ellipse", group: "shapes", section: "SHAPES", points: 2, hint: "An ellipse inside a box between two corners." },
-  { id: "polyline", label: "Polyline", group: "shapes", section: "SHAPES", points: 3, hint: "A closed shape, point by point; click the first or last point again to finish.", variable: "clicks" },
+  { id: "polyline", label: "Polyline", group: "shapes", section: "SHAPES", points: 3, hint: "A closed shape, point by point; right-click, or click the first or last point again, to finish.", variable: "clicks" },
   { id: "triangle", label: "Triangle", group: "shapes", section: "SHAPES", points: 3, hint: "A triangle through three points." },
   { id: "arc", label: "Arc", group: "shapes", section: "SHAPES", points: 3, hint: "An arc: its two ends, then a point it passes." },
   { id: "curve", label: "Curve", group: "shapes", section: "SHAPES", points: 3, hint: "A curve: its two ends, then where it bends towards." },
