@@ -8,6 +8,7 @@ import { workspaceRouter } from "./routes/workspace.js";
 import { allStats } from "./providers/registry.js";
 import { requireApiKey } from "./auth.js";
 import { rateLimit } from "./rateLimit.js";
+import { startArchive } from "./news/archive.js";
 
 // One failed request must not take the API down for every open window: Express 4 doesn't catch
 // errors thrown by async handlers, and Node ends the process on an unhandled rejection by
@@ -69,6 +70,8 @@ const HOST = process.env.API_HOST ?? "127.0.0.1";
 const server = app.listen(PORT, HOST, () => {
   console.log(`OpenTerminal API listening on http://${HOST}:${PORT}`);
 });
+// Headlines are kept for the news recap while the app runs.
+startArchive();
 // Not being able to listen (the port is taken) is fatal, though other errors aren't.
 server.on("error", (err) => {
   console.error("[listen]", err.message);
