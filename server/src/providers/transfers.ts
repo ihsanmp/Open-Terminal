@@ -6,15 +6,24 @@
 //    at the price of their hour.
 //  - Another coin on Binance: its biggest trades there, buys and sells, collected while asked for.
 //  - A US stock: its insiders' trades, from their SEC Form 4 filings.
+//
+// Bitcoin, Ether and Solana also list what the big institutions did: each spot ETF's day of
+// inflow or outflow (BlackRock's IBIT, Fidelity's FBTC … from providers/etfflows.ts) and each
+// treasury company's reported buys and sales (Strategy, MARA … from their 8-Ks, providers/
+// treasuries.ts), marked as such so they can be shown on their own.
 
 import * as binance from "./binance.js";
 import { btcLabels } from "./addresslabels.js";
+import { etfFlows, type EtfFlow } from "./etfflows.js";
 import * as secedgar from "./secedgar.js";
+import { treasuryTrades, type TreasuryTrade } from "./treasuries.js";
 import * as whales from "./whales.js";
 
-export type Party = { name: string | null; address: string | null; role?: string | null };
+/** One side of a transaction; an institution is tagged an ETF or a treasury company. */
+export type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" };
 export type TransferRow = {
   id: string;
+  category: "onchain" | "exchange" | "insider" | "institution";
   time: number;
   from: Party;
   to: Party;
@@ -43,6 +52,7 @@ export function btcRow(w: whales.Whale, labels: Record<string, string>, priceAt:
     time: w.time,
     from: { name: sender ? labels[sender] ?? null : null, address: sender },
     to: { name: receiver ? labels[receiver] ?? null : null, address: receiver },
+    category: "onchain",
     amount: w.btc,
     unit: "BTC",
     usd: price === null ? null : w.btc * price,
@@ -133,6 +143,7 @@ async function exchangeTransfers(base: string): Promise<Transfers> {
         time: t.time,
         from: { name: side === "buy" ? "Pembeli" : "Penjual", address: null, role: "taker" },
         to: { name: "Binance", address: null, role: `${base}/USDT` },
+        category: "exchange" as const,
         amount: t.qty,
         unit: base,
         usd: t.price * t.qty,
@@ -172,6 +183,7 @@ export function insiderRow(t: secedgar.InsiderTransaction, symbol: string, i: nu
     // a gift); shares bought or granted come to them.
     from: side === "sell" ? insider : company,
     to: side === "sell" ? { name: DISPOSED_TO[t.transactionCode] ?? (t.transactionCode === "F" || t.transactionCode === "D" ? symbol : "Pasar"), address: null } : insider,
+    category: "insider",
     amount: t.shares ?? 0,
     unit: "saham",
     usd: t.value,
@@ -191,14 +203,104 @@ async function insiderTransfers(symbol: string): Promise<Transfers> {
   };
 }
 
+// ---------------------------------------------------------------- institutions
+
+const MARKET: Party = { name: "Pasar", address: null };
+const INSTITUTION_DAYS = 120;
+
+/** An ETF's day: money in comes from the market to the fund, money out the other way. The coin
+ *  amount is at that day's close; the time is the US close (21:00 UTC). */
+export function etfRow(f: EtfFlow, base: string, closeOn: (date: string) => number | null): TransferRow {
+  const fund: Party = { name: `${f.issuer} ${f.ticker}`, address: null, tag: "etf" };
+  const usd = Math.abs(f.usdMillions) * 1e6;
+  const price = closeOn(f.date);
+  const inflow = f.usdMillions > 0;
+  return {
+    id: `etf-${f.ticker}-${f.date}`,
+    category: "institution",
+    time: Math.floor(Date.parse(`${f.date}T21:00:00Z`) / 1000),
+    from: inflow ? MARKET : fund,
+    to: inflow ? fund : MARKET,
+    amount: price ? usd / price : 0,
+    unit: base,
+    usd,
+    side: inflow ? "buy" : "sell",
+    price,
+    note: inflow ? "ETF inflow" : "ETF outflow",
+    link: `https://farside.co.uk/${base === "BTC" ? "btc" : base === "ETH" ? "eth" : "sol"}/`,
+  };
+}
+
+/** A treasury company's reported buy (from the market) or sale (to it). */
+export function treasuryRow(t: TreasuryTrade): TransferRow {
+  const company: Party = { name: t.company, address: null, role: t.ticker, tag: "treasury" };
+  const bought = t.amount > 0;
+  return {
+    id: `treasury-${t.ticker}-${t.time}-${t.asset}`,
+    category: "institution",
+    time: t.time,
+    from: bought ? MARKET : company,
+    to: bought ? company : MARKET,
+    amount: Math.abs(t.amount),
+    unit: t.asset,
+    usd: t.usd,
+    side: bought ? "buy" : "sell",
+    price: t.avgPrice,
+    note: bought ? "8-K: beli" : "8-K: jual",
+    link: t.url,
+  };
+}
+
+const dailyCloses = new Map<string, { at: number; byDate: Map<string, number> }>();
+async function closeOnFor(base: string): Promise<(date: string) => number | null> {
+  let c = dailyCloses.get(base);
+  if (!c || Date.now() - c.at > 3_600_000) {
+    try {
+      const bars = await binance.historyInterval(base, "1d", null, INSTITUTION_DAYS + 10);
+      c = { at: Date.now(), byDate: new Map(bars.map((b) => [new Date(b.time * 1000).toISOString().slice(0, 10), b.close])) };
+      dailyCloses.set(base, c);
+    } catch {
+      c ??= { at: 0, byDate: new Map() };
+    }
+  }
+  const byDate = c.byDate;
+  return (date) => byDate.get(date) ?? null;
+}
+
+/** The institutions' buys and sales of a coin over the last few months, newest first. */
+async function institutionRows(base: string, now = Date.now()): Promise<TransferRow[]> {
+  const since = now / 1000 - INSTITUTION_DAYS * 86_400;
+  const [flows, closeOn] = await Promise.all([etfFlows(base).catch(() => [] as EtfFlow[]), closeOnFor(base)]);
+  const rows = [
+    ...flows.map((f) => etfRow(f, base, closeOn)),
+    ...treasuryTrades()
+      .filter((t) => t.asset === base)
+      .map(treasuryRow)
+      // A filing that gives no dollar figure: valued at that day's close.
+      .map((r) => {
+        if (r.usd !== null) return r;
+        const close = closeOn(new Date(r.time * 1000).toISOString().slice(0, 10));
+        return close ? { ...r, usd: r.amount * close } : r;
+      }),
+  ];
+  return rows.filter((r) => r.time >= since).sort((a, b) => b.time - a.time);
+}
+
 // ---------------------------------------------------------------- the asset's
 
 /** A US-listed stock or ETF: a bare ticker (no exchange suffix, index or FX mark). */
 export const isUsTicker = (symbol: string) => /^[A-Z][A-Z.]{0,5}$/.test(symbol) && !/\.[A-Z]{1,3}$/.test(symbol.replace(/^BRK\.|^BF\./, ""));
 
 export async function transfersOf(symbol: string, base: string | null, onBinance: (base: string) => Promise<boolean>): Promise<Transfers> {
-  if (base === "BTC") return btcTransfers();
-  if (base && (await onBinance(base))) return exchangeTransfers(base);
+  if (base) {
+    const own = base === "BTC" ? btcTransfers() : (await onBinance(base)) ? exchangeTransfers(base) : null;
+    const [list, institutions] = await Promise.all([own, institutionRows(base)]);
+    if (list || institutions.length) {
+      const rows = [...(list?.rows ?? []), ...institutions].sort((a, b) => b.time - a.time);
+      const sources = [list?.source, institutions.length ? "institusi: Farside (ETF), SEC 8-K" : null].filter(Boolean).join(" · ");
+      return { kind: list?.kind ?? "exchange", source: sources, rows, note: list?.note };
+    }
+  }
   if (!base && isUsTicker(symbol)) return insiderTransfers(symbol);
   return {
     kind: "none",
