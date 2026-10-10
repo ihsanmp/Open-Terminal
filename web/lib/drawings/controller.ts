@@ -358,21 +358,38 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
   };
 
   /**
-   * A right-click while a path (or polyline) is being placed ends it at its last point, as on
-   * TradingView; one with too few points yet is dropped. No menu opens over it.
+   * A right-click stops what's under way, as on TradingView: a path (or polyline) being placed
+   * ends at its last point; any other drawing being placed, a brush stroke, or one too short yet
+   * is dropped, the tool staying in hand; with nothing begun the tool is put down (as with Esc);
+   * and a drawing being dragged goes back where it was. No menu opens over it.
    */
   const onContextMenu = (e: MouseEvent) => {
     const s = cb.state();
-    const sofar = cb.placing.current;
-    if (!s.tool || TOOL_BY_ID.get(s.tool)!.variable !== "clicks" || !sofar?.length) return;
+    if (drag) {
+      swallow(e);
+      drag = null;
+      moved = null;
+      layer.setLive(null);
+      setCursor(null);
+      return;
+    }
+    if (!s.tool) return;
     swallow(e);
     pressAt = null;
-    if (sofar.length >= TOOL_BY_ID.get(s.tool)!.points) {
-      done(s.tool, sofar);
-    } else {
-      cb.placing.current = null;
+    const def = TOOL_BY_ID.get(s.tool)!;
+    const sofar = cb.placing.current ?? [];
+    if (stroke) {
+      stroke = null;
       layer.setLive(null);
+      return;
     }
+    if (def.variable === "clicks" && sofar.length >= def.points) {
+      done(s.tool, sofar);
+      return;
+    }
+    cb.placing.current = null;
+    layer.setLive(null);
+    if (sofar.length === 0) cb.onToolDone();
   };
 
   // Mouse events too: the chart library listens to them, and must not start a pan meanwhile.
