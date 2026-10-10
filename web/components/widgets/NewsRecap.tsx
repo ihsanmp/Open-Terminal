@@ -5,9 +5,10 @@ import { useState } from "react";
 import { apiGet } from "../../lib/api";
 import { addDays, dayIn, daysOf, rangeOf, step, weekStart, type Period } from "../../lib/econ-range";
 import { useWidgetSetting } from "../../store/terminal";
+import { CATEGORY_COLOR } from "../../lib/news-categories";
 
 // The news recap: what the server's offline recap (server/src/news/recap.ts) makes of a day's or
-// a week's headlines from the news tab, sector by sector. Each headline opens the article, as in
+// a week's headlines from the news tab, category by category (markets, economic, geopolitics…). Each headline opens the article, as in
 // the news tab.
 
 type Item = { id: string; title: string; link: string; summary: string; publisher: string; category: string; region: string; publishedAt: string; tone: -1 | 0 | 1 };
@@ -95,8 +96,8 @@ function StoryRow({ story, kind }: { story: Story; kind: "day" | "week" }) {
   );
 }
 
-function SectorCard({ sector, kind, startOpen }: { sector: Sector; kind: "day" | "week"; startOpen: boolean }) {
-  const [open, setOpen] = useState(startOpen);
+function SectorCard({ sector, kind }: { sector: Sector; kind: "day" | "week" }) {
+  const [open, setOpen] = useState(true);
   const [all, setAll] = useState(false);
   const shown = all ? sector.stories : sector.stories.slice(0, 3);
   const pos = (sector.positive / sector.count) * 100;
@@ -105,7 +106,9 @@ function SectorCard({ sector, kind, startOpen }: { sector: Sector; kind: "day" |
     <div className="border-b border-[var(--border)] px-2 py-1.5">
       <button className="w-full flex items-center gap-2 text-left" onClick={() => setOpen(!open)}>
         <span className="dim w-3">{open ? "▾" : "▸"}</span>
-        <span className="font-bold text-[var(--text)]">{sector.name}</span>
+        <span className="font-bold" style={{ color: CATEGORY_COLOR[sector.id] ?? "var(--text)" }}>
+          {sector.name}
+        </span>
         <span className="dim text-fs-10">
           {sector.count} berita · {sector.publishers} sumber
         </span>
@@ -144,6 +147,7 @@ function SectorCard({ sector, kind, startOpen }: { sector: Sector; kind: "day" |
 
 export default function NewsRecap() {
   const [kind, setKind] = useWidgetSetting<"day" | "week">("newsRecapKind", "day");
+  const [only, setOnly] = useWidgetSetting<string>("newsRecapCategory", "ALL");
   const today = dayIn(Date.now());
   const [day, setDay] = useState(today);
   const period: Period = { kind, day: kind === "week" ? weekStart(day) : day };
@@ -187,6 +191,21 @@ export default function NewsRecap() {
       {!data && !error && <div className="p-2 dim">Membaca berita dan menyusun recap…</div>}
       {data && (
         <>
+          <div className="flex flex-wrap gap-1 px-1 py-1 border-b border-[var(--border)]">
+            <button className={`term-btn ${only === "ALL" ? "active" : ""}`} onClick={() => setOnly("ALL")}>
+              ALL <span className="dim">{data.total}</span>
+            </button>
+            {data.sectors.map((s) => (
+              <button
+                key={s.id}
+                className={`term-btn ${only === s.id ? "active" : ""}`}
+                style={only !== s.id ? { color: CATEGORY_COLOR[s.id] } : undefined}
+                onClick={() => setOnly(s.id)}
+              >
+                {s.name} <span className="dim">{s.count}</span>
+              </button>
+            ))}
+          </div>
           <div className="px-2 py-1.5 leading-relaxed border-b border-[var(--border)]">
             {data.summary}
             {partial && (
@@ -195,11 +214,16 @@ export default function NewsRecap() {
                 periode ini belum lengkap. Arsip terisi selama aplikasi terbuka.
               </div>
             )}
-            <div className="dim text-fs-9 mt-1">Disusun di komputer ini dari berita tab News, dengan aturan kata kunci (tanpa AI). ● hijau positif · merah negatif.</div>
+            <div className="dim text-fs-9 mt-1">
+              Disusun di komputer ini dari berita tab News, per kategorinya, dengan aturan kata kunci (tanpa AI). ● hijau positif · merah negatif.
+            </div>
           </div>
-          {data.sectors.map((s) => (
-            <SectorCard key={`${data.from}-${s.id}`} sector={s} kind={data.kind} startOpen={s.id !== "other"} />
-          ))}
+          {data.sectors
+            .filter((s) => only === "ALL" || s.id === only)
+            .map((s) => (
+              <SectorCard key={`${data.from}-${s.id}`} sector={s} kind={data.kind} />
+            ))}
+          {only !== "ALL" && !data.sectors.some((s) => s.id === only) && <div className="p-2 dim">Tidak ada berita {only} pada periode ini.</div>}
         </>
       )}
     </div>

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiGet } from "../../lib/api";
 import { useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 import { usePoll } from "../../lib/refresh";
+import { CATEGORY_COLOR, NEWS_CATEGORIES } from "../../lib/news-categories";
 
 type NewsItem = { title: string; link: string; publisher: string; publishedAt: string | null };
 
@@ -21,17 +22,8 @@ type WireItem = {
 };
 type Wire = { updatedAt: string; sources: { total: number; live: number }; items: WireItem[] };
 
-const CATEGORIES = ["ALL", "MARKETS", "ECONOMIC", "REGULATORY", "GEOPOLITICS", "CRYPTO", "ENERGY", "TECH"] as const;
+const CATEGORIES = ["ALL", ...NEWS_CATEGORIES] as const;
 const REGIONS = ["ALL", "GLOBAL", "US", "EU", "UK", "ASIA", "INDONESIA", "INDIA", "MENA"] as const;
-const CATEGORY_COLOR: Record<string, string> = {
-  MARKETS: "#ff9900",
-  ECONOMIC: "#26c6da",
-  REGULATORY: "#b388ff",
-  GEOPOLITICS: "#ff5252",
-  CRYPTO: "#f7931a",
-  ENERGY: "#ffeb3b",
-  TECH: "#00e676",
-};
 /** How long a freshly arrived headline stays highlighted. */
 const NEW_MS = 90_000;
 
