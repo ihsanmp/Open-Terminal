@@ -2,9 +2,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { apiGet, fmt, pctClass } from "../../lib/api";
-import { useTerminal } from "../../store/terminal";
+import { useTerminal, useWidgetSetting } from "../../store/terminal";
 import Flash from "../Flash";
 import { sessionRefreshMs, usePoll } from "../../lib/refresh";
+import NewsRecap from "./NewsRecap";
 
 type RecapRow = { symbol: string; name: string; changePercent: number | null };
 type RecapIndex = { symbol: string; label: string; price: number | null; changePercent: number | null };
@@ -23,6 +24,23 @@ type Recap = {
 };
 
 export default function RecapWidget() {
+  const [tab, setTab] = useWidgetSetting<"market" | "news">("tab", "market");
+  return (
+    <div>
+      <div className="flex gap-1 p-1">
+        <button className={`term-btn ${tab === "market" ? "active" : ""}`} onClick={() => setTab("market")}>
+          MARKET
+        </button>
+        <button className={`term-btn ${tab === "news" ? "active" : ""}`} onClick={() => setTab("news")} title="Recap berita per sektor, harian dan mingguan">
+          NEWS RECAP
+        </button>
+      </div>
+      {tab === "news" ? <NewsRecap /> : <MarketRecap />}
+    </div>
+  );
+}
+
+function MarketRecap() {
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
   const poll = usePoll(sessionRefreshMs(60_000, 600_000));
   const { data, error } = useQuery({

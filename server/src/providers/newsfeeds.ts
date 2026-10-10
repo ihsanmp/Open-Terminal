@@ -253,6 +253,12 @@ async function fetchFeed(feed: FeedDef): Promise<void> {
   }
 }
 
+/** Called with every feed's items after each refresh (the news archive keeps them). */
+const refreshListeners: Array<(items: WireItem[]) => void> = [];
+export function onRefresh(listener: (items: WireItem[]) => void): void {
+  refreshListeners.push(listener);
+}
+
 async function refreshAll(): Promise<void> {
   const queue = [...FEEDS];
   const worker = async () => {
@@ -263,6 +269,20 @@ async function refreshAll(): Promise<void> {
   // Forget items no feed carries any more.
   const live = new Set([...state.values()].flatMap((s) => s.items.map((i) => i.id)));
   for (const id of firstSeen.keys()) if (!live.has(id)) firstSeen.delete(id);
+  const items = [...state.values()].flatMap((s) => s.items);
+  for (const listener of refreshListeners) {
+    try {
+      listener(items);
+    } catch (err) {
+      console.error("[news refresh listener]", err);
+    }
+  }
+}
+
+/** One refresh of every feed now (or the one already under way), without starting the poller. */
+export async function collect(): Promise<void> {
+  running ??= refreshAll().finally(() => (running = null));
+  await running;
 }
 
 function schedule() {

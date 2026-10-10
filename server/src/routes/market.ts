@@ -20,6 +20,8 @@ import * as treasuries from "../providers/treasuries.js";
 import * as whales from "../providers/whales.js";
 import * as tvchart from "../providers/tvchart.js";
 import * as newsfeeds from "../providers/newsfeeds.js";
+import * as newsArchive from "../news/archive.js";
+import { buildRecap } from "../news/recap.js";
 import { cryptoBase, cryptoTicker, isIndex, isTvPair, isYahooOnly } from "../symbols.js";
 import { INDEX_TV_TICKER, WORLD_INDICES, searchIndices } from "../indices.js";
 import { tvHistory } from "../tvhistory.js";
@@ -465,6 +467,33 @@ marketRouter.get("/news/wire", async (req, res) => {
         limit: Number(req.query.limit) || undefined,
       })
     );
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// The news recap: a day's or a week's headlines by sector, summed up offline (news/recap.ts).
+marketRouter.get("/news/recap", async (req, res) => {
+  try {
+    const from = new Date(String(req.query.from)).getTime();
+    const to = new Date(String(req.query.to)).getTime();
+    const kind = req.query.kind === "week" ? "week" : "day";
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from || to - from > 8 * 86_400_000) {
+      res.status(400).json({ error: "from and to must be times at most 8 days apart" });
+      return;
+    }
+    await newsArchive.freshen(from, to);
+    const data = await cached(`news-recap:${kind}:${from}:${to}`, 120_000, async () => {
+      const span = to - from;
+      const since = newsArchive.since();
+      // The period before is compared with only when the archive has all of it.
+      const complete = since !== null && Date.parse(since) <= from - span;
+      return {
+        ...buildRecap(newsArchive.between(from, to), complete ? newsArchive.between(from - span, from) : null, from, to, kind),
+        archiveSince: since,
+      };
+    });
+    res.json(data);
   } catch (err) {
     fail(req, res, err);
   }
