@@ -502,6 +502,23 @@ marketRouter.get("/news", async (req, res) => {
 
 marketRouter.get("/econ-calendar", async (req, res) => {
   try {
+    // ?from=&to= (ISO times, `to` exclusive): any day or week. Without them, this week.
+    if (req.query.from !== undefined || req.query.to !== undefined) {
+      const from = new Date(String(req.query.from));
+      const to = new Date(String(req.query.to));
+      const span = to.getTime() - from.getTime();
+      if (!Number.isFinite(span) || span <= 0 || span > econcalendar.MAX_RANGE_DAYS * 86_400_000) {
+        res.status(400).json({ error: `from and to must be times less than ${econcalendar.MAX_RANGE_DAYS} days apart` });
+        return;
+      }
+      // A range already past changes little; one still running gets its actuals as they come.
+      const past = to.getTime() < Date.now() - 86_400_000;
+      const data = await cached(`econ-calendar:${from.toISOString()}:${to.toISOString()}`, past ? 6 * 3_600_000 : 300_000, () =>
+        econcalendar.rangeEvents(from, to)
+      );
+      res.json(data);
+      return;
+    }
     const data = await cached("econ-calendar", 900_000, () => econcalendar.weeklyEvents());
     res.json(data);
   } catch (err) {
