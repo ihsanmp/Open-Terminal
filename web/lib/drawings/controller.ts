@@ -9,6 +9,10 @@
 // point being placed or dragged straight from the point before it (a box to a square), and a
 // drawing dragged whole to one axis (lib/drawings/snap); pressing or letting go of Shift
 // updates it where the pointer is.
+//
+// Drawings go on the price pane or on an indicator's pane below it, each pane with a layer of its
+// own on its own scale: the pane under the pointer is the one worked in, and stays so while a
+// drawing is being placed or dragged.
 
 import type { IChartApi } from "lightweight-charts";
 import type { CursorMode } from "../chart-cursor";
@@ -29,8 +33,9 @@ export type DrawState = {
 
 export type DrawCallbacks = {
   state: () => DrawState;
-  /** Points placed so far: kept outside the chart, so a data refresh mid-drawing loses nothing. */
-  placing: { current: DrawPoint[] | null };
+  /** Points placed so far, and on which pane: kept outside the chart, so a data refresh
+   *  mid-drawing loses nothing. */
+  placing: { current: DrawPoint[] | null; pane?: string | null };
   onAdd: (d: Drawing) => void;
   onUpdate: (id: string, patch: Partial<Drawing>) => void;
   onSelect: (id: string | null) => void;
@@ -46,18 +51,51 @@ export type DrawCallbacks = {
 
 type Bar = { open: number; high: number; low: number; close: number };
 
-export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingLayer, times: number[], interval: number, bars: Bar[], cb: DrawCallbacks): () => void {
+/** A pane's drawing layer: the price pane's (pane undefined) or an indicator's (its uid). */
+export type PaneLayer = { pane: string | undefined; index: number; layer: DrawingLayer };
+
+export function attachDrawing(el: HTMLElement, chart: IChartApi, layers: PaneLayer[], times: number[], interval: number, bars: Bar[], cb: DrawCallbacks): () => void {
+  /** Each pane's top and height, in the chart's pixels. */
+  const geometry = () => {
+    const top = el.getBoundingClientRect().top;
+    const panes = chart.panes();
+    return layers.map((pl) => {
+      const p = panes[pl.index];
+      const r = p?.getHTMLElement()?.getBoundingClientRect();
+      return { pl, top: r ? r.top - top : 0, height: p?.getHeight() ?? 0 };
+    });
+  };
+  // The pane being worked in: the one a drawing is being placed on, or else the price pane.
+  let active = layers.find((pl) => (pl.pane ?? null) === (cb.placing.pane ?? null)) ?? layers[0];
+  let layer = active.layer;
+  const setActive = (pl: PaneLayer) => {
+    active = pl;
+    layer = pl.layer;
+  };
+  /**
+   * The pointer in the pane worked in: the one under it, unless a drawing is being placed or
+   * dragged there (which keeps its pane).
+   */
   const local = (e: MouseEvent) => {
     const r = el.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    const geo = geometry();
+    if (!drag && !stroke && !(cb.placing.current?.length ?? 0)) {
+      const under = geo.find((g) => y >= g.top && y < g.top + g.height);
+      if (under) setActive(under.pl);
+    }
+    const mine = geo.find((g) => g.pl === active);
+    return { x, y: y - (mine?.top ?? 0) };
   };
-  // The live canvas: the drawing being dragged or placed, over the main pane (layer.ts: Live).
+  // The live canvas: the drawing being dragged or placed, over the panes (layer.ts: Live).
   const canvas = document.createElement("canvas");
   canvas.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;z-index:3";
   el.appendChild(canvas);
   const drawLive = () => {
     const w = chart.timeScale().width();
-    const h = chart.panes()[0]?.getHeight() ?? 0;
+    const geo = geometry();
+    const h = Math.max(0, ...geo.map((g) => g.top + g.height));
     const dpr = window.devicePixelRatio || 1;
     if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
       canvas.width = Math.round(w * dpr);
@@ -68,11 +106,21 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     const ctx = canvas.getContext("2d")!;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    layer.paintLive(ctx, w, h);
+    // Each pane's live drawing (one at most has any) in its own place, kept inside it.
+    for (const g of geo) {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, dpr * g.top);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, w, g.height);
+      ctx.clip();
+      g.pl.layer.paintLive(ctx, w, g.height);
+      ctx.restore();
+    }
   };
-  layer.liveSink = drawLive;
-  layer.isBusy = () => !!(drag || stroke || held || cb.placing.current || cb.state().tool);
+  for (const pl of layers) {
+    pl.layer.liveSink = drawLive;
+    pl.layer.isBusy = () => !!(drag || stroke || held || cb.placing.current || cb.state().tool);
+  }
   // Scrolled or zoomed meanwhile: the live drawing moves with the chart.
   chart.timeScale().subscribeVisibleLogicalRangeChange(drawLive);
 
@@ -99,14 +147,15 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     return "move";
   };
 
-  const inMainPane = (x: number, y: number) => x >= 0 && y >= 0 && x <= chart.timeScale().width() && y <= (chart.panes()[0]?.getHeight() ?? 0);
+  /** Inside the pane worked in (the pointer's pane coordinates). */
+  const inPane = (x: number, y: number) => x >= 0 && y >= 0 && x <= chart.timeScale().width() && y <= (chart.panes()[active.index]?.getHeight() ?? 0);
 
   /** A pane point as a drawing point, snapped to the bar's open, high, low or close with the magnet on. */
   const pointAt = (x: number, y: number, magnet: boolean): DrawPoint | null => {
     const c = layer.toChart(x, y);
     if (!c) return null;
     let { logical, price } = c;
-    if (magnet) {
+    if (magnet && active.pane === undefined) {
       const i = Math.round(logical);
       const bar = bars[i];
       if (bar) {
@@ -127,6 +176,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     // A position's stop comes from its entry and target until it's moved.
     const points = def.derive ? def.derive(placed) : placed;
     const d: Drawing = { id: `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, tool, points, ...styleFor(tool) };
+    if (active.pane !== undefined) d.pane = active.pane;
     // A text (a callout's, a signpost's …) is written in its Settings, which open as it's placed.
     if (def.startText) d.text = def.startText;
     if (tool === "gannSquareFixed") {
@@ -143,6 +193,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
 
   const done = (tool: ToolId, points: DrawPoint[]) => {
     cb.placing.current = null;
+    cb.placing.pane = null;
     finish(tool, points);
     layer.setLive(null);
     cb.onToolDone();
@@ -195,6 +246,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
       done(s.tool, points);
     } else {
       cb.placing.current = points;
+      cb.placing.pane = active.pane ?? null;
       layer.setLive({ preview: { tool: s.tool, points: [...points, p], style: previewStyle(s.tool) } });
     }
   };
@@ -207,7 +259,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
   const onDown = (e: PointerEvent) => {
     if (e.button !== 0) return;
     const { x, y } = local(e);
-    if (!inMainPane(x, y)) return;
+    if (!inPane(x, y)) return;
     const s = cb.state();
     if (s.tool) {
       swallow(e);
@@ -275,7 +327,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
       return;
     }
     if (s.tool) {
-      if (!inMainPane(x, y)) return;
+      if (!inPane(x, y)) return;
       const sofar = cb.placing.current ?? [];
       const p = snapped(s.tool, pixelOf(sofar[sofar.length - 1]), x, y, shift, s.magnet);
       if (!p) return;
@@ -304,7 +356,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
       layer.crosshairAt(x, y);
     } else {
       const s = cb.state();
-      setCursor(!s.tool && s.cursor !== "eraser" && s.cursor !== "magic" && inMainPane(x, y) && !(e.buttons & 1) ? cursorOver(layer.pick(x, y)) : null);
+      setCursor(!s.tool && s.cursor !== "eraser" && s.cursor !== "magic" && inPane(x, y) && !(e.buttons & 1) ? cursorOver(layer.pick(x, y)) : null);
     }
     update(x, y, e.shiftKey);
   };
@@ -336,7 +388,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     // Pressed on a point and dragged to the next: placed where it's let go (TradingView's drag).
     if (pressAt && cb.state().tool) {
       const { x, y } = local(e);
-      if (Math.hypot(x - pressAt.x, y - pressAt.y) > 6 && inMainPane(x, y)) place(x, y, e.shiftKey);
+      if (Math.hypot(x - pressAt.x, y - pressAt.y) > 6 && inPane(x, y)) place(x, y, e.shiftKey);
     }
     pressAt = null;
   };
@@ -388,6 +440,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
       return;
     }
     cb.placing.current = null;
+    cb.placing.pane = null;
     layer.setLive(null);
     if (sofar.length === 0) cb.onToolDone();
   };
@@ -396,7 +449,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
   const onMouseDown = (e: MouseEvent) => {
     const s = cb.state();
     const { x, y } = local(e);
-    if (e.button === 0 && inMainPane(x, y) && (s.tool || drag || held)) swallow(e);
+    if (e.button === 0 && inPane(x, y) && (s.tool || drag || held)) swallow(e);
   };
 
   el.addEventListener("pointerdown", onDown, { capture: true });
@@ -416,8 +469,10 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("keydown", onShift);
     window.removeEventListener("keyup", onShift);
-    layer.liveSink = null;
-    layer.isBusy = () => false;
+    for (const pl of layers) {
+      pl.layer.liveSink = null;
+      pl.layer.isBusy = () => false;
+    }
     chart.timeScale().unsubscribeVisibleLogicalRangeChange(drawLive);
     canvas.remove();
     setCursor(null);

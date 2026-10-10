@@ -243,6 +243,8 @@ export type Drawing = {
   options?: DrawingOptions;
   /** The kinds of interval it shows on; all when unset. */
   visibility?: Partial<Record<TimeframeKind, boolean>>;
+  /** The indicator whose pane it's drawn on (its uid); the price pane when unset. */
+  pane?: string;
 };
 
 /** A drawing's look, as a template for new ones of its tool ("Save as default"). */

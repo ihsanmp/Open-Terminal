@@ -60,7 +60,7 @@ import { isCryptoSymbol, usePoll, usSessionActive } from "../../lib/refresh";
 import { formatAxisCountdown, formatCountdown, isIntradayInterval, secondsUntilClose, type Market } from "../../lib/candle-time";
 import { fontPx } from "../../lib/font-scale";
 import { DrawingLayer } from "../../lib/drawings/layer";
-import { attachDrawing } from "../../lib/drawings/controller";
+import { attachDrawing, type PaneLayer } from "../../lib/drawings/controller";
 import { TOOL_BY_ID, TOOL_FEATURES, timeframeKindOf, type Drawing, type DrawingTemplate, type DrawPoint, type ToolGroup, type ToolId } from "../../lib/drawings/tools";
 import { DrawingSettings } from "../chart/DrawingSettings";
 import { DrawingToolbar, FavoritesBar } from "../chart/DrawingToolbar";
@@ -272,8 +272,10 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const drawTemplatesRef = useRef(drawTemplates);
   drawTemplatesRef.current = drawTemplates;
   const [drawingSettings, setDrawingSettings] = useState<string | null>(null);
+  /** The price pane's drawing layer, and every pane's (the indicators' below it too). */
   const layerRef = useRef<DrawingLayer | null>(null);
-  const placingRef = useRef<DrawPoint[] | null>(null);
+  const layersRef = useRef<DrawingLayer[]>([]);
+  const placingRef = useRef<DrawPoint[] | null>(null) as React.MutableRefObject<DrawPoint[] | null> & { pane?: string | null };
   const drawStateRef = useRef({ tool, magnet, locked: drawingsLocked, drawings, selected: selectedDrawing, cursor: cursorMode });
   const drawHiddenRef = useRef(drawingsHidden);
   drawHiddenRef.current = drawingsHidden;
@@ -281,7 +283,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   drawStateRef.current = { tool, magnet, locked: drawingsLocked, drawings, selected: selectedDrawing, cursor: cursorMode };
   const pickTool = (t: ToolId | null) => {
     placingRef.current = null;
-    layerRef.current?.setLive(null);
+    placingRef.pane = null;
+    for (const l of layersRef.current) l.setLive(null);
     setTool(t);
     if (t) {
       setSelectedDrawing(null);
@@ -291,11 +294,12 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   setDrawingsRef.current = setDrawings;
   // The layer follows the saved drawings, the selection and hiding without rebuilding the chart.
   useEffect(() => {
-    layerRef.current?.set({ drawings, selected: selectedDrawing, hidden: drawingsHidden });
+    for (const l of layersRef.current) l.set({ drawings, selected: selectedDrawing, hidden: drawingsHidden });
   }, [drawings, selectedDrawing, drawingsHidden]);
   // Another symbol: nothing half-placed or selected carries over.
   useEffect(() => {
     placingRef.current = null;
+    placingRef.pane = null;
     setSelectedDrawing(null);
   }, [symbol]);
   // The crosshair's lines show with the Cross only (and while drawing).
@@ -566,6 +570,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         .filter((m) => m.index >= 0 && m.index < candles.length && m.shape !== "xcross")
         .map((m) => ({ time: times[m.index], position: m.position, shape: m.shape, color: m.color, text: m.text }) as SeriesMarker<Time>);
 
+    /** Each indicator pane's first series, for its drawings to go on. */
+    const paneAnchors: Array<{ uid: string; index: number; anchor: ISeriesApi<SeriesType>; precision: number }> = [];
     for (const it of items) {
       if (!shownOn(it, intervalSeconds)) continue;
       const paneIndex = it.def.overlay ? 0 : paneOf.get(it.inst.uid);
@@ -634,6 +640,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         anchor ??= series;
       }
       if (!anchor) continue;
+      if (!it.def.overlay) paneAnchors.push({ uid: it.inst.uid, index: paneIndex, anchor, precision });
       if (!it.def.overlay && !gridPanes.has(paneIndex)) {
         gridPanes.add(paneIndex);
         if (chartStyle.vertGrid.visible) anchor.attachPrimitive(new TimeGridPrimitive(zoned, intervalSeconds, chartStyle.vertGrid.color));
@@ -860,23 +867,35 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       drag = null;
       setTimeout(syncAuto, 0);
     };
-    // Drawings, above the candles; their pointer handling comes first, so a click that places or
-    // moves a drawing neither pans the chart nor drags the price.
-    const layer = new DrawingLayer({
-      drawings: drawStateRef.current.drawings,
-      preview: null,
-      selected: drawStateRef.current.selected,
-      hidden: drawHiddenRef.current,
-      times: times as number[],
-      interval: intervalSeconds,
-      formatPrice: (v) => fmt(v, pxPrecision),
-      formatTime: (t) => formatChartTime(t, intraday, timezone),
-      bars: candles,
-      intervalKind: timeframeKindOf(intervalSeconds),
-    });
+    // Drawings, above the candles and on each indicator's pane (on its scale); their pointer
+    // handling comes first, so a click that places or moves a drawing neither pans the chart nor
+    // drags the price.
+    const layerFor = (pane: string | undefined, precision: number) =>
+      new DrawingLayer({
+        drawings: drawStateRef.current.drawings,
+        preview: null,
+        selected: drawStateRef.current.selected,
+        hidden: drawHiddenRef.current,
+        times: times as number[],
+        interval: intervalSeconds,
+        formatPrice: (v) => fmt(v, precision),
+        formatTime: (t) => formatChartTime(t, intraday, timezone),
+        // The tools that read the bars (regression, VWAP, volume profile) read the candles.
+        bars: pane === undefined ? candles : undefined,
+        intervalKind: timeframeKindOf(intervalSeconds),
+        pane,
+      });
+    const layer = layerFor(undefined, pxPrecision);
     main.attachPrimitive(layer);
+    const paneLayers: PaneLayer[] = [{ pane: undefined, index: 0, layer }];
+    for (const a of paneAnchors) {
+      const l = layerFor(a.uid, a.precision);
+      a.anchor.attachPrimitive(l);
+      paneLayers.push({ pane: a.uid, index: a.index, layer: l });
+    }
     layerRef.current = layer;
-    const detachDrawing = attachDrawing(el, chart, layer, times as number[], intervalSeconds, candles, {
+    layersRef.current = paneLayers.map((p) => p.layer);
+    const detachDrawing = attachDrawing(el, chart, paneLayers, times as number[], intervalSeconds, candles, {
       state: () => drawStateRef.current,
       placing: placingRef,
       onAdd: (d) => setDrawingsRef.current((list) => [...list, d]),
@@ -904,6 +923,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       savedPrice.current = pr ? { key: priceKey, range: pr } : null;
       chartRef.current = null;
       layerRef.current = null;
+      layersRef.current = [];
       detachDrawing();
       disposed = true;
       navRef.current = null;
