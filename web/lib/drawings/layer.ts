@@ -1,6 +1,7 @@
-// The drawings on a chart: a series primitive on the main price series that draws every drawing
-// (and the one being placed) above the candles, the selected one with its handles, and keeps what
-// it drew for picking a drawing or a handle under the pointer.
+// The drawings on a chart pane: a series primitive on the pane's series (the price series, or an
+// indicator's in its own pane) that draws the pane's drawings (and the one being placed) above it,
+// the selected one with its handles, and keeps what it drew for picking a drawing or a handle
+// under the pointer.
 
 import type { CanvasRenderingTarget2D } from "fancy-canvas";
 import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Logical, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
@@ -27,6 +28,8 @@ export type LayerData = {
   bars?: ReadonlyArray<Bar>;
   /** The chart's kind of interval, for each drawing's Visibility. */
   intervalKind: TimeframeKind;
+  /** The indicator whose pane this is (its uid); the price pane when unset. */
+  pane?: string;
 };
 
 type Attached = { chart: IChartApi; series: ISeriesApi<SeriesType>; requestUpdate: () => void };
@@ -198,7 +201,7 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
     if (!this.attachedTo || this.data.hidden) return;
     const liveId = this.live && "drawing" in this.live ? this.live.drawing.id : null;
     for (const d of this.data.drawings) {
-      if (d.visibility?.[this.data.intervalKind] === false || d.id === liveId) continue;
+      if (d.visibility?.[this.data.intervalKind] === false || d.id === liveId || d.pane !== this.data.pane) continue;
       const anchors = this.anchorsOf(d.points);
       if (!anchors) continue;
       const shapes = this.shapes(d.tool, anchors, d, width, height, d.id === this.data.selected);
