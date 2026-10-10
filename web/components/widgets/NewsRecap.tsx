@@ -25,9 +25,10 @@ type Sector = {
   neutral: number;
   topics: string[];
   conclusion: string;
+  conclusionEn: string;
   stories: Story[];
 };
-type Recap = { from: string; to: string; kind: "day" | "week"; total: number; publishers: number; summary: string; sectors: Sector[]; archiveSince: string | null };
+type Recap = { from: string; to: string; kind: "day" | "week"; total: number; publishers: number; summary: string; summaryEn: string; sectors: Sector[]; archiveSince: string | null };
 
 const TONE_CLASS: Record<string, string> = {
   positif: "up",
@@ -37,6 +38,24 @@ const TONE_CLASS: Record<string, string> = {
   campuran: "amber",
   netral: "dim",
 };
+/** A text in English with its Indonesian version under it. */
+export function Bilingual({ en, id }: { en: string; id?: string }) {
+  return (
+    <>
+      <p className="leading-relaxed">
+        <span className="dim text-fs-9 mr-1 align-middle border border-[var(--border)] px-1">EN</span>
+        {en}
+      </p>
+      {id && id !== en && (
+        <p className="leading-relaxed mt-1">
+          <span className="dim text-fs-9 mr-1 align-middle border border-[var(--border)] px-1">ID</span>
+          {id}
+        </p>
+      )}
+    </>
+  );
+}
+
 const toneDot = (t: number) => (t > 0 ? "up" : t < 0 ? "down" : "dim");
 const utc = (day: string) => new Date(`${day}T00:00:00Z`);
 
@@ -121,7 +140,9 @@ function SectorCard({ sector, kind }: { sector: Sector; kind: "day" | "week" }) 
       </button>
       {open && (
         <div className="mt-1 ml-5">
-          <p className="leading-relaxed mb-1">{sector.conclusion}</p>
+          <div className="mb-1">
+            <Bilingual en={sector.conclusionEn} id={sector.conclusion} />
+          </div>
           {sector.topics.length > 0 && (
             <div className="flex flex-wrap gap-1 mb-1">
               {sector.topics.map((t) => (
@@ -207,7 +228,7 @@ export default function NewsRecap() {
             ))}
           </div>
           <div className="px-2 py-1.5 leading-relaxed border-b border-[var(--border)]">
-            {data.summary}
+            <Bilingual en={data.summaryEn} id={data.summary} />
             {partial && (
               <div className="dim text-fs-10 mt-1">
                 Arsip berita baru dimulai {new Date(data.archiveSince!).toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}, jadi recap

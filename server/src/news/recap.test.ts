@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRecap, toneOfItem, type RecapInput } from "./recap.js";
+import { buildRecap, quotedTexts, toneOfItem, withTranslations, type RecapInput } from "./recap.js";
 
 const DAY = Date.UTC(2026, 9, 9);
 let n = 0;
@@ -109,5 +109,26 @@ describe("news recap", () => {
     const recap = buildRecap([], null, DAY, DAY + 7 * 86_400_000, "week");
     expect(recap.sectors).toEqual([]);
     expect(recap.summary).toBe("Belum ada berita yang terekam untuk minggu ini.");
+  });
+  it("writes each conclusion in English too, and the Indonesian one quotes translated headlines", () => {
+    const items = [
+      item("Oil prices jump after OPEC agrees surprise output cut", { tier: 1, publisher: "Reuters" }),
+      item("OPEC agrees surprise output cut, oil prices jump", { publisher: "Bloomberg" }),
+      item("Refinery fire halts gasoline output in Texas", { publisher: "AP" }),
+    ];
+    const recap = buildRecap(items, null, DAY, DAY + 86_400_000, "day");
+    const s = recap.sectors[0];
+    expect(s.conclusionEn).toContain("3 stories from 3 sources, with a");
+    expect(s.conclusionEn).toContain("Highlights: “Oil prices jump after OPEC agrees surprise output cut” (2 sources)");
+    expect(recap.summaryEn).toMatch(/^3 stories from 3 sources today\. Busiest: MARKETS \(3\)\./);
+    expect(s.conclusion).toContain("Sorotan: “Oil prices jump after OPEC agrees surprise output cut” (2 sumber)");
+
+    const texts = quotedTexts(recap);
+    expect(texts).toContain("Oil prices jump after OPEC agrees surprise output cut");
+    const tr = new Map([["Oil prices jump after OPEC agrees surprise output cut", "Harga minyak melonjak setelah OPEC sepakat memangkas produksi"]]);
+    const id = withTranslations(recap, tr);
+    expect(id.sectors[0].conclusion).toContain("Sorotan: “Harga minyak melonjak setelah OPEC sepakat memangkas produksi” (2 sumber)");
+    expect(id.sectors[0].conclusionEn).toBe(s.conclusionEn);
+    expect(id.summary).toContain("Berita terbesar: “Harga minyak melonjak setelah OPEC sepakat memangkas produksi” (2 sumber).");
   });
 });

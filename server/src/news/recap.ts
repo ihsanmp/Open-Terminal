@@ -9,7 +9,8 @@
 // 3. Stories: headlines about the same thing (sharing most of their words) are grouped, and a
 //    story told by more outlets, better ones and with a stronger tone ranks higher.
 // 4. Topics: the words and pairs of words a category's stories share far more than the rest.
-// 5. The conclusion: a sentence from all that, compared with the period before.
+// 5. The conclusion: a sentence from all that, compared with the period before, in English and
+//    in Indonesian (the headlines it quotes translated by news/translate.ts).
 
 export type RecapInput = {
   id: string;
@@ -38,10 +39,12 @@ export type RecapSector = {
   neutral: number;
   previous: { count: number; tone: number } | null;
   topics: string[];
+  /** In Indonesian (quoting translated headlines once withTranslations has run), and in English. */
   conclusion: string;
+  conclusionEn: string;
   stories: RecapStory[];
 };
-export type NewsRecap = { from: string; to: string; kind: "day" | "week"; total: number; publishers: number; summary: string; sectors: RecapSector[] };
+export type NewsRecap = { from: string; to: string; kind: "day" | "week"; total: number; publishers: number; summary: string; summaryEn: string; sectors: RecapSector[] };
 
 // ---------------------------------------------------------------- words
 
@@ -291,48 +294,124 @@ function toneLabel(tone: number, pos: number, neg: number, count: number): strin
 }
 
 const quote = (s: string) => `“${s.length > 110 ? s.slice(0, 107).replace(/\s+\S*$/, "") + "…" : s}”`;
-const list = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} dan ${xs[xs.length - 1]}`);
 
-function conclusion(s: Omit<RecapSector, "conclusion">, kind: "day" | "week"): string {
-  const before = kind === "day" ? "kemarin" : "minggu lalu";
+export type Lang = "en" | "id";
+/** Translations of headlines into Indonesian (what's missing stays in English). */
+export type Translations = Map<string, string>;
+
+const WORDS = {
+  en: {
+    and: "and",
+    stories: (n: number, p: number) => `${n} stories from ${p} sources`,
+    tone: (label: string, pos: number, neg: number) => `with a ${label} tone (${pos} positive, ${neg} negative).`,
+    labels: { positif: "positive", "cenderung positif": "leaning positive", negatif: "negative", "cenderung negatif": "leaning negative", campuran: "mixed", netral: "neutral" } as Record<string, string>,
+    before: { day: "yesterday", week: "last week" },
+    busier: (pct: number) => `coverage is up (+${pct}%)`,
+    quieter: (pct: number) => `coverage is down (${pct}%)`,
+    better: "the tone improved",
+    worse: "the tone worsened",
+    compared: (when: string, bits: string) => `Compared with ${when}, ${bits}.`,
+    sources: (n: number) => `${n} sources`,
+    highlights: "Highlights",
+    topics: "Main topics",
+    period: { day: "today", week: "this week" },
+    none: { day: "No news recorded for this day yet.", week: "No news recorded for this week yet." },
+    busiest: "Busiest",
+    mostPositive: (name: string) => `Most positive tone in ${name}.`,
+    mostNegative: (name: string) => `Most negative tone in ${name}.`,
+    biggest: "Biggest story",
+  },
+  id: {
+    and: "dan",
+    stories: (n: number, p: number) => `${n} berita dari ${p} sumber`,
+    tone: (label: string, pos: number, neg: number) => `bernada ${label} (${pos} positif, ${neg} negatif).`,
+    labels: {} as Record<string, string>,
+    before: { day: "kemarin", week: "minggu lalu" },
+    busier: (pct: number) => `pemberitaan lebih ramai (+${pct}%)`,
+    quieter: (pct: number) => `pemberitaan lebih sepi (${pct}%)`,
+    better: "nadanya membaik",
+    worse: "nadanya memburuk",
+    compared: (when: string, bits: string) => `Dibanding ${when}, ${bits}.`,
+    sources: (n: number) => `${n} sumber`,
+    highlights: "Sorotan",
+    topics: "Topik dominan",
+    period: { day: "hari ini", week: "minggu ini" },
+    none: { day: "Belum ada berita yang terekam untuk hari ini.", week: "Belum ada berita yang terekam untuk minggu ini." },
+    busiest: "Paling ramai",
+    mostPositive: (name: string) => `Nada paling positif di ${name}.`,
+    mostNegative: (name: string) => `Nada paling negatif di ${name}.`,
+    biggest: "Berita terbesar",
+  },
+};
+
+function list(xs: string[], lang: Lang = "id"): string {
+  return xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} ${WORDS[lang].and} ${xs[xs.length - 1]}`;
+}
+
+/** A headline in the language: Indonesian where it has been translated. */
+const inLang = (text: string, lang: Lang, tr?: Translations) => (lang === "id" ? tr?.get(text.replace(/\s+/g, " ").trim()) ?? text : text);
+
+type ConclusionInput = Omit<RecapSector, "conclusion" | "conclusionEn">;
+
+function conclusion(s: ConclusionInput, kind: "day" | "week", lang: Lang, tr?: Translations): string {
+  const w = WORDS[lang];
   const parts: string[] = [];
-  parts.push(`${s.count} berita dari ${s.publishers} sumber, bernada ${s.toneLabel} (${s.positive} positif, ${s.negative} negatif).`);
+  parts.push(`${w.stories(s.count, s.publishers)}, ${w.tone(w.labels[s.toneLabel] ?? s.toneLabel, s.positive, s.negative)}`);
   if (s.previous && s.previous.count > 0) {
     const change = (s.count - s.previous.count) / s.previous.count;
     const shift = s.tone - s.previous.tone;
     const bits: string[] = [];
-    if (change >= 0.3) bits.push(`pemberitaan lebih ramai (+${Math.round(change * 100)}%)`);
-    else if (change <= -0.3) bits.push(`pemberitaan lebih sepi (${Math.round(change * 100)}%)`);
-    if (shift >= 0.15) bits.push("nadanya membaik");
-    else if (shift <= -0.15) bits.push("nadanya memburuk");
-    if (bits.length) parts.push(`Dibanding ${before}, ${list(bits)}.`);
+    if (change >= 0.3) bits.push(w.busier(Math.round(change * 100)));
+    else if (change <= -0.3) bits.push(w.quieter(Math.round(change * 100)));
+    if (shift >= 0.15) bits.push(w.better);
+    else if (shift <= -0.15) bits.push(w.worse);
+    if (bits.length) parts.push(w.compared(w.before[kind], list(bits, lang)));
   }
   const top = s.stories.slice(0, 2);
   if (top.length) {
     parts.push(
-      `Sorotan: ${top
-        .map((t) => `${quote(t.headline.title)}${t.publishers > 1 ? ` (${t.publishers} sumber)` : ""}`)
+      `${w.highlights}: ${top
+        .map((t) => `${quote(inLang(t.headline.title, lang, tr))}${t.publishers > 1 ? ` (${w.sources(t.publishers)})` : ""}`)
         .join("; ")}.`
     );
   }
-  if (s.topics.length) parts.push(`Topik dominan: ${list(s.topics)}.`);
+  // Topics are mostly names (Fed, Wall Street, Fort Hood): they stay as written.
+  if (s.topics.length) parts.push(`${w.topics}: ${list(s.topics, lang)}.`);
   return parts.join(" ");
 }
 
-function overall(sectors: RecapSector[], total: number, publishers: number, kind: "day" | "week"): string {
-  if (total === 0) return `Belum ada berita yang terekam untuk ${kind === "day" ? "hari" : "minggu"} ini.`;
+function overall(sectors: RecapSector[], total: number, publishers: number, kind: "day" | "week", lang: Lang, tr?: Translations): string {
+  const w = WORDS[lang];
+  if (total === 0) return w.none[kind];
   const named = [...sectors].sort((a, b) => b.count - a.count);
-  const parts = [`${total} berita dari ${publishers} sumber ${kind === "day" ? "hari" : "minggu"} ini.`];
+  const parts = [`${w.stories(total, publishers)} ${w.period[kind]}.`];
   const busiest = named.slice(0, 3).map((s) => `${s.name} (${s.count})`);
-  if (busiest.length) parts.push(`Paling ramai: ${list(busiest)}.`);
+  if (busiest.length) parts.push(`${w.busiest}: ${list(busiest, lang)}.`);
   const enough = named.filter((s) => s.count >= 5);
   const best = [...enough].sort((a, b) => b.tone - a.tone)[0];
   const worst = [...enough].sort((a, b) => a.tone - b.tone)[0];
-  if (best && best.tone >= 0.08) parts.push(`Nada paling positif di ${best.name}.`);
-  if (worst && worst.tone <= -0.08) parts.push(`Nada paling negatif di ${worst.name}.`);
+  if (best && best.tone >= 0.08) parts.push(w.mostPositive(best.name));
+  if (worst && worst.tone <= -0.08) parts.push(w.mostNegative(worst.name));
   const biggest = named.flatMap((s) => s.stories).sort((a, b) => b.publishers - a.publishers)[0];
-  if (biggest && biggest.publishers > 1) parts.push(`Berita terbesar: ${quote(biggest.headline.title)} (${biggest.publishers} sumber).`);
+  if (biggest && biggest.publishers > 1) parts.push(`${w.biggest}: ${quote(inLang(biggest.headline.title, lang, tr))} (${w.sources(biggest.publishers)}).`);
   return parts.join(" ");
+}
+
+/** The headlines the conclusions quote: what an Indonesian version needs translated. */
+export function quotedTexts(recap: NewsRecap): string[] {
+  const out = new Set<string>();
+  for (const s of recap.sectors) {
+    for (const t of s.stories.slice(0, 2)) out.add(t.headline.title);
+  }
+  const biggest = recap.sectors.flatMap((s) => s.stories).sort((a, b) => b.publishers - a.publishers)[0];
+  if (biggest) out.add(biggest.headline.title);
+  return [...out];
+}
+
+/** The recap with its Indonesian conclusions quoting the translated headlines. */
+export function withTranslations(recap: NewsRecap, tr: Translations): NewsRecap {
+  const sectors = recap.sectors.map((s) => ({ ...s, conclusion: conclusion(s, recap.kind, "id", tr) }));
+  return { ...recap, sectors, summary: overall(sectors, recap.total, recap.publishers, recap.kind, "id", tr) };
 }
 
 // ---------------------------------------------------------------- the recap
@@ -408,7 +487,7 @@ export function buildRecap(items: RecapInput[], previous: RecapInput[] | null, f
       topics: topics(groups, allStories),
       stories,
     };
-    sectors.push({ ...base, conclusion: conclusion(base, kind) });
+    sectors.push({ ...base, conclusion: conclusion(base, kind, "id"), conclusionEn: conclusion(base, kind, "en") });
   }
   const order = (id: string) => (CATEGORIES.includes(id) ? CATEGORIES.indexOf(id) : CATEGORIES.length);
   sectors.sort((a, b) => order(a.id) - order(b.id) || a.id.localeCompare(b.id));
@@ -421,7 +500,8 @@ export function buildRecap(items: RecapInput[], previous: RecapInput[] | null, f
     kind,
     total,
     publishers,
-    summary: overall(sectors, total, publishers, kind),
+    summary: overall(sectors, total, publishers, kind, "id"),
+    summaryEn: overall(sectors, total, publishers, kind, "en"),
     sectors,
   };
 }

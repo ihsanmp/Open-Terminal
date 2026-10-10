@@ -5,7 +5,7 @@ import { apiGet, fmt, pctClass } from "../../lib/api";
 import { useTerminal, useWidgetSetting } from "../../store/terminal";
 import Flash from "../Flash";
 import { sessionRefreshMs, usePoll } from "../../lib/refresh";
-import NewsRecap from "./NewsRecap";
+import NewsRecap, { Bilingual } from "./NewsRecap";
 
 type RecapRow = { symbol: string; name: string; changePercent: number | null };
 type RecapIndex = { symbol: string; label: string; price: number | null; changePercent: number | null };
@@ -14,6 +14,8 @@ type RecapNews = { title: string; link: string; publisher: string; publishedAt: 
 
 type Recap = {
   summary: string;
+  /** The same in Indonesian. */
+  summaryId?: string;
   updatedAt: string;
   indexes: RecapIndex[];
   vix: number | null;
@@ -61,7 +63,9 @@ function MarketRecap() {
         </span>
       </div>
 
-      <div className="px-2 pb-2 text-fs-12 leading-relaxed border-b border-[#161616]">{data.summary}</div>
+      <div className="px-2 pb-2 text-fs-12 leading-relaxed border-b border-[#161616]">
+        <Bilingual en={data.summary} id={data.summaryId} />
+      </div>
 
       <table className="data-table">
         <thead>
