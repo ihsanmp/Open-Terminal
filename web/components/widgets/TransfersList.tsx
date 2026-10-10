@@ -3,13 +3,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet, fmt, fmtBig, fmtPrice } from "../../lib/api";
 import { usePoll } from "../../lib/refresh";
+import { useWidgetSetting } from "../../store/terminal";
 
 // An asset's transactions, newest first, each from whom to whom (server: providers/transfers.ts):
-// a Bitcoin transfer between named wallets, a big trade on Binance, a US insider's trade.
+// a Bitcoin transfer between named wallets, a big trade on Binance, a US insider's trade, and the
+// big institutions' buys and sales (spot ETFs' daily flows, treasury companies' 8-K reports).
 
-type Party = { name: string | null; address: string | null; role?: string | null };
+type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" };
+type Category = "onchain" | "exchange" | "insider" | "institution";
 type Row = {
   id: string;
+  category: Category;
   time: number;
   from: Party;
   to: Party;
@@ -38,16 +42,20 @@ function PartyCell({ p }: { p: Party }) {
   const named = Boolean(p.name);
   return (
     <span className="min-w-0 truncate flex items-baseline gap-1" title={[p.name, p.role, p.address].filter(Boolean).join(" · ")}>
-      <span className={`inline-block w-[7px] h-[7px] rounded-full shrink-0 self-center ${named ? "bg-[#5b9cf6]" : "bg-[#404040]"}`} />
-      <span className={named ? "text-[var(--text)]" : "dim"}>{p.name ?? (p.address ? short(p.address) : "Tidak diketahui")}</span>
+      <span className={`inline-block w-[7px] h-[7px] rounded-full shrink-0 self-center ${p.tag ? "bg-[var(--amber)]" : named ? "bg-[#5b9cf6]" : "bg-[#404040]"}`} />
+      {p.tag && <span className="text-fs-9 px-1 border border-[var(--amber)] amber shrink-0">{p.tag === "etf" ? "ETF" : "8-K"}</span>}
+      <span className={p.tag ? "amber font-bold" : named ? "text-[var(--text)]" : "dim"}>{p.name ?? (p.address ? short(p.address) : "Tidak diketahui")}</span>
       {p.name && p.address && <span className="dim text-fs-10">({short(p.address)})</span>}
       {p.role && <span className="dim text-fs-10">{p.role}</span>}
     </span>
   );
 }
 
+const OWN_LABEL: Record<Category, string> = { onchain: "ON-CHAIN", exchange: "BINANCE", insider: "INSIDER", institution: "INSTITUSI" };
+
 export default function TransfersList({ symbol }: { symbol: string }) {
   const poll = usePoll(15_000);
+  const [only, setOnly] = useWidgetSetting<"all" | Category>("txFilter", "all");
   const { data, error, isLoading } = useQuery({
     queryKey: ["transfers", symbol],
     queryFn: () => apiGet<Transfers>(`/api/transfers/${encodeURIComponent(symbol)}`),
@@ -57,16 +65,32 @@ export default function TransfersList({ symbol }: { symbol: string }) {
   if (isLoading || !data) return <div className="dim">Memuat riwayat transaksi {symbol}…</div>;
   if (data.kind === "none") return <div className="dim">{data.note}</div>;
 
+  // The kinds this asset has, institutions first: each a filter.
+  const kinds = (["institution", "onchain", "exchange", "insider"] as Category[]).filter((k) => data.rows.some((r) => r.category === k));
+  const shown = only === "all" || !kinds.includes(only) ? data.rows : data.rows.filter((r) => r.category === only);
+
   return (
     <div className="flex flex-col gap-1">
+      {kinds.length > 1 && (
+        <div className="flex gap-1 flex-wrap">
+          <button className={`term-btn ${only === "all" || !kinds.includes(only) ? "active" : ""}`} onClick={() => setOnly("all")}>
+            SEMUA <span className="dim">{data.rows.length}</span>
+          </button>
+          {kinds.map((k) => (
+            <button key={k} className={`term-btn ${only === k ? "active" : ""}`} onClick={() => setOnly(k)} title={k === "institution" ? "ETF spot (BlackRock, Fidelity, Grayscale …) dan perusahaan treasury (Strategy, MARA …)" : undefined}>
+              {OWN_LABEL[k]} <span className="dim">{data.rows.filter((r) => r.category === k).length}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="dim text-fs-10">
-        {data.rows.length} transaksi · sumber: {data.source}
+        {shown.length} transaksi · sumber: {data.source}
       </div>
       {data.rows.length === 0 && (
         <div className="dim">{data.kind === "exchange" ? "Belum ada transaksi besar yang terekam; daftar ini terisi selama halaman terbuka." : "Belum ada transaksi."}</div>
       )}
       <div className="border border-[var(--border)]">
-        {data.rows.map((r) => {
+        {shown.map((r) => {
           const color = r.side === "sell" ? "down" : r.side === "buy" ? "up" : "up";
           const body = (
             <>
@@ -89,7 +113,7 @@ export default function TransfersList({ symbol }: { symbol: string }) {
           );
           const cls = "flex items-baseline gap-3 px-2 py-1.5 border-b border-[#161616] hover:bg-[#161616]";
           return r.link ? (
-            <a key={r.id} href={r.link} target="_blank" rel="noreferrer" className={cls} title="Buka transaksi di mempool.space">
+            <a key={r.id} href={r.link} target="_blank" rel="noreferrer" className={cls} title={r.category === "onchain" ? "Buka transaksi di mempool.space" : "Buka sumbernya"}>
               {body}
             </a>
           ) : (
@@ -100,6 +124,11 @@ export default function TransfersList({ symbol }: { symbol: string }) {
         })}
       </div>
       {data.note && <div className="dim text-fs-10 leading-relaxed">{data.note}</div>}
+      {kinds.includes("institution") && (
+        <div className="dim text-fs-10 leading-relaxed">
+          Institusi: arus harian tiap ETF spot (BlackRock IBIT, Fidelity FBTC, Grayscale GBTC …) dari Farside, dalam koin pada harga penutupan hari itu; dan pembelian/penjualan perusahaan treasury (Strategy, MARA, Strive, BitMine …) dari laporan 8-K mereka ke SEC.
+        </div>
+      )}
     </div>
   );
 }

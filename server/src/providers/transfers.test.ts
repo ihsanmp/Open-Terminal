@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { nameOf, parseRichList } from "./addresslabels.js";
-import { bigTrades, btcRow, insiderRow, isUsTicker } from "./transfers.js";
+import { amountOf, mergeFlows, parseFarside } from "./etfflows.js";
+import { bigTrades, btcRow, etfRow, insiderRow, isUsTicker, treasuryRow } from "./transfers.js";
 import { partiesOf } from "./whales.js";
 
 describe("transaction history", () => {
@@ -59,5 +60,38 @@ describe("transaction history", () => {
     expect(isUsTicker("BBCA.JK")).toBe(false);
     expect(isUsTicker("^GSPC")).toBe(false);
     expect(isUsTicker("EURUSD=X")).toBe(false);
+  });
+  it("reads Farside's ETF flows", () => {
+    expect(amountOf("(207.7)")).toBe(-207.7);
+    expect(amountOf("1,119.9")).toBe(1119.9);
+    expect(amountOf("-")).toBeNull();
+    const html = `<table><tr><th></th><th>IBIT</th><th>FBTC</th><th>XYZ</th><th>Total</th></tr>
+<tr><td>Fee</td><td>0.25%</td><td>0.25%</td><td>0.9%</td><td></td></tr>
+<tr><td>07 Oct 2026</td><td>(207.7)</td><td>0.0</td><td>5.0</td><td>(202.7)</td></tr>
+<tr><td>8 Oct 2026</td><td><span>22.4</span></td><td>-</td><td>0.0</td><td>22.4</td></tr>
+<tr><td>Total</td><td>65,733</td><td>10,525</td><td>1</td><td>76,259</td></tr></table>`;
+    expect(parseFarside(html)).toEqual([
+      { ticker: "IBIT", issuer: "BlackRock", date: "2026-10-07", usdMillions: -207.7 },
+      { ticker: "XYZ", issuer: "XYZ", date: "2026-10-07", usdMillions: 5 },
+      { ticker: "IBIT", issuer: "BlackRock", date: "2026-10-08", usdMillions: 22.4 },
+    ]);
+  });
+
+  it("keeps the ETF days the page no longer shows", () => {
+    const f = (date: string, v: number) => ({ ticker: "IBIT", issuer: "BlackRock", date, usdMillions: v });
+    expect(mergeFlows([f("2026-09-01", 1)], [f("2026-10-01", 2)]).map((x) => x.date)).toEqual(["2026-09-01", "2026-10-01"]);
+    expect(mergeFlows([f("2024-01-01", 1)], [f("2026-10-01", 2)], 400).map((x) => x.date)).toEqual(["2026-10-01"]);
+  });
+
+  it("shows an institution's buy coming from the market and its sale going to it", () => {
+    const inflow = etfRow({ ticker: "IBIT", issuer: "BlackRock", date: "2026-10-09", usdMillions: 83 }, "BTC", () => 83_000);
+    expect(inflow).toMatchObject({ category: "institution", from: { name: "Pasar" }, to: { name: "BlackRock IBIT", tag: "etf" }, amount: 1000, usd: 83_000_000, side: "buy" });
+    expect(inflow.time).toBe(Date.UTC(2026, 9, 9, 21) / 1000);
+    const outflow = etfRow({ ticker: "GBTC", issuer: "Grayscale", date: "2026-10-09", usdMillions: -41.5 }, "BTC", () => 83_000);
+    expect(outflow).toMatchObject({ from: { name: "Grayscale GBTC" }, to: { name: "Pasar" }, amount: 500, side: "sell", note: "ETF outflow" });
+    const strategy = treasuryRow({ company: "Strategy", ticker: "MSTR", asset: "BTC", time: 1_790_000_000, amount: 1200, usd: 99_600_000, avgPrice: 83_000, holdings: 850_000, url: "https://www.sec.gov/x" });
+    expect(strategy).toMatchObject({ from: { name: "Pasar" }, to: { name: "Strategy", role: "MSTR", tag: "treasury" }, amount: 1200, side: "buy", link: "https://www.sec.gov/x" });
+    const sale = treasuryRow({ company: "MARA", ticker: "MARA", asset: "BTC", time: 1_790_000_000, amount: -50, usd: null, avgPrice: null, holdings: null, url: "u" });
+    expect(sale).toMatchObject({ from: { name: "MARA", tag: "treasury" }, to: { name: "Pasar" }, amount: 50, side: "sell" });
   });
 });
