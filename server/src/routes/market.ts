@@ -20,6 +20,7 @@ import * as treasuries from "../providers/treasuries.js";
 import * as whales from "../providers/whales.js";
 import * as tvchart from "../providers/tvchart.js";
 import * as newsfeeds from "../providers/newsfeeds.js";
+import * as treasurydirect from "../providers/treasurydirect.js";
 import * as newsArchive from "../news/archive.js";
 import { buildRecap } from "../news/recap.js";
 import { cryptoBase, cryptoTicker, isIndex, isTvPair, isYahooOnly } from "../symbols.js";
@@ -550,6 +551,16 @@ marketRouter.get("/econ-calendar", async (req, res) => {
     }
     const data = await cached("econ-calendar", 900_000, () => econcalendar.weeklyEvents());
     res.json(data);
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// ---- US Treasury benchmarks: each tenor's maturity, coupon and next auction ----
+
+marketRouter.get("/bonds/benchmarks", async (req, res) => {
+  try {
+    res.json(await cached("bonds:benchmarks", 6 * 3_600_000, () => treasurydirect.currentBenchmarks()));
   } catch (err) {
     fail(req, res, err);
   }

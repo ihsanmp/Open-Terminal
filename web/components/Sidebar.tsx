@@ -11,7 +11,7 @@ export const MENU: Array<{ type: WidgetType; label: string }> = [
   { type: "screener", label: "SCREENER" },
   { type: "heatmap", label: "HEATMAP" },
   { type: "crypto", label: "CRYPTO" },
-  { type: "options", label: "OPTIONS" },
+  { type: "bonds", label: "US BONDS" },
   { type: "portfolio", label: "PORTFOLIO" },
   { type: "ai", label: "AI ASSIST" },
   { type: "research", label: "EQUITY RESEARCH" },

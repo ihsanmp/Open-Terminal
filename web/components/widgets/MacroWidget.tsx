@@ -16,15 +16,15 @@ import { fontPx } from "../../lib/font-scale";
 // from there it can go to the Chart page.
 
 /** The periods a change can be shown over (the server sends the close each starts from). */
-const PERIODS = ["1D", "1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
-type Period = (typeof PERIODS)[number];
-type Spark = { spark?: number[]; refs?: Partial<Record<Period, number>> };
-type CurvePoint = { tenor: string; symbol: string; value: number | null; changeBp: number | null } & Spark;
-type Spread = { label: string; value: number | null; changeBp: number | null };
+export const PERIODS = ["1D", "1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
+export type Period = (typeof PERIODS)[number];
+export type Spark = { spark?: number[]; refs?: Partial<Record<Period, number>> };
+export type CurvePoint = { tenor: string; symbol: string; value: number | null; changeBp: number | null } & Spark;
+export type Spread = { label: string; value: number | null; changeBp: number | null };
 type MarketItem = { symbol: string; label: string; value: number | null; change: number | null; changePct: number | null } & Spark;
 type Yield10 = { symbol: string; label: string; value: number | null; changeBp: number | null } & Spark;
 type EconItem = { label: string; value: string | null; date: string | null };
-type MacroData = {
+export type MacroData = {
   curve: CurvePoint[];
   spreads: Spread[];
   global10y: Yield10[];
@@ -34,7 +34,7 @@ type MacroData = {
 };
 
 /** What the chart at the top shows. */
-type Selected = { symbol: string; label: string; isYield: boolean };
+export type Selected = { symbol: string; label: string; isYield: boolean };
 
 const KEY_TENORS = new Set(["2Y", "10Y", "30Y"]);
 /** The chart's timeframes: [interval, label, intraday]. */
@@ -71,10 +71,10 @@ const RANGES: Array<[string, number]> = [
 
 /** Decimals for a level: yields to 3, FX pairs to 4, the rest to 2. */
 const digitsFor = (v: number | null, isYield: boolean) => (isYield ? 3 : v !== null && Math.abs(v) < 10 ? 4 : 2);
-const signed = (v: number | null, digits: number, unit = "") => (v === null ? "—" : `${v >= 0 ? "+" : ""}${fmt(v, digits)}${unit}`);
+export const signed = (v: number | null, digits: number, unit = "") => (v === null ? "—" : `${v >= 0 ? "+" : ""}${fmt(v, digits)}${unit}`);
 
 /** A three-month line: green when it ended higher than it started, red when lower. */
-function Sparkline({ values }: { values?: number[] }) {
+export function Sparkline({ values }: { values?: number[] }) {
   const w = 72;
   const h = 20;
   if (!values || values.length < 2) return <span className="inline-block" style={{ width: w }} />;
@@ -90,7 +90,7 @@ function Sparkline({ values }: { values?: number[] }) {
   );
 }
 
-function Panel({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
+export function Panel({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="border border-[var(--border)] bg-[var(--panel)] min-w-0">
       <div className="px-2 py-1 dim text-fs-10 uppercase tracking-wider flex justify-between border-b border-[var(--border)]">
@@ -104,7 +104,7 @@ function Panel({ title, right, children }: { title: string; right?: React.ReactN
 
 /** The selected symbol's chart: dragged and zoomed like the Chart page's, at the chosen timeframe,
  *  the range buttons bringing a span into view. */
-function DetailChart({ sel, onOpen }: { sel: Selected; onOpen: () => void }) {
+export function DetailChart({ sel, onOpen }: { sel: Selected; onOpen: () => void }) {
   const [interval, setInterval_] = useWidgetSetting("macroInterval", "1D");
   const [range, setRange] = useWidgetSetting("macroRange", "1Y");
   const [chartType, setChartType] = useWidgetSetting("macroChartType", "area");
