@@ -22,6 +22,7 @@ import * as tvchart from "../providers/tvchart.js";
 import * as newsfeeds from "../providers/newsfeeds.js";
 import * as treasurydirect from "../providers/treasurydirect.js";
 import * as watcherguru from "../providers/watcherguru.js";
+import * as moneyflow from "../providers/moneyflow.js";
 import * as newsArchive from "../news/archive.js";
 import { buildRecap, quotedTexts, withTranslations } from "../news/recap.js";
 import { toIndonesian } from "../news/translate.js";
@@ -579,6 +580,37 @@ marketRouter.get("/watcher/posts/:id", async (req, res) => {
   }
   try {
     res.json(await cached(`watcher:article:${id}`, 3_600_000, () => watcherguru.article(id)));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// ---- money flow: what went into an asset and what came out, by period (providers/moneyflow.ts) ----
+
+marketRouter.get("/moneyflow/:symbol", async (req, res) => {
+  const symbol = req.params.symbol.toUpperCase();
+  try {
+    const data = await cached(`moneyflow:${symbol}`, 60_000, async () => {
+      const base = cryptoBase(symbol);
+      // A coin on Binance: its buys and sells as traded. Anything else: estimated from its bars.
+      const taker = base !== null && (await onBinance(base));
+      const periods = await Promise.all(
+        moneyflow.FLOW_PERIODS.map(async (p) => {
+          try {
+            const bars = taker
+              ? moneyflow.takerFlows(await binance.flowKlines(base!, p.binance, p.bars))
+              : moneyflow.clvFlows(await historyAtInterval(symbol, p.range, p.interval as Interval));
+            const shown = moneyflow.inPeriod(bars, p, base !== null);
+            return { period: p.key, interval: taker ? p.binance : p.interval, bars: shown, ...moneyflow.summarize(shown), error: null };
+          } catch (err) {
+            return { period: p.key, interval: p.interval, bars: [], ...moneyflow.summarize([]), error: err instanceof Error ? err.message : String(err) };
+          }
+        })
+      );
+      if (periods.every((p) => p.error)) throw new Error(periods[0].error ?? "no data");
+      return { symbol, method: taker ? "taker" : "clv", unit: taker ? "USDT" : null, periods };
+    });
+    res.json(data);
   } catch (err) {
     fail(req, res, err);
   }

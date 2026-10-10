@@ -6,7 +6,7 @@ import { useTerminal, type View, type WidgetType } from "../store/terminal";
 /** The menu: each item opens its feature full-page; ⌥ + number jumps to the first nine shown. */
 export const MENU: Array<{ type: WidgetType; label: string }> = [
   { type: "chart", label: "CHART" },
-  { type: "quote", label: "QUOTE" },
+  { type: "moneyflow", label: "MONEY FLOW" },
   { type: "news", label: "NEWS" },
   { type: "screener", label: "SCREENER" },
   { type: "heatmap", label: "HEATMAP" },

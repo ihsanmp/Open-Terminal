@@ -143,3 +143,12 @@ export async function history(base: string, rangeKey: string): Promise<Candle[]>
   const jan1 = Date.UTC(new Date().getUTCFullYear(), 0, 1) / 1000;
   return candles.filter((c) => c.time >= jan1);
 }
+
+/**
+ * Klines with who traded: [open time (s), quote volume, taker buy quote volume] in USDT, the
+ * newest `limit` bars (at most 1000).
+ */
+export async function flowKlines(base: string, interval: string, limit: number): Promise<Array<[number, number, number]>> {
+  const rows: any[] = await bfetch(`/api/v3/klines?symbol=${base.toUpperCase()}USDT&interval=${interval}&limit=${Math.min(1000, limit)}`);
+  return rows.map((r) => [Math.round(r[0] / 1000), +r[7], +r[10]]);
+}
