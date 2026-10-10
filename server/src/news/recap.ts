@@ -1,14 +1,14 @@
-// The news recap: every headline the news wire has seen in a day or a week, sorted into market
-// sectors and summed up, all on this machine with fixed rules (no AI service, no network).
+// The news recap: every headline the news wire has seen in a day or a week, under the news tab's
+// categories (markets, economic, geopolitics, tech…), summed up on this machine with fixed rules
+// (no AI service, no network).
 //
-// 1. Sectors: each headline is matched against a keyword list per sector (title words count
-//    double, the feed's own category nudges), and filed under its best sector, or two when the
-//    second scores close.
+// 1. Categories: each headline is recapped under its category in the news tab, so a category's
+//    recap covers what the news tab lists under it.
 // 2. Tone: a finance word list scores each headline positive or negative ("rate cut" and "job
 //    cuts" are read as phrases first; "not", "fails to"… flip what follows).
 // 3. Stories: headlines about the same thing (sharing most of their words) are grouped, and a
 //    story told by more outlets, better ones and with a stronger tone ranks higher.
-// 4. Topics: the words and pairs of words a sector's headlines use far more than the rest.
+// 4. Topics: the words and pairs of words a category's stories share far more than the rest.
 // 5. The conclusion: a sentence from all that, compared with the period before.
 
 export type RecapInput = {
@@ -105,174 +105,10 @@ class Lexicon {
   }
 }
 
-// ---------------------------------------------------------------- sectors
+// ---------------------------------------------------------------- categories
 
-export const SECTORS: Array<{ id: string; name: string; keywords: Array<string | [string, number]> }> = [
-  {
-    id: "macro",
-    name: "Makro & Bank Sentral",
-    keywords: [
-      ["fed", 2], ["federal reserve", 2], ["fomc", 2], "powell", ["ecb", 2], "lagarde", ["boe", 2], ["boj", 2], "pboc", ["central bank*", 2],
-      ["bank sentral", 2], ["bank of england", 2], ["bank of japan", 2], ["people bank of china", 2], "reserve bank", ["bank indonesia", 2], ["bi rate", 2], "interest rate*", "rate cut*", "rate hike*", ["inflation", 2], ["cpi", 2], "ppi", "pce",
-      ["gdp", 2], ["recession*", 2], "jobs report", "payroll*", "nonfarm", "unemployment", "jobless", "labor market", "treasury yield*", "bond yield*",
-      "yields", "treasuries", "economy", "economic*", "economist*", "ekonomi", ["inflasi", 2], ["suku bunga", 2], "deficit*", "fiscal", "budget",
-      "debt ceiling", "imf", "world bank", "pmi", "retail sales", "consumer confidence", "consumer prices", "dollar", "rupiah", "currenc*", "forex",
-      "yen", "yuan", "euro", "monetary", "stimulus", "tax*", "pajak", "apbn", "export*", "import*", "trade deal*", "trade deficit", "trade surplus",
-    ],
-  },
-  {
-    id: "geopolitics",
-    name: "Geopolitik & Kebijakan",
-    keywords: [
-      ["war", 2], "ukraine", "russia*", "israel*", "gaza", "iran*", "hamas", "hezbollah", "taiwan", "north korea", ["sanction*", 2], ["tariff*", 2],
-      ["trade war", 2], "election*", "president*", "prime minister", "congress*", "senate", "parliament*", "military", "missile*", "airstrike*",
-      ["ceasefire", 2], "nato", "diplomat*", "summit*", "protest*", "coup", "conflict*", "troops", "putin", "zelensky*", "netanyahu", "xi jinping",
-      "trump", "white house", "kremlin", ["west bank", 2], "palestin*", "settler*", "houthi*", "attack*", "saudi", "hostage*", "geopolit*", "perang", "pemilu", "sanksi", "tarif", "government shutdown", "minister*", "court*", "supreme court",
-    ],
-  },
-  {
-    id: "equities",
-    name: "Pasar Saham & Indeks",
-    keywords: [
-      ["stocks", 2], ["stock market*", 2], ["s&p 500", 2], ["s&p", 2], ["dow", 2], ["nasdaq", 2], ["wall street", 2], ["equities", 2], "shares",
-      "index", "indexes", "indices", ["ihsg", 2], ["idx", 2], "bursa", ["saham", 2], "nikkei", "ftse", "dax", "hang seng", "sensex", "nifty", "kospi",
-      "earnings season", "sell off", "selloff", "investors", "futures", "russell 2000", "stoxx",
-    ],
-  },
-  {
-    id: "tech",
-    name: "Teknologi",
-    keywords: [
-      ["ai", 2], ["artificial intelligence", 2], ["chip*", 2], ["semiconductor*", 2], ["nvidia", 2], "apple", "microsoft", "google", "alphabet",
-      "meta", "openai", "anthropic", "software", "cloud", "data center*", "tsmc", "intel", "amd", "qualcomm", "broadcom", "samsung", "cyber*",
-      "hacker*", "hack", "hacked", "smartphone*", "iphone*", "startup*", "tech", "technology", "teknologi", "robot*", "quantum", "saas", "gpu*",
-      "silicon", "big tech", "app", "apps", "internet", "digital", "chatgpt", "llm*",
-    ],
-  },
-  {
-    id: "financials",
-    name: "Keuangan & Perbankan",
-    keywords: [
-      ["bank", 2], ["banks", 2], ["banking", 2], "jpmorgan", "goldman", "morgan stanley", "citigroup", "citi", "wells fargo", "bank of america", "hsbc",
-      "ubs", "barclays", "insurer*", "insurance", "lender*", "loan*", "credit", "fintech", "payment*", "mastercard", "paypal", "asset manager*",
-      "blackrock", "hedge fund*", "private equity", "ipo", "ipos", "merger*", "acquisition*", "acquire*", "takeover*", "buyout*", ["perbankan", 2],
-      "bri", "bca", "mandiri", "bni", "ojk", "kredit", "asuransi", "brokerage*", "sec", "regulator*", "deposit*", "private credit", "dividend*",
-    ],
-  },
-  {
-    id: "energy",
-    name: "Energi",
-    keywords: [
-      ["oil", 2], ["crude", 2], "brent", "wti", ["opec*", 2], ["natural gas", 2], "lng", "gasoline", "diesel", "refiner*", "refinery", "pipeline*",
-      "exxon*", "chevron", "shell", "bp", "aramco", "petrol*", ["energy", 2], ["energi", 2], "power grid", "electricity", "utilit*", "solar",
-      "wind power", "renewable*", "nuclear", "coal", "listrik", "minyak", "batu bara", "pertamina", "pln", "barrel*", "fuel", "fuels", "emission*", "climate",
-    ],
-  },
-  {
-    id: "materials",
-    name: "Komoditas & Tambang",
-    keywords: [
-      ["gold", 2], "silver", "copper", "nickel", "aluminium", "aluminum", "iron ore", "steel", "lithium", ["mining", 2], ["miner*", 2], "metal*",
-      ["commodit*", 2], "wheat", "corn", "soybean*", "palm oil", "cpo", "coffee", "cocoa", "sugar", "fertili*", "chemical*", ["emas", 2], "tambang",
-      "nikel", "timah", "sawit", "rio tinto", "bhp", "glencore", "freeport", "antam", "rare earth*", "uranium", "platinum", "zinc", "grain*",
-    ],
-  },
-  {
-    id: "health",
-    name: "Kesehatan",
-    keywords: [
-      ["pharma*", 2], "drug", "drugs", "drugmaker*", ["fda", 2], "vaccine*", ["biotech*", 2], "health*", "hospital*", "medical", "medicare", "medicaid",
-      "clinical trial*", "pfizer", "moderna", "eli lilly", "lilly", "novo nordisk", "wegovy", "ozempic", "obesity", "cancer", "disease*", "outbreak*",
-      "virus", "kesehatan", "obat", "rumah sakit", "patient*", "therap*", "unitedhealth", "insulin",
-    ],
-  },
-  {
-    id: "consumer",
-    name: "Konsumer & Otomotif",
-    keywords: [
-      ["retail*", 2], "consumer*", "walmart", "costco", "nike", "starbucks", "mcdonald", "restaurant*", "shopping", "shopper*", "e commerce",
-      "ecommerce", "amazon", "luxury", "lvmh", "apparel", "food", "beverage*", "auto", "autos", ["automaker*", 2], "automotive", "car", "cars", "ev",
-      "evs", "electric vehicle*", "tesla", "toyota", "ford", "gm", "general motors", "volkswagen", "byd", "travel*", "hotel*", "tourism", "konsumen",
-      "ritel", "otomotif", "mobil", "spending", "vehicle*", "holiday sales", "brand*", "fashion",
-    ],
-  },
-  {
-    id: "industrials",
-    name: "Industri & Transportasi",
-    keywords: [
-      ["industrial*", 2], "manufactur*", "factory", "factories", "aerospace", "boeing", "airbus", ["airline*", 2], "defense", "defence", "lockheed",
-      "shipping", "freight", "logistic*", "railway*", "rail", "trucking", "supply chain*", "construction", "infrastructure", "caterpillar", "honeywell",
-      "port", "ports", "container*", "manufaktur", "infrastruktur", "konstruksi", "jet*", "aircraft", "shipbuild*", "machinery",
-    ],
-  },
-  {
-    id: "property",
-    name: "Properti",
-    keywords: [
-      ["real estate", 2], ["property", 2], "properties", ["housing", 2], "home sales", "home prices", "house prices", ["homebuilder*", 2], "mortgage*",
-      "reit", "reits", "commercial property", "office space", "rent", "rents", "rental*", "evergrande", "country garden", ["properti", 2], "perumahan",
-      "developer*", "landlord*",
-    ],
-  },
-  {
-    id: "telecom",
-    name: "Telekomunikasi & Media",
-    keywords: [
-      ["telecom*", 2], "telekom*", "5g", "wireless", "verizon", "at&t", "t mobile", "comcast", "netflix", "disney", "streaming", "media", "broadcaster*",
-      "advertis*", "social media", "tiktok", "telkom", "telekomunikasi", "warner", "paramount", "spotify", "youtube", "film*", "box office",
-    ],
-  },
-  {
-    id: "crypto",
-    name: "Kripto",
-    keywords: [
-      ["bitcoin", 3], ["btc", 3], ["ethereum", 3], ["eth", 2], ["crypto*", 3], ["stablecoin*", 3], ["blockchain", 2], "token*", "defi", "nft*",
-      "binance", "coinbase", "solana", "xrp", "ripple", ["kripto", 3], "altcoin*", "memecoin*", "web3", "tether", "usdc", "dogecoin", "microstrategy",
-    ],
-  },
-];
-
-const OTHER = { id: "other", name: "Lain-lain" };
-const SECTOR_LEXICON = new Lexicon(Object.fromEntries(SECTORS.map((s) => [s.id, s.keywords])));
-const SECTOR_NAME = new Map([...SECTORS.map((s) => [s.id, s.name] as const), [OTHER.id, OTHER.name]]);
-
-/** The feeds' own beat, as a nudge. */
-function hints(item: Pick<RecapInput, "category" | "feedId">): Array<[string, number]> {
-  const out: Array<[string, number]> = [];
-  if (item.category === "CRYPTO") out.push(["crypto", 2]);
-  if (item.category === "ENERGY") out.push(["energy", 2]);
-  if (item.category === "TECH") out.push(["tech", 1]);
-  if (item.category === "GEOPOLITICS") out.push(["geopolitics", 1.5]);
-  if (item.category === "ECONOMIC") out.push(["macro", 1]);
-  if (item.category === "MARKETS") out.push(["equities", 0.5]);
-  if (item.feedId === "fed-press" || item.feedId === "ecb-press" || item.feedId === "boe-news") out.push(["macro", 3]);
-  if (item.feedId === "sec-press") out.push(["financials", 2]);
-  if (item.feedId === "mining-com") out.push(["materials", 2]);
-  return out;
-}
-
-/** The sectors a headline belongs to: its best, and a second with clear evidence of its own. */
-export function sectorsOf(item: Pick<RecapInput, "title" | "summary" | "category" | "feedId">): string[] {
-  const score = new Map<string, number>();
-  const add = (tag: string, w: number) => score.set(tag, (score.get(tag) ?? 0) + w);
-  const seen = new Set<string>();
-  for (const [text, factor] of [[item.title, 2], [item.summary, 1]] as const) {
-    const low = words(text).low;
-    for (const m of SECTOR_LEXICON.find(low)) {
-      // Each keyword counts once per text: a word repeated is not more evidence.
-      const key = `${factor}:${m.tag}:${low.slice(m.start, m.start + m.len).join(" ")}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      add(m.tag, m.weight * factor);
-    }
-  }
-  for (const [tag, w] of hints(item)) add(tag, w);
-  const ranked = [...score.entries()].sort((a, b) => b[1] - a[1]);
-  if (ranked.length === 0 || ranked[0][1] < 2) return [OTHER.id];
-  const out = [ranked[0][0]];
-  if (ranked[1] && ranked[1][1] >= 4 && ranked[1][1] >= 0.4 * ranked[0][1]) out.push(ranked[1][0]);
-  return out;
-}
+/** The news tab's categories, in its order: each headline is recapped under its own. */
+export const CATEGORIES = ["MARKETS", "ECONOMIC", "REGULATORY", "GEOPOLITICS", "CRYPTO", "ENERGY", "TECH"];
 
 // ---------------------------------------------------------------- tone
 
@@ -391,7 +227,7 @@ function story(group: Scored[], from: number, to: number): RecapStory & { score:
 }
 
 /**
- * The words and pairs of words a sector's stories use much more than all stories do. A story
+ * The words and pairs of words a category's stories use much more than all stories do. A story
  * (however many outlets carried it) counts once, so a topic is one several stories share.
  */
 function topics(sector: Scored[][], all: Scored[][], max = 5): string[] {
@@ -485,7 +321,7 @@ function conclusion(s: Omit<RecapSector, "conclusion">, kind: "day" | "week"): s
 
 function overall(sectors: RecapSector[], total: number, publishers: number, kind: "day" | "week"): string {
   if (total === 0) return `Belum ada berita yang terekam untuk ${kind === "day" ? "hari" : "minggu"} ini.`;
-  const named = sectors.filter((s) => s.id !== OTHER.id);
+  const named = [...sectors].sort((a, b) => b.count - a.count);
   const parts = [`${total} berita dari ${publishers} sumber ${kind === "day" ? "hari" : "minggu"} ini.`];
   const busiest = named.slice(0, 3).map((s) => `${s.name} (${s.count})`);
   if (busiest.length) parts.push(`Paling ramai: ${list(busiest)}.`);
@@ -501,13 +337,13 @@ function overall(sectors: RecapSector[], total: number, publishers: number, kind
 
 // ---------------------------------------------------------------- the recap
 
-type Classified = { sectors: string[]; tone: -1 | 0 | 1; keys: Set<string> };
+type Classified = { tone: -1 | 0 | 1; keys: Set<string> };
 /** Headlines don't change, so each is read once. */
 const memo = new Map<string, Classified>();
 function classify(item: RecapInput): Classified {
   let c = memo.get(item.id);
   if (!c) {
-    c = { sectors: sectorsOf(item), tone: toneOfItem(item), keys: keyWords(item.title) };
+    c = { tone: toneOfItem(item), keys: keyWords(item.title) };
     if (memo.size > 50_000) memo.clear();
     memo.set(item.id, c);
   }
@@ -523,7 +359,9 @@ function bySector(items: RecapInput[]): Map<string, Scored[]> {
     if (seen.has(key)) continue;
     seen.add(key);
     const c = classify(item);
-    for (const s of c.sectors) out.set(s, [...(out.get(s) ?? []), { ...item, tone: c.tone, keys: c.keys }]);
+    const list = out.get(item.category) ?? [];
+    list.push({ ...item, tone: c.tone, keys: c.keys });
+    out.set(item.category, list);
   }
   return out;
 }
@@ -558,7 +396,7 @@ export function buildRecap(items: RecapInput[], previous: RecapInput[] | null, f
     const prev = before?.get(id);
     const base = {
       id,
-      name: SECTOR_NAME.get(id) ?? id,
+      name: id,
       count: list.length,
       publishers: new Set(list.map((i) => i.publisher.toLowerCase())).size,
       tone,
@@ -572,7 +410,8 @@ export function buildRecap(items: RecapInput[], previous: RecapInput[] | null, f
     };
     sectors.push({ ...base, conclusion: conclusion(base, kind) });
   }
-  sectors.sort((a, b) => (a.id === OTHER.id ? 1 : b.id === OTHER.id ? -1 : b.count - a.count));
+  const order = (id: string) => (CATEGORIES.includes(id) ? CATEGORIES.indexOf(id) : CATEGORIES.length);
+  sectors.sort((a, b) => order(a.id) - order(b.id) || a.id.localeCompare(b.id));
 
   const total = new Set(inside.map((i) => `${i.publisher.toLowerCase()}|${i.title.toLowerCase()}`)).size;
   const publishers = new Set(inside.map((i) => i.publisher.toLowerCase())).size;

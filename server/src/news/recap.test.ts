@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRecap, sectorsOf, toneOfItem, type RecapInput } from "./recap.js";
+import { buildRecap, toneOfItem, type RecapInput } from "./recap.js";
 
 const DAY = Date.UTC(2026, 9, 9);
 let n = 0;
@@ -19,25 +19,24 @@ function item(title: string, extra: Partial<RecapInput> = {}): RecapInput {
     ...extra,
   };
 }
-const sectors = (title: string, extra: Partial<RecapInput> = {}) => sectorsOf({ title, summary: "", category: "MARKETS", feedId: "x", ...extra });
 const tone = (title: string) => toneOfItem({ title, summary: "" });
 
 describe("news recap", () => {
-  it("files headlines under their sector", () => {
-    expect(sectors("Oil prices jump as OPEC+ agrees deeper output cuts")[0]).toBe("energy");
-    expect(sectors("Fed holds interest rates steady, Powell signals patience")[0]).toBe("macro");
-    expect(sectors("Nvidia unveils new AI chip for data centers")[0]).toBe("tech");
-    expect(sectors("Bitcoin tops $120,000 as crypto ETFs draw inflows")[0]).toBe("crypto");
-    expect(sectors("Gold hits record as miners rally")[0]).toBe("materials");
-    expect(sectors("Pfizer wins FDA approval for new cancer drug")[0]).toBe("health");
-    expect(sectors("JPMorgan profit rises as bank lending grows")[0]).toBe("financials");
-    expect(sectors("IHSG ditutup menguat, saham perbankan memimpin")).toContain("equities");
-    // A place name is not a bank, and the feed's beat counts when the words don't say.
-    expect(sectors("Palestinian man killed in West Bank")[0]).toBe("geopolitics");
-    expect(sectors("Statement on the latest meeting", { feedId: "fed-press", category: "REGULATORY" })[0]).toBe("macro");
-    expect(sectors("A painting stolen from a museum has been found")).toEqual(["other"]);
-    // Two sectors when the second has clear evidence of its own.
-    expect(sectors("Oil surges as Iran war fears grow, sanctions tighten").sort()).toEqual(["energy", "geopolitics"]);
+  it("recaps each headline under its news tab category, in the news tab's order", () => {
+    const items = [
+      item("Bitcoin slips", { category: "CRYPTO" }),
+      item("Stocks rally", { category: "MARKETS" }),
+      item("Nvidia unveils chip", { category: "TECH" }),
+      item("Inflation cools", { category: "ECONOMIC" }),
+      item("Ether slips", { category: "CRYPTO" }),
+    ];
+    const recap = buildRecap(items, null, DAY, DAY + 86_400_000, "day");
+    expect(recap.sectors.map((s) => [s.id, s.count])).toEqual([
+      ["MARKETS", 1],
+      ["ECONOMIC", 1],
+      ["CRYPTO", 2],
+      ["TECH", 1],
+    ]);
   });
 
   it("reads the tone of a headline, phrases and negation included", () => {
@@ -60,7 +59,7 @@ describe("news recap", () => {
       item("Natural gas prices slump on mild weather", { publisher: "MarketWatch" }),
     ];
     const recap = buildRecap(items, [], DAY, DAY + 86_400_000, "day");
-    const energy = recap.sectors.find((s) => s.id === "energy")!;
+    const energy = recap.sectors.find((s) => s.id === "MARKETS")!;
     expect(energy.count).toBe(5);
     expect(energy.stories[0].publishers).toBe(3);
     expect(energy.stories[0].headline.publisher).toBe("Reuters"); // the best tier tells it
@@ -68,7 +67,7 @@ describe("news recap", () => {
     expect(energy.stories).toHaveLength(3);
     expect(energy.conclusion).toContain("5 berita dari 5 sumber");
     expect(energy.conclusion).toContain("(3 sumber)");
-    expect(recap.summary).toContain("Energi");
+    expect(recap.summary).toContain("MARKETS (5)");
   });
 
   it("keeps to the period, counts a headline once, and compares with the period before", () => {
@@ -82,14 +81,14 @@ describe("news recap", () => {
     today[1].publisher = today[0].publisher;
     const yesterday = [item("Bitcoin rallies to record"), item("Crypto stocks surge on approval")];
     const recap = buildRecap(today, yesterday, DAY, DAY + 86_400_000, "day");
-    const crypto = recap.sectors.find((s) => s.id === "crypto")!;
+    const crypto = recap.sectors.find((s) => s.id === "MARKETS")!;
     expect(crypto.count).toBe(3);
     expect(crypto.negative).toBe(3);
     expect(crypto.toneLabel).toBe("negatif");
     expect(crypto.previous).toEqual({ count: 2, tone: 1 });
     expect(crypto.conclusion).toContain("Dibanding kemarin, pemberitaan lebih ramai (+50%) dan nadanya memburuk.");
     // Without a full record of yesterday, no comparison.
-    const alone = buildRecap(today, null, DAY, DAY + 86_400_000, "day").sectors.find((s) => s.id === "crypto")!;
+    const alone = buildRecap(today, null, DAY, DAY + 86_400_000, "day").sectors.find((s) => s.id === "MARKETS")!;
     expect(alone.previous).toBeNull();
     expect(alone.conclusion).not.toContain("Dibanding");
   });
@@ -102,7 +101,7 @@ describe("news recap", () => {
       item("Google cloud revenue beats forecasts"),
       item("Oil prices steady"),
     ];
-    const tech = buildRecap(items, [], DAY, DAY + 86_400_000, "day").sectors.find((s) => s.id === "tech")!;
+    const tech = buildRecap(items, [], DAY, DAY + 86_400_000, "day").sectors.find((s) => s.id === "MARKETS")!;
     expect(tech.topics[0]).toMatch(/Nvidia|Blackwell/);
   });
 
