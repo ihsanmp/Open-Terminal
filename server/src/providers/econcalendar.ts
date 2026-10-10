@@ -114,3 +114,77 @@ export async function weeklyEvents(): Promise<EconEvent[]> {
   events.sort((a, b) => a.date.localeCompare(b.date));
   return events;
 }
+
+// ---- any day or week: TradingView's economic calendar ----
+// Forex Factory only publishes the current week, so a chosen day or week comes from the
+// calendar behind tradingview.com/economic-calendar, which takes a date range and carries the
+// released "actual" for every event. Events are listed under their currency, as Forex Factory
+// does, with the euro members' own releases named after the country.
+
+/** The economies asked for: Forex Factory's currencies, the big euro members, and Indonesia. */
+export const TV_COUNTRIES = ["US", "EU", "DE", "FR", "IT", "ES", "GB", "JP", "AU", "NZ", "CA", "CH", "CN", "ID"];
+const EURO_MEMBERS: Record<string, string> = { DE: "German", FR: "French", IT: "Italian", ES: "Spanish" };
+/** The longest range asked for at once. */
+export const MAX_RANGE_DAYS = 42;
+
+export type TVRaw = {
+  title: string;
+  country: string;
+  currency?: string;
+  date: string;
+  importance: number;
+  actual: number | null;
+  forecast: number | null;
+  previous: number | null;
+  unit?: string;
+  scale?: string;
+};
+
+/** A reading as TradingView writes it: "4.6%", "£2.464B", "54.92K". */
+export function formatReading(value: number | null, unit?: string, scale?: string): string | null {
+  if (value === null || value === undefined || !Number.isFinite(value)) return null;
+  if (unit === "%") return `${value}${scale ?? ""}%`;
+  // The sign before a currency: -$102B, not $-102B.
+  return `${value < 0 ? "-" : ""}${unit ?? ""}${Math.abs(value)}${scale ?? ""}`;
+}
+
+export function fromTradingView(e: TVRaw): EconEvent {
+  const member = EURO_MEMBERS[e.country];
+  const impact: EconEvent["impact"] = /holiday/i.test(e.title) ? "Holiday" : e.importance >= 1 ? "High" : e.importance === 0 ? "Medium" : "Low";
+  return {
+    title: member && !e.title.startsWith(member) ? `${member} ${e.title}` : e.title,
+    country: e.currency || e.country,
+    date: new Date(e.date).toISOString(),
+    impact,
+    forecast: formatReading(e.forecast, e.unit, e.scale),
+    previous: formatReading(e.previous, e.unit, e.scale),
+    actual: formatReading(e.actual, e.unit, e.scale),
+  };
+}
+
+async function tradingViewEvents(from: Date, to: Date): Promise<EconEvent[]> {
+  const url =
+    `https://economic-calendar.tradingview.com/events?from=${from.toISOString()}&to=${to.toISOString()}` +
+    `&countries=${TV_COUNTRIES.join(",")}`;
+  const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0", Origin: "https://www.tradingview.com" } });
+  if (!res.ok) throw new Error(`tradingview calendar ${res.status}`);
+  const body = (await res.json()) as { status?: string; result?: TVRaw[] };
+  if (body.status !== "ok" || !Array.isArray(body.result)) throw new Error("tradingview calendar: unexpected reply");
+  return body.result.map(fromTradingView);
+}
+
+/** The events from `from` (inclusive) to `to` (exclusive). */
+export async function rangeEvents(from: Date, to: Date): Promise<EconEvent[]> {
+  let events: EconEvent[];
+  try {
+    events = await tradingViewEvents(from, to);
+  } catch (err) {
+    // Forex Factory's week still covers a range inside the current week.
+    const week = await weeklyEvents().catch(() => null);
+    if (!week) throw err;
+    events = week;
+  }
+  const lo = from.getTime();
+  const hi = to.getTime();
+  return events.filter((e) => Date.parse(e.date) >= lo && Date.parse(e.date) < hi).sort((a, b) => a.date.localeCompare(b.date));
+}

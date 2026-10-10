@@ -23,6 +23,7 @@ export const COUNTRIES: Array<{ code: string; name: string }> = [
   { code: "CAD", name: "Canada" },
   { code: "CHF", name: "Switzerland" },
   { code: "CNY", name: "China" },
+  { code: "IDR", name: "Indonesia" },
   { code: "ALL", name: "All (global)" },
 ];
 

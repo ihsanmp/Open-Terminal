@@ -1,9 +1,10 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { Fragment, useMemo, useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, fmt, pctClass } from "../../lib/api";
 import { IMPACTS, countriesOf, countryOf, filterEvents, impactOf, type Impact } from "../../lib/econ-filter";
+import { dayIn, monthWeeks, periodLabel, rangeOf, step, weekStart, type Period } from "../../lib/econ-range";
 import { useTerminal, useWidgetSetting } from "../../store/terminal";
 
 type EconEvent = {
@@ -41,6 +42,90 @@ const TIMEZONES: Array<{ label: string; zone: string | undefined }> = [
   { label: "Sydney", zone: "Australia/Sydney" },
 ];
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
+
+/** A month to pick a day from, or a whole week with the » at the start of its row. */
+function PeriodPicker({ period, today, onPick, onClose }: { period: Period; today: string; onPick: (p: Period) => void; onClose: () => void }) {
+  const [y, m] = period.day.split("-").map(Number);
+  const [month, setMonth] = useState({ y, m: m - 1 });
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const away = (e: MouseEvent) => !ref.current?.parentElement?.contains(e.target as Node) && onClose();
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [onClose]);
+  const turn = (k: number) => setMonth(({ y, m }) => ({ y: y + Math.floor((m + k) / 12), m: (((m + k) % 12) + 12) % 12 }));
+  const thisMonth = (day: string) => Number(day.slice(5, 7)) === month.m + 1;
+
+  return (
+    <div ref={ref} className="absolute z-20 top-full left-0 mt-1 p-1 bg-[var(--panel)] border border-[var(--border)] shadow-lg text-fs-11 select-none">
+      <div className="flex items-center justify-between mb-1">
+        <button className="term-btn !px-2" onClick={() => turn(-1)} aria-label="Previous month">
+          ‹
+        </button>
+        <span className="amber font-bold">
+          {MONTHS[month.m]} {month.y}
+        </span>
+        <button className="term-btn !px-2" onClick={() => turn(1)} aria-label="Next month">
+          ›
+        </button>
+      </div>
+      <table className="border-collapse">
+        <thead>
+          <tr>
+            <th />
+            {WEEKDAYS.map((w, i) => (
+              <th key={i} className={`w-7 text-center text-fs-10 font-normal ${i >= 5 ? "dim" : ""}`}>
+                {w}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {monthWeeks(month.y, month.m).map((week) => {
+            const weekOn = period.kind === "week" && weekStart(period.day) === week[0];
+            return (
+              <tr key={week[0]} className={weekOn ? "bg-[rgba(46,204,143,0.25)]" : ""}>
+                <td className="p-0">
+                  <button
+                    className={`w-6 h-6 text-center ${weekOn ? "up font-bold" : "dim"} hover:text-[var(--text)]`}
+                    onClick={() => onPick({ kind: "week", day: week[0] })}
+                    title="Show this week"
+                  >
+                    »
+                  </button>
+                </td>
+                {week.map((day) => {
+                  const dayOn = period.kind === "day" && period.day === day;
+                  return (
+                    <td key={day} className="p-0">
+                      <button
+                        className={`w-7 h-6 text-center hover:bg-[var(--panel-2)] ${dayOn ? "bg-[rgba(46,204,143,0.45)] font-bold" : ""} ${
+                          day === today ? "amber font-bold underline" : thisMonth(day) ? "" : "dim opacity-50"
+                        }`}
+                        onClick={() => onPick({ kind: "day", day })}
+                        title="Show this day"
+                      >
+                        {Number(day.slice(8))}
+                      </button>
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function EconomicTab() {
   // The old HIGH+MED / ALL switch, as the starting impacts.
   const [minImpact] = useWidgetSetting<"all" | "medium">("minImpact", "medium");
@@ -48,10 +133,19 @@ function EconomicTab() {
   const [hiddenCountries, setHiddenCountries] = useWidgetSetting<string[]>("hiddenCountries", []);
   const [tz, setTz] = useWidgetSetting<string>("tz", "Local");
 
-  const { data = [], isLoading, error } = useQuery({
-    queryKey: ["econ-calendar"],
-    queryFn: () => apiGet<EconEvent[]>("/api/econ-calendar"),
-    refetchInterval: 300_000,
+  const zone = TIMEZONES.find((t) => t.label === tz)?.zone;
+  const today = dayIn(Date.now(), zone);
+  // The day or week shown; this week to start with.
+  const [period, setPeriod] = useState<Period>(() => ({ kind: "week", day: weekStart(dayIn(Date.now(), zone)) }));
+  const [picking, setPicking] = useState(false);
+  const { from, to } = rangeOf(period, zone);
+
+  const { data = [], isLoading, isFetching, error } = useQuery({
+    queryKey: ["econ-calendar", from, to],
+    queryFn: () => apiGet<EconEvent[]>(`/api/econ-calendar?from=${new Date(from).toISOString()}&to=${new Date(to).toISOString()}`),
+    placeholderData: keepPreviousData,
+    // A period still running gets its actuals as they're released.
+    refetchInterval: to > Date.now() ? 300_000 : false,
   });
 
   const events = useMemo(() => filterEvents(data, impacts, hiddenCountries), [data, impacts, hiddenCountries]);
@@ -68,10 +162,12 @@ function EconomicTab() {
     return n;
   }, [data, hiddenCountries]);
 
-  if (error) return <div className="p-2 down">Error: {(error as Error).message}</div>;
-  if (isLoading) return <div className="p-2 dim">Loading calendar…</div>;
-
-  const zone = TIMEZONES.find((t) => t.label === tz)?.zone;
+  const thisWeek: Period = { kind: "week", day: weekStart(today) };
+  const nextWeek = step(thisWeek, 1);
+  const pick = (p: Period) => {
+    setPeriod(p);
+    setPicking(false);
+  };
   const toggleImpact = (id: Impact) => setImpacts(impacts.includes(id) ? impacts.filter((i) => i !== id) : [...impacts, id]);
   const toggleCountry = (code: string) =>
     setHiddenCountries(hiddenCountries.includes(code) ? hiddenCountries.filter((c) => c !== code) : [...hiddenCountries, code]);
@@ -79,6 +175,31 @@ function EconomicTab() {
   return (
     <div>
       <div className="flex gap-1 p-1 items-center flex-wrap">
+        <span className="dim text-fs-10 tracking-wider mr-1">{period.kind === "week" ? "WEEK" : "DAY"}</span>
+        <button className="term-btn !px-2" onClick={() => setPeriod(step(period, -1))} title={`Previous ${period.kind}`}>
+          ‹
+        </button>
+        <span className="relative">
+          <button className={`term-btn ${picking ? "active" : ""}`} onClick={() => setPicking(!picking)} title="Pick a day, or a week with »">
+            {periodLabel(period)} ▾
+          </button>
+          {picking && <PeriodPicker period={period} today={today} onPick={pick} onClose={() => setPicking(false)} />}
+        </span>
+        <button className="term-btn !px-2" onClick={() => setPeriod(step(period, 1))} title={`Next ${period.kind}`}>
+          ›
+        </button>
+        <button className={`term-btn ${period.kind === "day" && period.day === today ? "active" : ""}`} onClick={() => setPeriod({ kind: "day", day: today })}>
+          TODAY
+        </button>
+        <button className={`term-btn ${period.kind === "week" && period.day === thisWeek.day ? "active" : ""}`} onClick={() => setPeriod(thisWeek)}>
+          THIS WEEK
+        </button>
+        <button className={`term-btn ${period.kind === "week" && period.day === nextWeek.day ? "active" : ""}`} onClick={() => setPeriod(nextWeek)}>
+          NEXT WEEK
+        </button>
+        {isFetching && <span className="dim text-fs-10">loading…</span>}
+      </div>
+      <div className="flex gap-1 px-1 pb-1 items-center flex-wrap">
         <span className="dim text-fs-10 tracking-wider mr-1">IMPACT</span>
         {IMPACTS.map((i) => (
           <button
@@ -143,8 +264,21 @@ function EconomicTab() {
           </tr>
         </thead>
         <tbody>
-          {events.map((e, i) => (
-            <tr key={`${e.title}-${e.date}-${i}`}>
+          {events.map((e, i) => {
+            // In a week, each day's events under its own heading.
+            const day = dayIn(Date.parse(e.date), zone);
+            const newDay = period.kind === "week" && (i === 0 || dayIn(Date.parse(events[i - 1].date), zone) !== day);
+            return (
+              <Fragment key={`${e.title}-${e.date}-${i}`}>
+                {newDay && (
+                  <tr>
+                    <td colSpan={7} className={`!text-left font-bold bg-[var(--panel-2)] ${day === today ? "amber" : ""}`}>
+                      {new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" })}
+                      {day === today && " · today"}
+                    </td>
+                  </tr>
+                )}
+                <tr>
               <td className="!text-left dim whitespace-nowrap">
                 {new Date(e.date).toLocaleString(undefined, {
                   timeZone: zone,
@@ -163,11 +297,17 @@ function EconomicTab() {
               <td>{e.forecast ?? "—"}</td>
               <td className="dim">{e.previous ?? "—"}</td>
               <td className={e.actual ? "text-[var(--text)]" : "dim"}>{e.actual ?? "—"}</td>
-            </tr>
-          ))}
+                </tr>
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
-      {events.length === 0 && <div className="p-3 dim">{data.length === 0 ? "No events in this window." : "No events match these filters."}</div>}
+      {error && <div className="p-2 down">Error: {(error as Error).message}</div>}
+      {isLoading && <div className="p-2 dim">Loading calendar…</div>}
+      {!isLoading && !error && events.length === 0 && (
+        <div className="p-3 dim">{data.length === 0 ? `No events this ${period.kind}.` : "No events match these filters."}</div>
+      )}
     </div>
   );
 }
