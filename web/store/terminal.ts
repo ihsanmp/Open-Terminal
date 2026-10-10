@@ -16,7 +16,7 @@ export type WidgetType =
   | "heatmap"
   | "screener"
   | "crypto"
-  | "macro"
+  | "watcher"
   | "bonds"
   | "portfolio"
   | "ai"
@@ -122,7 +122,7 @@ const DEFAULT_WIDGETS: WidgetInstance[] = [
   { id: "w-quote", type: "quote", linked: true },
   { id: "w-watchlist", type: "watchlist", linked: false },
   { id: "w-news", type: "news", linked: true },
-  { id: "w-macro", type: "macro", linked: false },
+  { id: "w-macro", type: "watcher", linked: false },
 ];
 
 const DEFAULT_LAYOUT: LayoutItem[] = [
@@ -141,7 +141,7 @@ const SIZE_BY_TYPE: Record<WidgetType, { w: number; h: number }> = {
   heatmap: { w: 7, h: 10 },
   screener: { w: 12, h: 9 },
   crypto: { w: 6, h: 9 },
-  macro: { w: 5, h: 7 },
+  watcher: { w: 7, h: 12 },
   bonds: { w: 12, h: 14 },
   portfolio: { w: 7, h: 8 },
   ai: { w: 5, h: 10 },
@@ -235,15 +235,24 @@ function rememberWindowTab(id: string) {
   }
 }
 
-/** Saved tabs from before v2: the Options page and widgets are US Bonds now. */
-function withoutOptions(saved: unknown): unknown {
+/** Pages and widgets that became others: v2 the Options page US Bonds, v3 Macro Watcher Guru. */
+const RENAMED: Array<[version: number, from: string, to: string]> = [
+  [2, "options", "bonds"],
+  [3, "macro", "watcher"],
+];
+
+/** Saved tabs from an older version, with the pages and widgets renamed since. */
+function upgrade(saved: unknown, version: number): unknown {
+  const renames = RENAMED.filter(([v]) => v > version);
+  if (!renames.length) return saved;
+  const to = (type: string) => renames.reduce((t, [, from, into]) => (t === from ? into : t), type);
   const s = (saved ?? {}) as { tabs?: TabData[] };
-  const rename = <T extends { type: string }>(w: T): T => (w.type === "options" ? { ...w, type: "bonds", symbol: undefined, linked: true } : w);
+  const rename = <T extends { type: string }>(w: T): T => (to(w.type) === w.type ? w : { ...w, type: to(w.type), symbol: undefined, linked: true });
   return {
     ...s,
     tabs: s.tabs?.map((t) => ({
       ...t,
-      view: (t.view as string) === "options" ? "bonds" : t.view,
+      view: to(t.view as string) as View,
       pages: t.pages?.map(rename) ?? [],
       widgets: t.widgets?.map(rename) ?? [],
     })),
@@ -359,12 +368,12 @@ export const useTerminal = create<TerminalState>()(
       name: WORKSPACE_KEY,
       // Saved per tab, so windows editing different tabs can't overwrite each other.
       storage: createWorkspaceStorage() as PersistStorage<unknown> | undefined,
-      // v1: tabs; v2: the Options page became US Bonds. The window's own tab and the transient UI
-      // aren't saved.
-      version: 2,
+      // v1: tabs; v2: the Options page became US Bonds; v3: Macro became Watcher Guru. The window's
+      // own tab and the transient UI aren't saved.
+      version: 3,
       partialize: (st) => ({ tabs: st.tabs, watchlist: st.watchlist, favoriteIntervals: st.favoriteIntervals }),
       migrate: (saved, version) => {
-        if (version >= 1) return (version >= 2 ? saved : withoutOptions(saved)) as TerminalState;
+        if (version >= 1) return upgrade(saved, version) as TerminalState;
         // v0 kept one workspace at the top level: it becomes the first tab.
         const old = (saved ?? {}) as Partial<TabData> & { watchlist?: string[]; favoriteIntervals?: string[] };
         const tab: TabData = {
@@ -375,7 +384,7 @@ export const useTerminal = create<TerminalState>()(
           widgets: old.widgets ?? DEFAULT_WIDGETS,
           layout: old.layout ?? DEFAULT_LAYOUT,
         };
-        return withoutOptions({ tabs: [tab], watchlist: old.watchlist, favoriteIntervals: old.favoriteIntervals ?? [] }) as unknown as TerminalState;
+        return upgrade({ tabs: [tab], watchlist: old.watchlist, favoriteIntervals: old.favoriteIntervals ?? [] }, 1) as unknown as TerminalState;
       },
       // Saved tabs, with this window staying on its own tab (the first if that one was closed).
       // Saved tabs, with this window keeping its own tabs and staying on its tab (or the next of

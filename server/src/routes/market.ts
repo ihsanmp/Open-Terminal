@@ -21,6 +21,7 @@ import * as whales from "../providers/whales.js";
 import * as tvchart from "../providers/tvchart.js";
 import * as newsfeeds from "../providers/newsfeeds.js";
 import * as treasurydirect from "../providers/treasurydirect.js";
+import * as watcherguru from "../providers/watcherguru.js";
 import * as newsArchive from "../news/archive.js";
 import { buildRecap } from "../news/recap.js";
 import { cryptoBase, cryptoTicker, isIndex, isTvPair, isYahooOnly } from "../symbols.js";
@@ -551,6 +552,32 @@ marketRouter.get("/econ-calendar", async (req, res) => {
     }
     const data = await cached("econ-calendar", 900_000, () => econcalendar.weeklyEvents());
     res.json(data);
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// ---- Watcher Guru: its articles a page at a time (by section or search), and one to read ----
+
+marketRouter.get("/watcher/posts", async (req, res) => {
+  try {
+    const page = Math.max(1, Math.min(50, Number(req.query.page) || 1));
+    const category = Number(req.query.category) || undefined;
+    const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 80) : "";
+    res.json(await cached(`watcher:${page}:${category ?? ""}:${q}`, 120_000, () => watcherguru.posts({ page, category, search: q || undefined })));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+marketRouter.get("/watcher/posts/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "bad article id" });
+    return;
+  }
+  try {
+    res.json(await cached(`watcher:article:${id}`, 3_600_000, () => watcherguru.article(id)));
   } catch (err) {
     fail(req, res, err);
   }

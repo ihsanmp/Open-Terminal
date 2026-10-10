@@ -9,7 +9,7 @@ import { fontPx } from "../../lib/font-scale";
 import { sessionRefreshMs, usePoll } from "../../lib/refresh";
 import { useTerminal, useWidgetSetting } from "../../store/terminal";
 import Flash from "../Flash";
-import { DetailChart, PERIODS, Panel, Sparkline, signed, type CurvePoint, type MacroData, type Period, type Selected } from "./MacroWidget";
+import { DetailChart, PERIODS, Panel, Sparkline, signed, type CurvePoint, type MacroData, type Period, type Selected } from "./macro-parts";
 
 // US Bonds: the US Treasury curve by tenor (US2Y, US10Y and US30Y first), each with its benchmark
 // security's maturity — when it falls due — coupon and next auction (TreasuryDirect), its yield

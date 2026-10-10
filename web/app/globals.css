@@ -179,3 +179,40 @@ button.term-btn.active {
 .chart-cursor [data-chart-pane] > td:nth-child(2) canvas {
   cursor: var(--chart-cursor-hover, var(--chart-cursor)) !important;
 }
+
+/* A Watcher Guru article (WatcherWidget): text markup only, cleaned on the server. */
+.wg-article {
+  line-height: 1.65;
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text);
+}
+.wg-article p,
+.wg-article ul,
+.wg-article ol,
+.wg-article figure,
+.wg-article table {
+  margin: 0 0 0.9em;
+}
+.wg-article ul { list-style: disc; padding-left: 1.4em; }
+.wg-article ol { list-style: decimal; padding-left: 1.4em; }
+.wg-article h2,
+.wg-article h3,
+.wg-article h4 {
+  color: var(--amber);
+  font-weight: 700;
+  margin: 1.2em 0 0.5em;
+  line-height: 1.35;
+}
+.wg-article h2 { font-size: 1.25em; }
+.wg-article h3 { font-size: 1.1em; }
+.wg-article a { color: var(--amber); text-decoration: underline; }
+.wg-article img { max-width: 100%; height: auto; display: block; }
+.wg-article figcaption { color: #808080; font-size: 0.85em; margin-top: 0.3em; }
+.wg-article blockquote {
+  border-left: 2px solid var(--amber);
+  padding-left: 0.9em;
+  margin: 0 0 0.9em;
+  color: #c8c8c8;
+}
+.wg-article th,
+.wg-article td { border: 1px solid var(--border); padding: 2px 6px; }
