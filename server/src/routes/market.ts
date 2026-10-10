@@ -23,7 +23,8 @@ import * as newsfeeds from "../providers/newsfeeds.js";
 import * as treasurydirect from "../providers/treasurydirect.js";
 import * as watcherguru from "../providers/watcherguru.js";
 import * as newsArchive from "../news/archive.js";
-import { buildRecap } from "../news/recap.js";
+import { buildRecap, quotedTexts, withTranslations } from "../news/recap.js";
+import { toIndonesian } from "../news/translate.js";
 import { cryptoBase, cryptoTicker, isIndex, isTvPair, isYahooOnly } from "../symbols.js";
 import { INDEX_TV_TICKER, WORLD_INDICES, searchIndices } from "../indices.js";
 import { tvHistory } from "../tvhistory.js";
@@ -490,10 +491,10 @@ marketRouter.get("/news/recap", async (req, res) => {
       const since = newsArchive.since();
       // The period before is compared with only when the archive has all of it.
       const complete = since !== null && Date.parse(since) <= from - span;
-      return {
-        ...buildRecap(newsArchive.between(from, to), complete ? newsArchive.between(from - span, from) : null, from, to, kind),
-        archiveSince: since,
-      };
+      const recap = buildRecap(newsArchive.between(from, to), complete ? newsArchive.between(from - span, from) : null, from, to, kind);
+      // The Indonesian conclusions quote the headlines translated (English where that failed).
+      const translated = withTranslations(recap, await toIndonesian(quotedTexts(recap)));
+      return { ...translated, archiveSince: since };
     });
     res.json(data);
   } catch (err) {
@@ -907,6 +908,57 @@ function buildRecapSummary(d: {
   return parts.join(" ");
 }
 
+/** TradingView's sectors in Indonesian, for the recap's Indonesian summary. */
+const SECTOR_ID: Record<string, string> = {
+  "Electronic Technology": "Teknologi Elektronik",
+  "Technology Services": "Layanan Teknologi",
+  Finance: "Keuangan",
+  "Health Technology": "Teknologi Kesehatan",
+  "Health Services": "Layanan Kesehatan",
+  "Retail Trade": "Perdagangan Ritel",
+  "Consumer Non-Durables": "Barang Konsumen Primer",
+  "Consumer Durables": "Barang Konsumen Tahan Lama",
+  "Consumer Services": "Layanan Konsumen",
+  "Producer Manufacturing": "Manufaktur",
+  "Energy Minerals": "Energi",
+  "Non-Energy Minerals": "Mineral Non-Energi",
+  "Process Industries": "Industri Proses",
+  "Industrial Services": "Jasa Industri",
+  "Commercial Services": "Jasa Komersial",
+  "Distribution Services": "Distribusi",
+  Transportation: "Transportasi",
+  Communications: "Komunikasi",
+  Utilities: "Utilitas",
+  Miscellaneous: "Lain-lain",
+  Government: "Pemerintah",
+};
+
+/** The same summary in Indonesian. */
+function buildRecapSummaryId(d: Parameters<typeof buildRecapSummary>[0]): string {
+  const spy = d.indexes.find((i) => i.symbol === "SPY");
+  const qqq = d.indexes.find((i) => i.symbol === "QQQ");
+  const dia = d.indexes.find((i) => i.symbol === "DIA");
+  const spyChange = spy?.changePercent ?? 0;
+  const dir = spyChange > 0.15 ? "menguat" : spyChange < -0.15 ? "melemah" : "bergerak datar";
+  const sector = (name: string) => SECTOR_ID[name] ?? name;
+  const pctId = (n: number | null | undefined) => (n === null || n === undefined ? "datar" : pct(n));
+
+  const parts: string[] = [];
+  parts.push(`Saham AS ${dir}: S&P 500 ${pctId(spy?.changePercent)}, Nasdaq 100 ${pctId(qqq?.changePercent)} dan Dow ${pctId(dia?.changePercent)}.`);
+  if (d.bestSector && d.worstSector && d.bestSector.sector !== d.worstSector.sector) {
+    parts.push(
+      `Sektor ${sector(d.bestSector.sector)} memimpin (${pctId(d.bestSector.avgChangePercent)}), sedangkan ${sector(d.worstSector.sector)} tertinggal (${pctId(d.worstSector.avgChangePercent)}).`
+    );
+  }
+  if (d.gainers[0] && d.losers[0]) {
+    parts.push(
+      `${d.gainers[0].name} memimpin kenaikan, naik ${pctId(d.gainers[0].changePercent)}, sementara ${d.losers[0].name} turun paling dalam, ${pctId(d.losers[0].changePercent)}.`
+    );
+  }
+  if (d.vix !== null) parts.push(`Indeks volatilitas VIX di ${d.vix.toFixed(2)}.`);
+  return parts.join(" ");
+}
+
 /** The market recap's indices and commodities, by ETF (quotes come from the stock providers). */
 const INDEX_PROXIES: Record<string, string> = {
   SPY: "S&P 500 (SPY)",
@@ -963,10 +1015,12 @@ marketRouter.get("/recap", async (req, res) => {
       const bestSector = sectors[0];
       const worstSector = sectors[sectors.length - 1];
 
-      const summary = buildRecapSummary({ indexes, bestSector, worstSector, gainers, losers, vix: vix?.value ?? null });
+      const facts = { indexes, bestSector, worstSector, gainers, losers, vix: vix?.value ?? null };
+      const summary = buildRecapSummary(facts);
 
       return {
         summary,
+        summaryId: buildRecapSummaryId(facts),
         updatedAt: new Date().toISOString(),
         indexes,
         vix: vix?.value ?? null,
