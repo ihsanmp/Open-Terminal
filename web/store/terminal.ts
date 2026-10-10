@@ -17,7 +17,7 @@ export type WidgetType =
   | "screener"
   | "crypto"
   | "macro"
-  | "options"
+  | "bonds"
   | "portfolio"
   | "ai"
   | "calendar"
@@ -142,7 +142,7 @@ const SIZE_BY_TYPE: Record<WidgetType, { w: number; h: number }> = {
   screener: { w: 12, h: 9 },
   crypto: { w: 6, h: 9 },
   macro: { w: 5, h: 7 },
-  options: { w: 12, h: 9 },
+  bonds: { w: 12, h: 14 },
   portfolio: { w: 7, h: 8 },
   ai: { w: 5, h: 10 },
   calendar: { w: 12, h: 11 },
@@ -233,6 +233,21 @@ function rememberWindowTab(id: string) {
   } catch {
     // the tab is still switched; only a reload forgets it
   }
+}
+
+/** Saved tabs from before v2: the Options page and widgets are US Bonds now. */
+function withoutOptions(saved: unknown): unknown {
+  const s = (saved ?? {}) as { tabs?: TabData[] };
+  const rename = <T extends { type: string }>(w: T): T => (w.type === "options" ? { ...w, type: "bonds", symbol: undefined, linked: true } : w);
+  return {
+    ...s,
+    tabs: s.tabs?.map((t) => ({
+      ...t,
+      view: (t.view as string) === "options" ? "bonds" : t.view,
+      pages: t.pages?.map(rename) ?? [],
+      widgets: t.widgets?.map(rename) ?? [],
+    })),
+  };
 }
 
 export const useTerminal = create<TerminalState>()(
@@ -344,11 +359,12 @@ export const useTerminal = create<TerminalState>()(
       name: WORKSPACE_KEY,
       // Saved per tab, so windows editing different tabs can't overwrite each other.
       storage: createWorkspaceStorage() as PersistStorage<unknown> | undefined,
-      // v1: tabs. The window's own tab and the transient UI aren't saved.
-      version: 1,
+      // v1: tabs; v2: the Options page became US Bonds. The window's own tab and the transient UI
+      // aren't saved.
+      version: 2,
       partialize: (st) => ({ tabs: st.tabs, watchlist: st.watchlist, favoriteIntervals: st.favoriteIntervals }),
       migrate: (saved, version) => {
-        if (version >= 1) return saved as TerminalState;
+        if (version >= 1) return (version >= 2 ? saved : withoutOptions(saved)) as TerminalState;
         // v0 kept one workspace at the top level: it becomes the first tab.
         const old = (saved ?? {}) as Partial<TabData> & { watchlist?: string[]; favoriteIntervals?: string[] };
         const tab: TabData = {
@@ -359,7 +375,7 @@ export const useTerminal = create<TerminalState>()(
           widgets: old.widgets ?? DEFAULT_WIDGETS,
           layout: old.layout ?? DEFAULT_LAYOUT,
         };
-        return { tabs: [tab], watchlist: old.watchlist, favoriteIntervals: old.favoriteIntervals ?? [] } as unknown as TerminalState;
+        return withoutOptions({ tabs: [tab], watchlist: old.watchlist, favoriteIntervals: old.favoriteIntervals ?? [] }) as unknown as TerminalState;
       },
       // Saved tabs, with this window staying on its own tab (the first if that one was closed).
       // Saved tabs, with this window keeping its own tabs and staying on its tab (or the next of

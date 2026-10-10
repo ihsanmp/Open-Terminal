@@ -15,7 +15,7 @@ import HeatmapWidget from "./widgets/HeatmapWidget";
 import ScreenerWidget from "./widgets/ScreenerWidget";
 import CryptoWidget from "./widgets/CryptoWidget";
 import MacroWidget from "./widgets/MacroWidget";
-import OptionsWidget from "./widgets/OptionsWidget";
+import BondsWidget from "./widgets/BondsWidget";
 import PortfolioWidget from "./widgets/PortfolioWidget";
 import AiWidget from "./widgets/AiWidget";
 import CalendarWidget from "./widgets/CalendarWidget";
@@ -48,7 +48,7 @@ function WidgetContent({ widget }: { widget: WidgetInstance }) {
     case "screener": return <ScreenerWidget />;
     case "crypto": return <CryptoWidget />;
     case "macro": return <MacroWidget />;
-    case "options": return <OptionsWidget widget={widget} />;
+    case "bonds": return <BondsWidget />;
     case "portfolio": return <PortfolioWidget />;
     case "ai": return <AiWidget />;
     case "calendar": return <CalendarWidget />;
@@ -128,13 +128,13 @@ export function SymbolTag({ widget, activeSymbol }: { widget: WidgetInstance; ac
 export const TITLES: Record<string, string> = {
   quote: "Quote", chart: "Chart", watchlist: "Watchlist", news: "News",
   heatmap: "Heatmap", screener: "Screener", crypto: "Crypto",
-  macro: "Macro / Indexes", options: "Option Chain", portfolio: "Portfolio", ai: "AI Assistant",
+  macro: "Macro / Indexes", bonds: "US Bonds", portfolio: "Portfolio", ai: "AI Assistant",
   calendar: "Calendar", insider: "Insider Transactions", tv: "Live TV", recap: "Market Recap",
   indices: "World Indices", research: "Equity Research",
 };
 
 /** Widgets that show one symbol (their own, or the active one when linked). */
-export const SYMBOL_AWARE = new Set(["quote", "chart", "news", "options", "insider", "research"]);
+export const SYMBOL_AWARE = new Set(["quote", "chart", "news", "insider", "research"]);
 
 export default function Workspace() {
   const widgets = useTerminal((s) => s.widgets);
