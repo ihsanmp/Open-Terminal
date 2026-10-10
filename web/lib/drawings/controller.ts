@@ -357,6 +357,24 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     cb.onOpenSettings(hit.id);
   };
 
+  /**
+   * A right-click while a path (or polyline) is being placed ends it at its last point, as on
+   * TradingView; one with too few points yet is dropped. No menu opens over it.
+   */
+  const onContextMenu = (e: MouseEvent) => {
+    const s = cb.state();
+    const sofar = cb.placing.current;
+    if (!s.tool || TOOL_BY_ID.get(s.tool)!.variable !== "clicks" || !sofar?.length) return;
+    swallow(e);
+    pressAt = null;
+    if (sofar.length >= TOOL_BY_ID.get(s.tool)!.points) {
+      done(s.tool, sofar);
+    } else {
+      cb.placing.current = null;
+      layer.setLive(null);
+    }
+  };
+
   // Mouse events too: the chart library listens to them, and must not start a pan meanwhile.
   const onMouseDown = (e: MouseEvent) => {
     const s = cb.state();
@@ -367,6 +385,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
   el.addEventListener("pointerdown", onDown, { capture: true });
   el.addEventListener("mousedown", onMouseDown, { capture: true });
   el.addEventListener("dblclick", onDblClick, { capture: true });
+  el.addEventListener("contextmenu", onContextMenu, { capture: true });
   window.addEventListener("pointermove", onMove, { capture: true });
   window.addEventListener("pointerup", onUp);
   window.addEventListener("keydown", onShift);
@@ -375,6 +394,7 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layer: DrawingL
     el.removeEventListener("pointerdown", onDown, { capture: true });
     el.removeEventListener("mousedown", onMouseDown, { capture: true });
     el.removeEventListener("dblclick", onDblClick, { capture: true });
+    el.removeEventListener("contextmenu", onContextMenu, { capture: true });
     window.removeEventListener("pointermove", onMove, { capture: true });
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("keydown", onShift);
