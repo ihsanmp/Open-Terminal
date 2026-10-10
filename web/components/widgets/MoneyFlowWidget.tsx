@@ -7,10 +7,12 @@ import { fontPx } from "../../lib/font-scale";
 import { quoteRefreshMs, usePoll } from "../../lib/refresh";
 import { useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 import Flash from "../Flash";
+import TransfersList from "./TransfersList";
 
 // Money Flow: what went into the asset being viewed and what came out, over a day, a week, a
 // month, three months and a year (server: providers/moneyflow.ts). A coin on Binance shows its
-// trades as made, buyers' against sellers'; anything else an estimate from its bars.
+// trades as made, buyers' against sellers'; anything else an estimate from its bars. Its other
+// tab lists the asset's transactions, from whom to whom (TransfersList).
 
 type FlowBar = { time: number; inflow: number; outflow: number };
 type Period = { period: string; interval: string; bars: FlowBar[]; inflow: number; outflow: number; net: number; buyShare: number | null; error: string | null };
@@ -44,6 +46,7 @@ function Card({ label, value, cls, sub }: { label: string; value: string; cls?: 
 export default function MoneyFlowWidget({ widget }: { widget: WidgetInstance }) {
   const symbol = useWidgetSymbol(widget);
   const [periodKey, setPeriodKey] = useWidgetSetting<string>("flowPeriod", "1D");
+  const [view, setView] = useWidgetSetting<"flow" | "tx">("flowView", "flow");
   const quotePoll = usePoll(() => quoteRefreshMs(symbol));
   const flowPoll = usePoll(60_000);
   const quote = useQuery({
@@ -90,6 +93,19 @@ export default function MoneyFlowWidget({ widget }: { widget: WidgetInstance }) 
         )}
       </div>
 
+      <div className="flex gap-1 items-center border-b border-[var(--border)] pb-1">
+        <button className={`term-btn ${view === "flow" ? "active" : ""}`} onClick={() => setView("flow")}>
+          ARUS DANA
+        </button>
+        <button className={`term-btn ${view === "tx" ? "active" : ""}`} onClick={() => setView("tx")} title="Riwayat transaksi: dari siapa ke siapa">
+          TRANSAKSI
+        </button>
+      </div>
+
+      {view === "tx" ? (
+        <TransfersList symbol={symbol} />
+      ) : (
+        <>
       <div className="flex gap-1 items-center flex-wrap">
         {(data?.periods ?? []).map((p) => (
           <button key={p.period} className={`term-btn ${p.period === period?.period ? "active" : ""}`} onClick={() => setPeriodKey(p.period)}>
@@ -171,6 +187,8 @@ export default function MoneyFlowWidget({ widget }: { widget: WidgetInstance }) 
               ? "Inflow = nilai beli agresif (taker buy) di Binance, outflow = nilai jual agresif. Ini transaksi yang benar-benar terjadi, bukan perkiraan."
               : "Inflow dan outflow diperkirakan dari candle (metode Chaikin): nilai transaksi tiap bar dihitung masuk bila close dekat high dan keluar bila dekat low. Data arus dana institusi per saham tidak tersedia gratis."}
           </div>
+        </>
+      )}
         </>
       )}
     </div>
