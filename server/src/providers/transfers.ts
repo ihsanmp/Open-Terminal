@@ -11,19 +11,23 @@
 // inflow or outflow (BlackRock's IBIT, Fidelity's FBTC … from providers/etfflows.ts) and each
 // treasury company's reported buys and sales (Strategy, MARA … from their 8-Ks, providers/
 // treasuries.ts), marked as such so they can be shown on their own.
+//
+// Ether and the tokens on Ethereum also list the watched wallets' transfers (Vitalik, Justin Sun,
+// Binance's wallets … providers/evmwhales.ts) of $50,000 or more.
 
 import * as binance from "./binance.js";
 import { btcLabels } from "./addresslabels.js";
 import { etfFlows, type EtfFlow } from "./etfflows.js";
+import { whaleTransfers, type EvmTransfer, type Watched } from "./evmwhales.js";
 import * as secedgar from "./secedgar.js";
 import { treasuryTrades, type TreasuryTrade } from "./treasuries.js";
 import * as whales from "./whales.js";
 
 /** One side of a transaction; an institution is tagged an ETF or a treasury company. */
-export type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" };
+export type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" | "whale" };
 export type TransferRow = {
   id: string;
-  category: "onchain" | "exchange" | "insider" | "institution";
+  category: "onchain" | "exchange" | "insider" | "institution" | "whale";
   time: number;
   from: Party;
   to: Party;
@@ -286,6 +290,43 @@ async function institutionRows(base: string, now = Date.now()): Promise<Transfer
   return rows.filter((r) => r.time >= since).sort((a, b) => b.time - a.time);
 }
 
+// ---------------------------------------------------------------- watched Ethereum wallets
+
+const WHALE_MIN_USD = 50_000;
+
+/** A watched wallet's transfer, its sides named where they're watched. */
+export function whaleRow(t: EvmTransfer, wallets: Watched[], closeOn: (date: string) => number | null): TransferRow | null {
+  const byAddress = new Map(wallets.map((w) => [w.address.toLowerCase(), w]));
+  const party = (a: string): Party => {
+    const w = byAddress.get(a);
+    return w ? { name: w.name, address: a, role: w.kind === "exchange" ? "exchange" : w.kind === "bridge" ? "bridge" : null, tag: "whale" } : { name: null, address: a };
+  };
+  const price = closeOn(new Date(t.time * 1000).toISOString().slice(0, 10));
+  const usd = price ? t.amount * price : null;
+  if (usd === null || usd < WHALE_MIN_USD) return null;
+  const outOfWatched = byAddress.has(t.from);
+  return {
+    id: `whale-${t.hash}-${t.from}-${t.to}`,
+    category: "whale",
+    time: t.time,
+    from: party(t.from),
+    to: party(t.to),
+    amount: t.amount,
+    unit: t.symbol,
+    usd,
+    side: outOfWatched && !byAddress.has(t.to) ? "sell" : "buy",
+    price,
+    note: outOfWatched ? "keluar whale" : "masuk whale",
+    link: `https://etherscan.io/tx/${t.hash}`,
+  };
+}
+
+async function whaleRows(base: string): Promise<TransferRow[]> {
+  if (base === "BTC") return [];
+  const [{ wallets, transfers }, closeOn] = await Promise.all([whaleTransfers(base), closeOnFor(base)]);
+  return transfers.map((t) => whaleRow(t, wallets, closeOn)).filter((r): r is TransferRow => r !== null);
+}
+
 // ---------------------------------------------------------------- the asset's
 
 /** A US-listed stock or ETF: a bare ticker (no exchange suffix, index or FX mark). */
@@ -294,10 +335,16 @@ export const isUsTicker = (symbol: string) => /^[A-Z][A-Z.]{0,5}$/.test(symbol) 
 export async function transfersOf(symbol: string, base: string | null, onBinance: (base: string) => Promise<boolean>): Promise<Transfers> {
   if (base) {
     const own = base === "BTC" ? btcTransfers() : (await onBinance(base)) ? exchangeTransfers(base) : null;
-    const [list, institutions] = await Promise.all([own, institutionRows(base)]);
-    if (list || institutions.length) {
-      const rows = [...(list?.rows ?? []), ...institutions].sort((a, b) => b.time - a.time);
-      const sources = [list?.source, institutions.length ? "institusi: Farside (ETF), SEC 8-K" : null].filter(Boolean).join(" · ");
+    const [list, institutions, whales] = await Promise.all([own, institutionRows(base), whaleRows(base).catch(() => [] as TransferRow[])]);
+    if (list || institutions.length || whales.length) {
+      const rows = [...(list?.rows ?? []), ...institutions, ...whales].sort((a, b) => b.time - a.time);
+      const sources = [
+        list?.source,
+        institutions.length ? "institusi: Farside (ETF), SEC 8-K" : null,
+        whales.length ? "whale: Blockscout (Ethereum)" : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
       return { kind: list?.kind ?? "exchange", source: sources, rows, note: list?.note };
     }
   }
