@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import {
   createChart,
   createSeriesMarkers,
@@ -60,6 +60,7 @@ import { isCryptoSymbol, usePoll, usSessionActive } from "../../lib/refresh";
 import { formatAxisCountdown, formatCountdown, isIntradayInterval, secondsUntilClose, type Market } from "../../lib/candle-time";
 import { fontPx } from "../../lib/font-scale";
 import { DrawingLayer } from "../../lib/drawings/layer";
+import { History, describeChange } from "../../lib/undo";
 import { attachDrawing, type PaneLayer } from "../../lib/drawings/controller";
 import { TOOL_BY_ID, TOOL_FEATURES, timeframeKindOf, type Drawing, type DrawingTemplate, type DrawPoint, type ToolGroup, type ToolId } from "../../lib/drawings/tools";
 import { DrawingSettings } from "../chart/DrawingSettings";
@@ -210,6 +211,22 @@ function formatValue(v: number | undefined, precision: number): string {
   return Math.abs(v) >= 100_000 ? fmtBig(v) : fmt(v, precision);
 }
 
+/** No drawings yet on a symbol: one empty list, so it compares equal from render to render. */
+const NO_DRAWINGS: Drawing[] = [];
+
+/** What undo and redo take back and do again. */
+type ChartSnapshot = { drawings: Drawing[]; indicators: IndicatorInstance[] };
+
+/** TradingView's undo arrow (redo is its mirror). */
+function UndoIcon({ redo = false }: { redo?: boolean }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={redo ? { transform: "scaleX(-1)" } : undefined} aria-hidden>
+      <path d="M4.5 7.5h7.25a3.25 3.25 0 0 1 0 6.5H9" />
+      <path d="M7.5 4.5l-3 3 3 3" />
+    </svg>
+  );
+}
+
 export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const symbol = useWidgetSymbol(widget);
   const setWidgetIndicators = useTerminal((s) => s.setWidgetIndicators);
@@ -251,8 +268,30 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
 
   // ---- drawings (lib/drawings): saved with the chart, per symbol, as on TradingView ----
   const [allDrawings, setAllDrawings] = useWidgetSetting<Record<string, Drawing[]>>("drawings", {});
-  const drawings = useMemo(() => allDrawings[symbol] ?? [], [allDrawings, symbol]);
-  const setDrawings = (f: (list: Drawing[]) => Drawing[]) => setAllDrawings((all) => ({ ...all, [symbol]: f(all[symbol] ?? []) }));
+  const drawings = useMemo(() => allDrawings[symbol] ?? NO_DRAWINGS, [allDrawings, symbol]);
+  const writeDrawings = (f: (list: Drawing[]) => Drawing[]) => setAllDrawings((all) => ({ ...all, [symbol]: f(all[symbol] ?? []) }));
+
+  // ---- undo / redo (lib/undo), as TradingView's: the drawings and the indicators ----
+  const historyRef = useRef(new History<ChartSnapshot>());
+  const [, historyChanged] = useReducer((n: number) => n + 1, 0);
+  /** The drawings and indicators as they are now (ahead of the next render after a change). */
+  const snapRef = useRef<ChartSnapshot>({ drawings, indicators: latestIndicators(widget.id) });
+  snapRef.current = { drawings, indicators: latestIndicators(widget.id) };
+  const remember = (before: ChartSnapshot, after: ChartSnapshot, label: string) => {
+    historyRef.current.record(before, label);
+    snapRef.current = after;
+    historyChanged();
+  };
+  /** Every change to the drawings goes here, to be undone. */
+  const setDrawings = (f: (list: Drawing[]) => Drawing[]) => {
+    const before = snapRef.current;
+    const after = f(before.drawings);
+    if (after !== before.drawings) {
+      const label = describeChange(before.drawings, after, (d) => d.id, (d) => d.name || TOOL_BY_ID.get(d.tool)?.label || "drawing", "drawings");
+      remember(before, { ...before, drawings: after }, label);
+    }
+    writeDrawings(f);
+  };
   const [tool, setTool] = useState<ToolId | null>(null);
   const [lastTool, setLastTool] = useWidgetSetting<Partial<Record<ToolGroup, ToolId>>>("drawLastTool", {});
   const [magnet, setMagnet] = useWidgetSetting("drawMagnet", false);
@@ -320,7 +359,40 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   };
 
   const instances = (widget.indicators ?? DEFAULT_CHART_INDICATORS).filter((i) => INDICATOR_BY_ID.has(i.id));
-  const saveInstances = (next: IndicatorInstance[]) => setWidgetIndicators(widget.id, next);
+  /** Every change to the indicators goes here, to be undone. */
+  const saveInstances = (next: IndicatorInstance[]) => {
+    const before = snapRef.current;
+    const label = describeChange(before.indicators, next, (i) => i.uid, (i) => INDICATOR_BY_ID.get(i.id)?.name ?? i.id, "indicators");
+    remember(before, { ...before, indicators: next }, label);
+    setWidgetIndicators(widget.id, next);
+  };
+  /** Back to a state undo or redo gives: what's being placed or selected that's gone goes too. */
+  const restore = (s: ChartSnapshot) => {
+    const now = snapRef.current;
+    if (s.drawings !== now.drawings) writeDrawings(() => s.drawings);
+    if (s.indicators !== now.indicators) setWidgetIndicators(widget.id, s.indicators);
+    snapRef.current = s;
+    placingRef.current = null;
+    placingRef.pane = null;
+    for (const l of layersRef.current) l.setLive(null);
+    if (selectedDrawing && !s.drawings.some((d) => d.id === selectedDrawing)) setSelectedDrawing(null);
+    historyChanged();
+  };
+  const undo = () => {
+    const s = historyRef.current.undo(snapRef.current);
+    if (s) restore(s);
+  };
+  const redo = () => {
+    const s = historyRef.current.redo(snapRef.current);
+    if (s) restore(s);
+  };
+  const undoLabel = historyRef.current.undoLabel();
+  const redoLabel = historyRef.current.redoLabel();
+  // Another symbol has its own drawings: what was done to the last one isn't undone on this one.
+  useEffect(() => {
+    historyRef.current.clear();
+    historyChanged();
+  }, [symbol]);
   const poll = usePoll(() => {
     const live = isCryptoSymbol(symbol) || usSessionActive();
     const seconds = INTERVAL_SECONDS[interval];
@@ -999,6 +1071,13 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
 
   // TradingView's chart hotkeys while the chart has focus (it takes focus when clicked).
   const onChartKey = (e: React.KeyboardEvent) => {
+    // Ctrl+Z undoes, Ctrl+Y (or Ctrl+Shift+Z) redoes.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) {
+      e.preventDefault();
+      if (e.key.toLowerCase() === "y" || e.shiftKey) redo();
+      else undo();
+      return;
+    }
     // Drawings: Esc leaves the tool (or the selection), Delete removes the selected one.
     if (e.key === "Escape" && (tool || selectedDrawing)) {
       e.preventDefault();
@@ -1051,6 +1130,25 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         </button>
         <button className="term-btn" onClick={() => setSettingsOpen(true)} title="Chart settings">
           ⚙
+        </button>
+        <span className="w-2" />
+        <button
+          className="term-btn !px-1.5 disabled:opacity-30 disabled:pointer-events-none"
+          onClick={undo}
+          disabled={!undoLabel}
+          title={undoLabel ? `Undo ${undoLabel} (Ctrl+Z)` : "Nothing to undo"}
+          aria-label="Undo"
+        >
+          <UndoIcon />
+        </button>
+        <button
+          className="term-btn !px-1.5 disabled:opacity-30 disabled:pointer-events-none"
+          onClick={redo}
+          disabled={!redoLabel}
+          title={redoLabel ? `Redo ${redoLabel} (Ctrl+Y)` : "Nothing to redo"}
+          aria-label="Redo"
+        >
+          <UndoIcon redo />
         </button>
       </div>
       {/* A failed refresh keeps the chart that's on screen; the error shows only when there is none. */}
