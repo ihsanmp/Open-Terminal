@@ -9,8 +9,8 @@ import { useWidgetSetting } from "../../store/terminal";
 // a Bitcoin transfer between named wallets, a big trade on Binance, a US insider's trade, and the
 // big institutions' buys and sales (spot ETFs' daily flows, treasury companies' 8-K reports).
 
-type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" };
-type Category = "onchain" | "exchange" | "insider" | "institution";
+type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" | "whale" };
+type Category = "onchain" | "exchange" | "insider" | "institution" | "whale";
 type Row = {
   id: string;
   category: Category;
@@ -42,16 +42,20 @@ function PartyCell({ p }: { p: Party }) {
   const named = Boolean(p.name);
   return (
     <span className="min-w-0 truncate flex items-baseline gap-1" title={[p.name, p.role, p.address].filter(Boolean).join(" · ")}>
-      <span className={`inline-block w-[7px] h-[7px] rounded-full shrink-0 self-center ${p.tag ? "bg-[var(--amber)]" : named ? "bg-[#5b9cf6]" : "bg-[#404040]"}`} />
-      {p.tag && <span className="text-fs-9 px-1 border border-[var(--amber)] amber shrink-0">{p.tag === "etf" ? "ETF" : "8-K"}</span>}
-      <span className={p.tag ? "amber font-bold" : named ? "text-[var(--text)]" : "dim"}>{p.name ?? (p.address ? short(p.address) : "Tidak diketahui")}</span>
+      <span className={`inline-block w-[7px] h-[7px] rounded-full shrink-0 self-center ${p.tag === "whale" ? "bg-[#b388ff]" : p.tag ? "bg-[var(--amber)]" : named ? "bg-[#5b9cf6]" : "bg-[#404040]"}`} />
+      {p.tag && (
+        <span className={`text-fs-9 px-1 border shrink-0 ${p.tag === "whale" ? "border-[#b388ff] text-[#b388ff]" : "border-[var(--amber)] amber"}`}>
+          {p.tag === "etf" ? "ETF" : p.tag === "treasury" ? "8-K" : "WHALE"}
+        </span>
+      )}
+      <span className={p.tag === "whale" ? "text-[#b388ff] font-bold" : p.tag ? "amber font-bold" : named ? "text-[var(--text)]" : "dim"}>{p.name ?? (p.address ? short(p.address) : "Tidak diketahui")}</span>
       {p.name && p.address && <span className="dim text-fs-10">({short(p.address)})</span>}
       {p.role && <span className="dim text-fs-10">{p.role}</span>}
     </span>
   );
 }
 
-const OWN_LABEL: Record<Category, string> = { onchain: "ON-CHAIN", exchange: "BINANCE", insider: "INSIDER", institution: "INSTITUSI" };
+const OWN_LABEL: Record<Category, string> = { onchain: "ON-CHAIN", exchange: "BINANCE", insider: "INSIDER", institution: "INSTITUSI", whale: "WHALE" };
 
 export default function TransfersList({ symbol }: { symbol: string }) {
   const poll = usePoll(15_000);
@@ -66,7 +70,7 @@ export default function TransfersList({ symbol }: { symbol: string }) {
   if (data.kind === "none") return <div className="dim">{data.note}</div>;
 
   // The kinds this asset has, institutions first: each a filter.
-  const kinds = (["institution", "onchain", "exchange", "insider"] as Category[]).filter((k) => data.rows.some((r) => r.category === k));
+  const kinds = (["institution", "whale", "onchain", "exchange", "insider"] as Category[]).filter((k) => data.rows.some((r) => r.category === k));
   const shown = only === "all" || !kinds.includes(only) ? data.rows : data.rows.filter((r) => r.category === only);
 
   return (
@@ -77,7 +81,12 @@ export default function TransfersList({ symbol }: { symbol: string }) {
             SEMUA <span className="dim">{data.rows.length}</span>
           </button>
           {kinds.map((k) => (
-            <button key={k} className={`term-btn ${only === k ? "active" : ""}`} onClick={() => setOnly(k)} title={k === "institution" ? "ETF spot (BlackRock, Fidelity, Grayscale …) dan perusahaan treasury (Strategy, MARA …)" : undefined}>
+            <button
+              key={k}
+              className={`term-btn ${only === k ? "active" : ""}`}
+              onClick={() => setOnly(k)}
+              title={k === "institution" ? "ETF spot (BlackRock, Fidelity, Grayscale …) dan perusahaan treasury (Strategy, MARA …)" : k === "whale" ? "Wallet Ethereum yang dipantau (Vitalik, Justin Sun, Binance …)" : undefined}
+            >
               {OWN_LABEL[k]} <span className="dim">{data.rows.filter((r) => r.category === k).length}</span>
             </button>
           ))}
@@ -113,7 +122,7 @@ export default function TransfersList({ symbol }: { symbol: string }) {
           );
           const cls = "flex items-baseline gap-3 px-2 py-1.5 border-b border-[#161616] hover:bg-[#161616]";
           return r.link ? (
-            <a key={r.id} href={r.link} target="_blank" rel="noreferrer" className={cls} title={r.category === "onchain" ? "Buka transaksi di mempool.space" : "Buka sumbernya"}>
+            <a key={r.id} href={r.link} target="_blank" rel="noreferrer" className={cls} title={r.category === "onchain" ? "Buka transaksi di mempool.space" : r.category === "whale" ? "Buka transaksi di Etherscan" : "Buka sumbernya"}>
               {body}
             </a>
           ) : (
@@ -124,6 +133,11 @@ export default function TransfersList({ symbol }: { symbol: string }) {
         })}
       </div>
       {data.note && <div className="dim text-fs-10 leading-relaxed">{data.note}</div>}
+      {kinds.includes("whale") && (
+        <div className="dim text-fs-10 leading-relaxed">
+          Whale: transfer ≥ $50.000 dari/ke wallet Ethereum yang dipantau (Vitalik Buterin, Justin Sun, Binance Hot Wallet 1 &amp; Cold Storage, Arbitrum Sequencer Inbox), dari Blockscout. Wallet lain bisa ditambahkan di data/watched-wallets.json.
+        </div>
+      )}
       {kinds.includes("institution") && (
         <div className="dim text-fs-10 leading-relaxed">
           Institusi: arus harian tiap ETF spot (BlackRock IBIT, Fidelity FBTC, Grayscale GBTC …) dari Farside, dalam koin pada harga penutupan hari itu; dan pembelian/penjualan perusahaan treasury (Strategy, MARA, Strive, BitMine …) dari laporan 8-K mereka ke SEC.

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { nameOf, parseRichList } from "./addresslabels.js";
 import { amountOf, mergeFlows, parseFarside } from "./etfflows.js";
-import { bigTrades, btcRow, etfRow, insiderRow, isUsTicker, treasuryRow } from "./transfers.js";
+import { toTransfers } from "./evmwhales.js";
+import { bigTrades, btcRow, etfRow, insiderRow, isUsTicker, treasuryRow, whaleRow } from "./transfers.js";
 import { partiesOf } from "./whales.js";
 
 describe("transaction history", () => {
@@ -93,5 +94,24 @@ describe("transaction history", () => {
     expect(strategy).toMatchObject({ from: { name: "Pasar" }, to: { name: "Strategy", role: "MSTR", tag: "treasury" }, amount: 1200, side: "buy", link: "https://www.sec.gov/x" });
     const sale = treasuryRow({ company: "MARA", ticker: "MARA", asset: "BTC", time: 1_790_000_000, amount: -50, usd: null, avgPrice: null, holdings: null, url: "u" });
     expect(sale).toMatchObject({ from: { name: "MARA", tag: "treasury" }, to: { name: "Pasar" }, amount: 50, side: "sell" });
+  });
+  it("names a watched wallet's transfers of $50,000 or more", () => {
+    const rows = toTransfers([
+      { hash: "0xa", timeStamp: "1791600000", from: "0x28C6c06298d514Db089934071355E5743bf21d60", to: "0xAbC", value: "30000000000000000000", isError: "0" },
+      { hash: "0xb", timeStamp: "1791600000", from: "0xabc", to: "0xd8da6bf26964af9d7eed9e03e53415d37aa96045", value: "5000000000000000000" },
+      { hash: "0xc", timeStamp: "1791600000", from: "0xabc", to: "0xdef", value: "100", isError: "1" },
+      { hash: "0xd", timeStamp: "1791600000", from: "0xabc", to: "0xdef", value: "2500000", tokenSymbol: "usdt", tokenDecimal: "6", contractAddress: "0xDAC" },
+    ]);
+    expect(rows.map((r) => [r.hash, r.amount, r.symbol])).toEqual([["0xa", 30, "ETH"], ["0xb", 5, "ETH"], ["0xd", 2.5, "USDT"]]);
+    const wallets = [
+      { address: "0x28C6c06298d514Db089934071355E5743bf21d60", name: "Binance (Hot Wallet 1)", kind: "exchange" as const },
+      { address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", name: "Vitalik Buterin (vitalik.eth)", kind: "individual" as const },
+    ];
+    const out = whaleRow(rows[0], wallets, () => 2500)!;
+    expect(out).toMatchObject({ category: "whale", from: { name: "Binance (Hot Wallet 1)", tag: "whale", role: "exchange" }, to: { name: null, address: "0xabc" }, usd: 75_000, side: "sell", note: "keluar whale" });
+    expect(out.link).toBe("https://etherscan.io/tx/0xa");
+    // $12,500 is under the floor.
+    expect(whaleRow(rows[1], wallets, () => 2500)).toBeNull();
+    expect(whaleRow(rows[1], wallets, () => 20_000)).toMatchObject({ to: { name: "Vitalik Buterin (vitalik.eth)" }, side: "buy", note: "masuk whale" });
   });
 });
