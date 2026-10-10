@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { apiGet, fmt, fmtBig, fmtPrice } from "../../lib/api";
 import { usePoll } from "../../lib/refresh";
 import { useWidgetSetting } from "../../store/terminal";
@@ -25,7 +26,66 @@ type Row = {
   note?: string;
   link?: string;
 };
-type Transfers = { kind: "onchain" | "exchange" | "insider" | "none"; source: string; rows: Row[]; note?: string };
+type Wallet = { name: string; address: string; chain: "BTC" | "ETH"; kind: string; link: string };
+type Transfers = { kind: "onchain" | "exchange" | "insider" | "none"; source: string; rows: Row[]; note?: string; wallets?: Wallet[] };
+
+const KIND_LABEL: Record<string, string> = {
+  exchange: "Exchange",
+  individual: "Individu",
+  bridge: "Bridge",
+  fund: "Dana",
+  government: "Pemerintah (sitaan)",
+  hack: "Hasil hack",
+};
+
+/** The named wallets of the coin's chain, each with its full address to copy or open. */
+function WalletDirectory({ wallets }: { wallets: Wallet[] }) {
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = (address: string) => {
+    void navigator.clipboard?.writeText(address).then(() => {
+      setCopied(address);
+      setTimeout(() => setCopied((c) => (c === address ? null : c)), 1500);
+    });
+  };
+  const chain = wallets[0]?.chain;
+  return (
+    <div className="border border-[var(--border)] max-h-[calc(16rem*var(--font-scale))] overflow-auto">
+      <div className="px-2 py-1 dim text-fs-10 uppercase tracking-wider border-b border-[var(--border)] flex justify-between sticky top-0 bg-[var(--panel)] z-[1]">
+        <span>
+          Alamat wallet yang dikenali · {chain === "BTC" ? "Bitcoin" : "Ethereum"} ({wallets.length})
+        </span>
+        <span className="normal-case">{chain === "BTC" ? "label: bitinfocharts" : "dipantau · data/watched-wallets.json"}</span>
+      </div>
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th className="!text-left">Nama</th>
+            <th className="!text-left">Jenis</th>
+            <th className="!text-left">Alamat wallet</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {wallets.map((w) => (
+            <tr key={w.address}>
+              <td className="!text-left text-[var(--text)]">{w.name}</td>
+              <td className="!text-left dim">{KIND_LABEL[w.kind] ?? w.kind}</td>
+              <td className="!text-left font-mono select-all break-all !whitespace-normal">{w.address}</td>
+              <td className="whitespace-nowrap">
+                <button className="term-btn !px-1.5 !py-0" onClick={() => copy(w.address)} title="Salin alamat">
+                  {copied === w.address ? "✓ disalin" : "salin"}
+                </button>{" "}
+                <a href={w.link} target="_blank" rel="noreferrer" className="term-btn !px-1.5 !py-0 inline-block" title={chain === "BTC" ? "Buka di mempool.space" : "Buka di Etherscan"}>
+                  ↗
+                </a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 const short = (a: string) => (a.length > 14 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a);
 
@@ -70,7 +130,10 @@ export default function TransfersList({ symbol }: { symbol: string }) {
   if (data.kind === "none") return <div className="dim">{data.note}</div>;
 
   // The kinds this asset has, institutions first: each a filter.
-  const kinds = (["institution", "whale", "onchain", "exchange", "insider"] as Category[]).filter((k) => data.rows.some((r) => r.category === k));
+  // The institutions' filter shows the named wallets too, so it's there whenever there are some.
+  const kinds = (["institution", "whale", "onchain", "exchange", "insider"] as Category[]).filter(
+    (k) => data.rows.some((r) => r.category === k) || (k === "institution" && (data.wallets?.length ?? 0) > 0)
+  );
   const shown = only === "all" || !kinds.includes(only) ? data.rows : data.rows.filter((r) => r.category === only);
 
   return (
@@ -92,6 +155,7 @@ export default function TransfersList({ symbol }: { symbol: string }) {
           ))}
         </div>
       )}
+      {(only === "institution" || only === "whale") && kinds.includes(only) && data.wallets && data.wallets.length > 0 && <WalletDirectory wallets={data.wallets} />}
       <div className="dim text-fs-10">
         {shown.length} transaksi · sumber: {data.source}
       </div>

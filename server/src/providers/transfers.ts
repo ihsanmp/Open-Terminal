@@ -18,7 +18,7 @@
 import * as binance from "./binance.js";
 import { btcLabels } from "./addresslabels.js";
 import { etfFlows, type EtfFlow } from "./etfflows.js";
-import { whaleTransfers, type EvmTransfer, type Watched } from "./evmwhales.js";
+import { watchedWallets, whaleTransfers, type EvmTransfer, type Watched } from "./evmwhales.js";
 import * as secedgar from "./secedgar.js";
 import { treasuryTrades, type TreasuryTrade } from "./treasuries.js";
 import * as whales from "./whales.js";
@@ -40,7 +40,9 @@ export type TransferRow = {
   note?: string;
   link?: string;
 };
-export type Transfers = { kind: "onchain" | "exchange" | "insider" | "none"; source: string; rows: TransferRow[]; note?: string };
+/** A wallet the list can name, with its full address, for the institutions' directory. */
+export type KnownWallet = { name: string; address: string; chain: "BTC" | "ETH"; kind: string; link: string };
+export type Transfers = { kind: "onchain" | "exchange" | "insider" | "none"; source: string; rows: TransferRow[]; note?: string; wallets?: KnownWallet[] };
 
 // ---------------------------------------------------------------- bitcoin
 
@@ -327,6 +329,24 @@ async function whaleRows(base: string): Promise<TransferRow[]> {
   return transfers.map((t) => whaleRow(t, wallets, closeOn)).filter((r): r is TransferRow => r !== null);
 }
 
+// ---------------------------------------------------------------- the wallets known
+
+/** The named wallets of a coin's chain: Bitcoin's from the rich list, Ethereum's watched list. */
+export function knownWallets(base: string): KnownWallet[] {
+  if (base === "BTC") {
+    return Object.entries(btcLabels())
+      .map(([address, name]) => ({
+        name,
+        address,
+        chain: "BTC" as const,
+        kind: /confiscated|gov|fbi/i.test(name) ? "government" : /hack/i.test(name) ? "hack" : /^mr\./i.test(name) ? "individual" : "exchange",
+        link: `https://mempool.space/address/${address}`,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return watchedWallets().map((w) => ({ name: w.name, address: w.address, chain: "ETH" as const, kind: w.kind, link: `https://etherscan.io/address/${w.address}` }));
+}
+
 // ---------------------------------------------------------------- the asset's
 
 /** A US-listed stock or ETF: a bare ticker (no exchange suffix, index or FX mark). */
@@ -345,7 +365,7 @@ export async function transfersOf(symbol: string, base: string | null, onBinance
       ]
         .filter(Boolean)
         .join(" · ");
-      return { kind: list?.kind ?? "exchange", source: sources, rows, note: list?.note };
+      return { kind: list?.kind ?? "exchange", source: sources, rows, note: list?.note, wallets: knownWallets(base) };
     }
   }
   if (!base && isUsTicker(symbol)) return insiderTransfers(symbol);
