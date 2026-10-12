@@ -20,7 +20,7 @@ async function edgarFetch(url: string): Promise<any> {
 let tickerMap: Map<string, string> | null = null;
 
 /** Ticker -> zero-padded 10-digit CIK, from SEC's full company list (cached in-process). */
-async function resolveCik(symbol: string): Promise<string | null> {
+export async function resolveCik(symbol: string): Promise<string | null> {
   if (!tickerMap) {
     const data = await edgarFetch("https://www.sec.gov/files/company_tickers.json");
     tickerMap = new Map();
