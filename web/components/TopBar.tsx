@@ -28,7 +28,7 @@ function Clocks() {
   return (
     <>
       {CLOCKS.map((c) => (
-        <span key={c.label} className="dim">
+        <span key={c.label} className={`dim ${c.label === "NY" ? "" : "max-sm:hidden"}`}>
           {c.label} <span className="text-[var(--text)]">{c.format.format(now)}</span>
         </span>
       ))}
@@ -54,12 +54,12 @@ export default function TopBar() {
   const healthy = status?.providers.filter((p) => p.ok > 0) ?? [];
 
   return (
-    <header className="flex items-center gap-4 px-3 h-8 bg-[var(--panel-2)] border-b border-[var(--border)] text-fs-11 shrink-0">
+    <header className="flex items-center gap-4 px-3 h-8 bg-[var(--panel-2)] border-b border-[var(--border)] text-fs-11 shrink-0 portrait:flex-wrap portrait:h-auto portrait:min-h-8 portrait:py-1 portrait:gap-x-3 portrait:gap-y-1">
       <span className="amber font-bold tracking-widest">OPENTERMINAL</span>
       <span className={market.open ? "up" : "down"}>● {market.label}</span>
       <Clocks />
       <button
-        className="term-btn flex-1 max-w-md text-left dim"
+        className="term-btn flex-1 max-w-md text-left dim min-w-[10rem] truncate"
         onClick={() => setCommandOpen(true)}
       >
         {activeSymbol} — search symbol… <span className="float-right">⌘K</span>
@@ -73,7 +73,7 @@ export default function TopBar() {
           ⧉ Window
         </button>
       </span>
-      <span className="dim ml-auto">
+      <span className="dim ml-auto max-sm:hidden">
         feeds:{" "}
         {healthy.length > 0
           ? healthy.map((p) => `${p.name} ${p.lastLatencyMs ?? "—"}ms`).join(" · ")

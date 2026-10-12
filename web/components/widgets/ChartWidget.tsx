@@ -250,7 +250,7 @@ function ChartClock({ zone }: { zone: string }) {
   }
   return (
     <span className="tabular-nums">
-      {text} <span className="dim">{zone.replace(/_/g, " ")}</span>
+      {text} <span className="dim max-sm:hidden">{zone.replace(/_/g, " ")}</span>
     </span>
   );
 }
@@ -1315,7 +1315,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
               return (
                 candle && (
           <div className="absolute top-1 left-2 z-10 flex flex-col gap-0.5 text-fs-11 pointer-events-none max-w-[85%]">
-            <div className="flex gap-3 bg-[rgba(10,10,10,0.7)] w-fit px-1">
+            <div className="flex flex-wrap gap-x-3 bg-[rgba(10,10,10,0.7)] w-fit px-1 [&>span]:whitespace-nowrap">
               <span className="dim">
                 <span className="amber">{INTERVAL_LABEL[interval]}</span> {formatChartTime(candle.time, isIntradayInterval(intervalSeconds), timezone)}
               </span>
@@ -1524,7 +1524,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       </div>
       </div>
       {/* TradingView's date-range buttons: an interval and a span together. */}
-      <div className="flex items-center gap-0.5 px-1 h-6 border-t border-[var(--border)] shrink-0 text-fs-10">
+      <div className="flex items-center gap-0.5 px-1 h-6 border-t border-[var(--border)] shrink-0 text-fs-10 overflow-hidden whitespace-nowrap">
         {RANGE_PRESETS.map((p) => (
           <button
             key={p.label}

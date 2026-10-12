@@ -251,7 +251,7 @@ function Details({ symbol, market, onOpen }: { symbol: string; market: string; o
 }
 
 /** The panel itself; `symbol` is the chart's, `onPick` loads another into the chart. */
-export default function WatchlistPanel({ symbol, onPick, onHide }: { symbol: string; onPick: (s: string) => void; onHide: () => void }) {
+export default function WatchlistPanel({ symbol, onPick, onHide, below }: { symbol: string; onPick: (s: string) => void; onHide: () => void; below?: boolean }) {
   const watchlist = useTerminal((s) => s.watchlist);
   const addToWatchlist = useTerminal((s) => s.addToWatchlist);
   const removeFromWatchlist = useTerminal((s) => s.removeFromWatchlist);
@@ -314,8 +314,10 @@ export default function WatchlistPanel({ symbol, onPick, onHide }: { symbol: str
         </button>
       </div>
       {adding && <AddSymbol kind={kind} onAdd={addToWatchlist} onClose={() => setAdding(false)} />}
-      {/* As tall as its rows (up to 60%, then it scrolls); the details fill the rest, right below. */}
-      <div className="shrink min-h-[5rem] max-h-[60%] overflow-auto">
+      {/* As tall as its rows (up to 60%, then it scrolls); the details fill the rest, right below.
+          Below the chart (upright), the two sit side by side, each scrolling on its own. */}
+      <div className={below ? "flex flex-1 min-h-0 max-sm:flex-col" : "contents"}>
+      <div className={below ? "flex-1 min-w-0 min-h-0 overflow-auto" : "shrink min-h-[5rem] max-h-[60%] overflow-auto"}>
         <table className="w-full border-collapse">
           <thead className="sticky top-0 bg-[var(--panel)] z-[1]">
             <tr className="dim text-fs-11">
@@ -381,8 +383,9 @@ export default function WatchlistPanel({ symbol, onPick, onHide }: { symbol: str
         </table>
         {listed.length === 0 && <div className="dim p-3">Nothing listed here yet: “+” adds a symbol.</div>}
       </div>
-      <div className="flex-1 min-h-[40%] overflow-auto border-t border-[var(--border)]">
+      <div className={below ? "w-[45%] max-sm:w-auto max-sm:flex-1 min-h-0 overflow-auto border-l max-sm:border-l-0 max-sm:border-t border-[var(--border)]" : "flex-1 min-h-[40%] overflow-auto border-t border-[var(--border)]"}>
         <Details symbol={bench.symbol} market={bench.market} onOpen={() => onPick(bench.symbol)} />
+      </div>
       </div>
     </div>
   );

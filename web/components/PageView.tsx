@@ -4,9 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { useTerminal, WidgetIdContext, type WidgetInstance, type WidgetType } from "../store/terminal";
 import { SYMBOL_AWARE, SymbolTag, TITLES, WidgetBody } from "./Workspace";
 import WatchlistPanel from "./chart/WatchlistPanel";
+import { usePortrait } from "../lib/use-portrait";
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 640;
+// Upright, the panel sits below the chart: its height, as a share of the page's.
+const MIN_HEIGHT = 0.15;
+const MAX_HEIGHT = 0.7;
 
 /** A watchlist icon for the right-hand toolbar, as TradingView's. */
 function WatchlistIcon() {
@@ -21,8 +25,10 @@ function WatchlistIcon() {
 /**
  * The chart page's right side: the Watchlist panel (shown or hidden from the toolbar strip at the
  * edge, its width dragged at its left edge; both remembered with the page) and the strip itself.
+ * Upright (portrait) it's the bottom: the panel below the chart, its height dragged at its top.
  */
 function ChartSide({ page }: { page: WidgetInstance }) {
+  const portrait = usePortrait();
   const setWidgetSetting = useTerminal((s) => s.setWidgetSetting);
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
   const setWidgetSymbol = useTerminal((s) => s.setWidgetSymbol);
@@ -32,10 +38,59 @@ function ChartSide({ page }: { page: WidgetInstance }) {
   const [width, setWidth] = useState(saved);
   const drag = useRef<{ x: number; w: number } | null>(null);
   useEffect(() => setWidth(saved), [saved]);
+  const savedShare = (page.settings?.watchlistShare as number | undefined) ?? 0.38;
+  const [share, setShare] = useState(savedShare);
+  useEffect(() => setShare(savedShare), [savedShare]);
+  const box = useRef<HTMLDivElement>(null);
 
   const symbol = page.linked ? activeSymbol : page.symbol ?? activeSymbol;
   const pick = (s: string) => (page.linked ? setActiveSymbol(s) : setWidgetSymbol(page.id, s));
   const setOpen = (v: boolean) => setWidgetSetting(page.id, "watchlistOpen", v);
+
+  const toggle = (
+    <button
+      className={`w-7 h-7 flex items-center justify-center rounded ${open ? "text-[var(--amber)] bg-[#1f1a10]" : "dim hover:text-[var(--text)]"}`}
+      title={open ? "Hide watchlist" : "Show watchlist"}
+      aria-label={open ? "Hide watchlist" : "Show watchlist"}
+      aria-pressed={open}
+      onClick={() => setOpen(!open)}
+    >
+      <WatchlistIcon />
+    </button>
+  );
+
+  if (portrait)
+    return (
+      <>
+        {open && (
+          <div ref={box} className="relative shrink-0 border-t border-[var(--border)] min-h-0" style={{ height: `${share * 100}%` }}>
+            <div
+              className="absolute -top-1 left-0 right-0 h-2 cursor-row-resize z-10 hover:bg-[var(--amber-dim)]/40"
+              title="Drag to resize"
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture(e.pointerId);
+                drag.current = { x: e.clientY, w: share };
+              }}
+              onPointerMove={(e) => {
+                const page = box.current?.parentElement;
+                if (!drag.current || !page) return;
+                const next = drag.current.w + (drag.current.x - e.clientY) / page.clientHeight;
+                setShare(Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, next)));
+              }}
+              onPointerUp={() => {
+                if (!drag.current) return;
+                drag.current = null;
+                setWidgetSetting(page.id, "watchlistShare", share);
+              }}
+            />
+            <WidgetIdContext.Provider value={page.id}>
+              <WatchlistPanel symbol={symbol} onPick={pick} onHide={() => setOpen(false)} below />
+            </WidgetIdContext.Provider>
+          </div>
+        )}
+        <div className="h-9 shrink-0 border-t border-[var(--border)] bg-[var(--panel-2)] flex items-center px-1.5">{toggle}</div>
+      </>
+    );
 
   return (
     <>
@@ -63,17 +118,7 @@ function ChartSide({ page }: { page: WidgetInstance }) {
           </WidgetIdContext.Provider>
         </div>
       )}
-      <div className="w-9 shrink-0 border-l border-[var(--border)] bg-[var(--panel-2)] flex flex-col items-center pt-1.5">
-        <button
-          className={`w-7 h-7 flex items-center justify-center rounded ${open ? "text-[var(--amber)] bg-[#1f1a10]" : "dim hover:text-[var(--text)]"}`}
-          title={open ? "Hide watchlist" : "Show watchlist"}
-          aria-label={open ? "Hide watchlist" : "Show watchlist"}
-          aria-pressed={open}
-          onClick={() => setOpen(!open)}
-        >
-          <WatchlistIcon />
-        </button>
-      </div>
+      <div className="w-9 shrink-0 border-l border-[var(--border)] bg-[var(--panel-2)] flex flex-col items-center pt-1.5">{toggle}</div>
     </>
   );
 }
@@ -114,8 +159,8 @@ export default function PageView({ type }: { type: WidgetType }) {
   );
   if (type !== "chart") return <div className="h-full p-1">{panel}</div>;
   return (
-    <div className="h-full flex min-h-0">
-      <div className="flex-1 min-w-0 p-1">{panel}</div>
+    <div className="h-full flex min-h-0 portrait:flex-col">
+      <div className="flex-1 min-w-0 min-h-0 p-1">{panel}</div>
       <ChartSide page={page} />
     </div>
   );

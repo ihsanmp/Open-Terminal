@@ -7,6 +7,7 @@ import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { useTerminal, WidgetIdContext, type WidgetInstance } from "../store/terminal";
 import { WidgetVisibleContext } from "../lib/refresh";
+import { NARROW, useMedia } from "../lib/use-portrait";
 import MoneyFlowWidget from "./widgets/MoneyFlowWidget";
 import ChartWidget from "./widgets/ChartWidget";
 import WatchlistWidget from "./widgets/WatchlistWidget";
@@ -143,7 +144,59 @@ export default function Workspace() {
   const removeWidget = useTerminal((s) => s.removeWidget);
   const toggleLinked = useTerminal((s) => s.toggleLinked);
   const activeSymbol = useTerminal((s) => s.activeSymbol);
+  const narrow = useMedia(NARROW);
 
+  const panelOf = (w: WidgetInstance) => (
+    <div className="terminal-panel">
+      <div className="panel-title">
+        <span>
+          {TITLES[w.type]}
+          {SYMBOL_AWARE.has(w.type) && <SymbolTag widget={w} activeSymbol={activeSymbol} />}
+        </span>
+        <span className="flex gap-2 items-center">
+          {SYMBOL_AWARE.has(w.type) && (
+            <button
+              title={w.linked ? "Linked to active symbol (click to unlink)" : "Unlinked (click to link)"}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => toggleLinked(w.id)}
+              className={w.linked ? "text-[var(--amber)]" : "dim"}
+            >
+              ⛓
+            </button>
+          )}
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => removeWidget(w.id)}
+            className="dim hover:text-[var(--down)]"
+          >
+            ✕
+          </button>
+        </span>
+      </div>
+      <div className="flex-1 overflow-auto min-h-0">
+        <VisibilityScope>
+          <WidgetBody widget={w} />
+        </VisibilityScope>
+      </div>
+    </div>
+  );
+
+  // A phone-width window: the widgets one under another, full width, in the layout's order
+  // (top to bottom, left to right), each as tall as it is there. Moving and resizing stay with
+  // a wider window, so the saved layout isn't squeezed into one column.
+  if (narrow)
+    return (
+      <div className="flex flex-col gap-1 p-1">
+        {[...widgets]
+          .map((w) => ({ w, at: layout.find((l) => l.i === w.id) }))
+          .sort((a, b) => (a.at?.y ?? 0) - (b.at?.y ?? 0) || (a.at?.x ?? 0) - (b.at?.x ?? 0))
+          .map(({ w, at }) => (
+            <div key={w.id} style={{ height: Math.max(260, (at?.h ?? 8) * 34) }}>
+              {panelOf(w)}
+            </div>
+          ))}
+      </div>
+    );
 
   return (
     <Grid
@@ -157,38 +210,7 @@ export default function Workspace() {
     >
       {widgets.map((w) => (
         <div key={w.id}>
-          <div className="terminal-panel">
-            <div className="panel-title">
-              <span>
-                {TITLES[w.type]}
-                {SYMBOL_AWARE.has(w.type) && <SymbolTag widget={w} activeSymbol={activeSymbol} />}
-              </span>
-              <span className="flex gap-2 items-center">
-                {SYMBOL_AWARE.has(w.type) && (
-                  <button
-                    title={w.linked ? "Linked to active symbol (click to unlink)" : "Unlinked (click to link)"}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={() => toggleLinked(w.id)}
-                    className={w.linked ? "text-[var(--amber)]" : "dim"}
-                  >
-                    ⛓
-                  </button>
-                )}
-                <button
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={() => removeWidget(w.id)}
-                  className="dim hover:text-[var(--down)]"
-                >
-                  ✕
-                </button>
-              </span>
-            </div>
-            <div className="flex-1 overflow-auto min-h-0">
-              <VisibilityScope>
-                <WidgetBody widget={w} />
-              </VisibilityScope>
-            </div>
-          </div>
+          {panelOf(w)}
         </div>
       ))}
     </Grid>
