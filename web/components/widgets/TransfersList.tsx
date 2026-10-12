@@ -301,24 +301,24 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
           const value = r.usd === null ? "—" : r.currency ? `${r.currency} ${fmtBig(r.usd)}` : `$${fmtBig(r.usd)}`;
           const body = (
             <>
-              <span className="w-[96px] shrink-0 text-[#5b9cf6] tabular-nums whitespace-nowrap" title={new Date(r.time * 1000).toLocaleString("id-ID")}>
+              <span className="w-[96px] max-sm:w-auto shrink-0 text-[#5b9cf6] tabular-nums whitespace-nowrap" title={new Date(r.time * 1000).toLocaleString("id-ID")}>
                 {ago(r.time)}
               </span>
-              <span className="flex-1 min-w-0 grid grid-cols-[minmax(0,1fr)_14px_minmax(0,1fr)] gap-2 items-baseline">
+              <span className="flex-1 min-w-0 max-sm:basis-full max-sm:order-first grid grid-cols-[minmax(0,1fr)_14px_minmax(0,1fr)] gap-2 items-baseline">
                 <PartyCell p={r.from} />
                 <span className="dim">→</span>
                 <PartyCell p={r.to} />
               </span>
-              {r.note && <span className="dim text-fs-10 shrink-0 w-[96px] truncate">{r.note}</span>}
-              {r.side && !r.note && <span className={`${color} text-fs-10 shrink-0 w-[40px] uppercase`}>{r.side === "buy" ? "beli" : "jual"}</span>}
-              <span className={`${color} shrink-0 w-[110px] text-right tabular-nums ${r.big ? "font-bold" : ""}`}>
+              {r.note && <span className="dim text-fs-10 shrink-0 w-[96px] max-sm:w-auto truncate">{r.note}</span>}
+              {r.side && !r.note && <span className={`${color} text-fs-10 shrink-0 w-[40px] max-sm:w-auto uppercase`}>{r.side === "buy" ? "beli" : "jual"}</span>}
+              <span className={`${color} shrink-0 w-[110px] max-sm:w-auto max-sm:ml-auto text-right tabular-nums ${r.big ? "font-bold" : ""}`}>
                 {r.category === "tape" && r.amount === 0 ? "—" : r.amount >= 1000 ? fmtBig(r.amount) : fmt(r.amount, r.amount >= 100 || r.category === "tape" ? 0 : 2)} <span className="dim">{r.unit}</span>
               </span>
-              {r.price !== undefined && <span className="dim shrink-0 w-[84px] text-right tabular-nums">{r.price ? `@ ${fmtPrice(r.price)}` : ""}</span>}
-              <span className={`shrink-0 w-[84px] text-right tabular-nums ${r.big ? "amber font-bold" : "text-[var(--text)]"}`}>{value}</span>
+              {r.price !== undefined && <span className="dim shrink-0 w-[84px] max-sm:w-auto text-right tabular-nums">{r.price ? `@ ${fmtPrice(r.price)}` : ""}</span>}
+              <span className={`shrink-0 w-[84px] max-sm:w-auto text-right tabular-nums ${r.big ? "amber font-bold" : "text-[var(--text)]"}`}>{value}</span>
             </>
           );
-          const cls = "flex items-baseline gap-3 px-2 py-1.5 border-b border-[#161616] hover:bg-[#161616]";
+          const cls = "flex items-baseline gap-3 max-sm:flex-wrap max-sm:gap-y-0.5 px-2 py-1.5 border-b border-[#161616] hover:bg-[#161616]";
           return r.link ? (
             <a key={r.id} href={r.link} target="_blank" rel="noreferrer" className={cls} title={r.category === "onchain" ? "Buka transaksi di mempool.space" : r.category === "whale" ? "Buka transaksi di Etherscan" : "Buka sumbernya"}>
               {body}

@@ -102,10 +102,11 @@ export default function Terminal() {
     <div className="flex flex-col h-screen">
       <TopBar />
       <TabBar />
-      <div className="flex flex-1 overflow-hidden">
+      {/* Upright (portrait), the menu runs across the top instead of down the side. */}
+      <div className="flex flex-1 overflow-hidden portrait:flex-col">
         <Sidebar />
         {/* A tab starts fresh: its charts don't inherit the last tab's zoom and scroll. */}
-        <main key={activeTab} className="flex-1 overflow-auto">
+        <main key={activeTab} className="flex-1 min-h-0 overflow-auto">
           {view === "workspace" ? <Workspace /> : <PageView key={view} type={view} />}
         </main>
       </div>

@@ -37,7 +37,7 @@ function Item({ view, current, label, hint, onAdd }: { view: View; current: View
     <div
       role="button"
       onClick={() => setView(view)}
-      className={`group flex items-center justify-between px-2 py-1.5 text-fs-11 cursor-pointer border-l-2 ${
+      className={`group flex items-center justify-between px-2 py-1.5 text-fs-11 cursor-pointer border-l-2 portrait:border-l-0 portrait:border-b-2 portrait:shrink-0 portrait:whitespace-nowrap portrait:gap-1.5 ${
         active ? "border-[var(--amber)] bg-[#1a1a1a] text-[var(--amber)]" : "border-transparent hover:bg-[#1a1a1a] hover:text-[var(--amber)]"
       }`}
     >
@@ -55,7 +55,7 @@ function Item({ view, current, label, hint, onAdd }: { view: View; current: View
             +
           </button>
         )}
-        <span className="dim text-fs-9">{hint}</span>
+        <span className="dim text-fs-9 portrait:hidden">{hint}</span>
       </span>
     </div>
   );
@@ -69,7 +69,7 @@ export default function Sidebar() {
   const menu = shownMenu(useAiAvailable());
 
   return (
-    <nav className="w-[calc(8rem*var(--font-scale))] bg-[var(--panel)] border-r border-[var(--border)] flex flex-col shrink-0 overflow-auto">
+    <nav className="w-[calc(8rem*var(--font-scale))] bg-[var(--panel)] border-r border-[var(--border)] flex flex-col shrink-0 overflow-auto portrait:w-full portrait:flex-row portrait:flex-wrap portrait:border-r-0 portrait:border-b portrait:overflow-y-hidden max-sm:portrait:flex-nowrap max-sm:portrait:overflow-x-auto">
       {menu.map((item, i) => (
         <Item
           key={item.type}
@@ -83,10 +83,10 @@ export default function Sidebar() {
           }}
         />
       ))}
-      <div className="mt-auto border-t border-[var(--border)]">
+      <div className="mt-auto border-t border-[var(--border)] portrait:mt-0 portrait:ml-auto portrait:border-t-0 portrait:border-l portrait:flex portrait:shrink-0">
         <Item view="workspace" current={view} label="WORKSPACE" hint="⌥0" />
         {view === "workspace" && (
-          <button onClick={resetWorkspace} className="w-full text-left px-2 py-1.5 text-fs-11 dim hover:text-[var(--down)]">
+          <button onClick={resetWorkspace} className="w-full text-left px-2 py-1.5 text-fs-11 dim hover:text-[var(--down)] portrait:w-auto portrait:whitespace-nowrap">
             RESET LAYOUT
           </button>
         )}

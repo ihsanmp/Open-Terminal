@@ -288,6 +288,22 @@ function Set-WindowTags([int[]]$browserIds) {
   try { [void][OpenTerminal.Taskbar]::TagWindows($browserIds, $AppId) } catch {}
 }
 
+# The window's size for the screen it opens on: 1600x950 on a wide one; on a screen turned
+# upright (portrait), nearly its full width and most of its height, the app laying itself out
+# for it.
+function Get-WindowSize {
+  try {
+    Add-Type -AssemblyName System.Windows.Forms
+    $area = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+    if ($area.Height -gt $area.Width) {
+      return "$([int]($area.Width - 16)),$([int]($area.Height * 0.92))"
+    }
+    return "$([Math]::Min(1600, $area.Width - 16)),$([Math]::Min(950, $area.Height - 16))"
+  } catch {
+    return '1600,950'
+  }
+}
+
 function Open-AppWindow([string]$url) {
   Start-Process -FilePath $Browser -ArgumentList @(
     "--app=$url",
@@ -298,7 +314,7 @@ function Open-AppWindow([string]$url) {
     # extensions, which then pop up their own welcome windows.
     '--disable-sync',
     '--disable-extensions',
-    '--window-size=1600,950'
+    "--window-size=$(Get-WindowSize)"
   ) | Out-Null
 }
 
