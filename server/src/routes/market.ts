@@ -25,6 +25,7 @@ import * as watcherguru from "../providers/watcherguru.js";
 import * as moneyflow from "../providers/moneyflow.js";
 import * as transfers from "../providers/transfers.js";
 import * as newsArchive from "../news/archive.js";
+import * as tvquotes from "../live/tvquotes.js";
 import { buildRecap, quotedTexts, withTranslations } from "../news/recap.js";
 import { toIndonesian } from "../news/translate.js";
 import { cryptoBase, cryptoTicker, isIndex, isTvPair, isYahooOnly } from "../symbols.js";
@@ -642,6 +643,47 @@ marketRouter.get("/moneyflow/:symbol", async (req, res) => {
   } catch (err) {
     fail(req, res, err);
   }
+});
+
+// ---- a stock's trades as they happen (live/tvquotes.ts), as server-sent events ----
+//
+// "status" events say whether it streams in real time or delayed and which session it's in;
+// each plain message is a trade { time, price, size, value, side }. Coins aren't served here:
+// the page reads them straight from Binance.
+
+async function liveTicker(symbol: string): Promise<string | null> {
+  if (isTvPair(symbol)) return symbol;
+  if (isIndex(symbol)) return INDEX_TV_TICKER.get(symbol) ?? null;
+  if (cryptoBase(symbol)) return null;
+  return cached(`listing:${symbol}`, 24 * 3_600_000, () => tradingview.listingOf(symbol));
+}
+
+marketRouter.get("/live/:symbol", async (req, res) => {
+  const symbol = req.params.symbol.toUpperCase();
+  let ticker: string | null;
+  try {
+    ticker = await liveTicker(symbol);
+  } catch (err) {
+    fail(req, res, err);
+    return;
+  }
+  if (!ticker) {
+    res.status(404).json({ error: `no live trades for ${symbol}` });
+    return;
+  }
+  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
+  res.write(`retry: 5000\nevent: listing\ndata: ${JSON.stringify({ ticker })}\n\n`);
+  const stop = tvquotes.watch(
+    ticker,
+    (t) => res.write(`data: ${JSON.stringify(t)}\n\n`),
+    (s) => res.write(`event: status\ndata: ${JSON.stringify(s)}\n\n`)
+  );
+  // A comment now and then keeps proxies from closing a quiet stream (a market that's shut).
+  const beat = setInterval(() => res.write(": beat\n\n"), 15_000);
+  req.on("close", () => {
+    clearInterval(beat);
+    stop();
+  });
 });
 
 // ---- an asset's transactions, from whom to whom (providers/transfers.ts) ----

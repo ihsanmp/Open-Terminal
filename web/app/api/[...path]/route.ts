@@ -22,7 +22,9 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
   const hasBody = req.method !== "GET" && req.method !== "HEAD" && req.method !== "DELETE";
 
   // A GET that the API hasn't answered in 40 s is given up with a 504 (the page retries it),
-  // rather than holding the connection; other methods (an AI answer) may take longer.
+  // rather than holding the connection; other methods (an AI answer) may take longer. A live
+  // stream (live/…) stays open as long as the page listens.
+  const stream = path[0] === "live";
   let upstream: Response;
   try {
     upstream = await fetch(url, {
@@ -30,11 +32,19 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
       headers,
       body: hasBody ? await req.text() : undefined,
       cache: "no-store",
-      signal: req.method === "GET" ? AbortSignal.timeout(40_000) : undefined,
+      signal: stream ? req.signal : req.method === "GET" ? AbortSignal.timeout(40_000) : undefined,
     });
   } catch (err) {
     const timedOut = err instanceof Error && err.name === "TimeoutError";
     return NextResponse.json({ error: timedOut ? "The API took too long to answer." : "The API is not reachable." }, { status: timedOut ? 504 : 502 });
+  }
+
+  if (stream && upstream.ok && upstream.body) {
+    // Passed on as it comes, event by event.
+    return new NextResponse(upstream.body, {
+      status: 200,
+      headers: { "content-type": "text/event-stream", "cache-control": "no-cache, no-transform", "x-accel-buffering": "no" },
+    });
   }
 
   const body = upstream.status === 204 ? null : await upstream.arrayBuffer();

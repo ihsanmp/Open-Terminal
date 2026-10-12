@@ -94,21 +94,35 @@ export function barStart(timeSec: number, interval: string): number | null {
   return Math.floor(timeSec / len) * len;
 }
 
+// A stock's bars (from its chart feed) start when its session does (US hours at :30), so a trade's
+// bar is counted on from the last bar's start rather than from midnight UTC.
+const BAR_SECONDS: Record<string, number> = { "15m": 900, "30m": 1800, "1h": 3600, "4h": 14_400, "1D": 86_400, "1W": 604_800 };
+
+/** The start of the bar a moment falls in, counting whole bars on from a known bar's start. */
+export function barFrom(timeSec: number, interval: string, anchor: number): number | null {
+  const len = BAR_SECONDS[interval];
+  if (!len) return null;
+  return anchor + Math.floor((timeSec - anchor) / len) * len;
+}
+
 /**
  * The periods with the trades made since they were read (after `asOf`, ms) added: a taker buy's
  * value to its bar's inflow, a taker sell's to its outflow, a new bar begun when a trade falls
- * past the last.
+ * past the last. Binance's bars are aligned to UTC; anything else's (`aligned` false) are counted
+ * on from the last bar read.
  */
-export function withTrades(periods: FlowPeriod[], trades: LiveTrade[], asOf: number): FlowPeriod[] {
-  const fresh = trades.filter((t) => t.time > asOf);
+export function withTrades(periods: FlowPeriod[], trades: LiveTrade[], asOf: number, aligned = true): FlowPeriod[] {
+  const fresh = trades.filter((t) => t.time > asOf && t.qty > 0);
   if (!fresh.length) return periods;
   return periods.map((p) => {
-    if (p.error || !BINANCE_SECONDS[p.interval]) return p;
+    if (p.error || !(aligned ? BINANCE_SECONDS : BAR_SECONDS)[p.interval] || (!aligned && !p.bars.length)) return p;
     const bars = p.bars.map((b) => ({ ...b }));
+    const anchor = bars.length ? bars[bars.length - 1].time : 0;
     let inflow = p.inflow;
     let outflow = p.outflow;
     for (const t of fresh) {
-      const start = barStart(Math.floor(t.time / 1000), p.interval)!;
+      const sec = Math.floor(t.time / 1000);
+      const start = aligned ? barStart(sec, p.interval)! : barFrom(sec, p.interval, anchor)!;
       const value = t.price * t.qty;
       let bar = bars.length && bars[bars.length - 1].time === start ? bars[bars.length - 1] : bars.find((b) => b.time === start);
       if (!bar) {
@@ -130,9 +144,9 @@ export function withTrades(periods: FlowPeriod[], trades: LiveTrade[], asOf: num
 }
 
 /** The value a trade needs to count as a big one: the top 2% of those seen lately, and at least
- *  $10,000 (the server's rule for its list). */
-export function bigTradeFloor(recentValues: readonly number[]): number {
-  if (!recentValues.length) return 10_000;
+ *  `minimum` ($10,000, the server's rule for its list). */
+export function bigTradeFloor(recentValues: readonly number[], minimum = 10_000): number {
+  if (!recentValues.length) return minimum;
   const sorted = [...recentValues].sort((a, b) => a - b);
-  return Math.max(10_000, sorted[Math.floor(sorted.length * 0.98)] ?? 0);
+  return Math.max(minimum, sorted[Math.floor(sorted.length * 0.98)] ?? 0);
 }

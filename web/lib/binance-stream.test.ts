@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barStart, bigTradeFloor, withTrades, type FlowPeriod } from "./binance-stream";
+import { barFrom, barStart, bigTradeFloor, withTrades, type FlowPeriod } from "./binance-stream";
 
 const period = (interval: string, bars: Array<[number, number, number]>): FlowPeriod => {
   const inflow = bars.reduce((a, b) => a + b[1], 0);
@@ -49,5 +49,28 @@ describe("money flow kept up to date from the trade stream", () => {
     const values = Array.from({ length: 100 }, (_, i) => (i + 1) * 1000); // $1k … $100k
     expect(bigTradeFloor(values)).toBe(99_000);
     expect(bigTradeFloor([500, 600, 700])).toBe(10_000);
+  });
+
+  it("counts a stock's bars on from the last one read (sessions open at :30)", () => {
+    const open = Date.UTC(2026, 9, 12, 13, 30) / 1000; // 09:30 New York
+    expect(barFrom(open + 3700, "1h", open)).toBe(open + 3600);
+    expect(barFrom(open + 100, "1D", open)).toBe(open);
+    expect(barFrom(open, "3m", open)).toBeNull();
+    const p = period("1h", [[open, 100, 100]]);
+    const asOf = (open + 60) * 1000;
+    const out = withTrades(
+      [p],
+      [
+        { id: 1, time: (open + 120) * 1000, price: 10, qty: 5, buyerMaker: false }, // 50 in, the :30 bar
+        { id: 2, time: (open + 3700) * 1000, price: 10, qty: 2, buyerMaker: true }, // 20 out, the next
+        { id: 3, time: (open + 3800) * 1000, price: 10, qty: 0, buyerMaker: false }, // no size: nothing
+      ],
+      asOf,
+      false
+    )[0];
+    expect(out.bars).toEqual([
+      { time: open, inflow: 150, outflow: 100 },
+      { time: open + 3600, inflow: 0, outflow: 20 },
+    ]);
   });
 });
