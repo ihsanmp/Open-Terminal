@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { memo, useDeferredValue, useEffect, useState } from "react";
 import { bigTradeFloor } from "../../lib/binance-stream";
 import { ADAPTERS, subscribeExchanges, type ExchangeStatus } from "../../lib/exchange-streams";
 import { apiGet, fmt, fmtBig, fmtPrice } from "../../lib/api";
@@ -127,8 +127,52 @@ function PartyCell({ p }: { p: Party }) {
   );
 }
 
+const FULL_TIME = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "medium" });
+
+/** One transaction's row; drawn again only when it or the minute-ish clock changes. */
+const TxRow = memo(function TxRow({ r, now }: { r: Row; now: number }) {
+  const color = r.side === "sell" ? "down" : r.side === "buy" ? "up" : "text-[var(--text)]";
+  const value = r.usd === null ? "—" : r.currency ? `${r.currency} ${fmtBig(r.usd)}` : `$${fmtBig(r.usd)}`;
+  const body = (
+    <>
+      <span className="w-[96px] max-sm:w-auto shrink-0 text-[#5b9cf6] tabular-nums whitespace-nowrap" title={FULL_TIME.format(r.time * 1000)}>
+        {ago(r.time, now)}
+      </span>
+      <span className="flex-1 min-w-0 max-sm:basis-full max-sm:order-first grid grid-cols-[minmax(0,1fr)_14px_minmax(0,1fr)] gap-2 items-baseline">
+        <PartyCell p={r.from} />
+        <span className="dim">→</span>
+        <PartyCell p={r.to} />
+      </span>
+      <span
+        className={`text-fs-9 shrink-0 w-[34px] text-center border ${r.side === "buy" ? "up border-[var(--up)]" : r.side === "sell" ? "down border-[var(--down)]" : "dim border-[#333]"}`}
+        title={r.side === "buy" ? "Inflow: uang masuk ke aset ini" : r.side === "sell" ? "Outflow: uang keluar dari aset ini" : "Transfer antar wallet: bukan beli atau jual"}
+      >
+        {r.side === "buy" ? "IN" : r.side === "sell" ? "OUT" : "—"}
+      </span>
+      {r.note && <span className="dim text-fs-10 shrink-0 w-[110px] max-sm:w-auto truncate" title={r.note}>{r.note}</span>}
+      {r.side && !r.note && <span className={`${color} text-fs-10 shrink-0 w-[40px] max-sm:w-auto uppercase`}>{r.side === "buy" ? "beli" : "jual"}</span>}
+      <span className={`${color} shrink-0 w-[110px] max-sm:w-auto max-sm:ml-auto text-right tabular-nums ${r.big ? "font-bold" : ""}`}>
+        {r.category === "tape" && r.amount === 0 ? "—" : r.amount >= 1000 ? fmtBig(r.amount) : fmt(r.amount, r.amount >= 100 || r.category === "tape" ? 0 : 2)} <span className="dim">{r.unit}</span>
+      </span>
+      {r.price !== undefined && <span className="dim shrink-0 w-[84px] max-sm:w-auto text-right tabular-nums">{r.price ? `@ ${fmtPrice(r.price)}` : ""}</span>}
+      <span className={`shrink-0 w-[84px] max-sm:w-auto text-right tabular-nums ${r.big ? "amber font-bold" : "text-[var(--text)]"}`}>{value}</span>
+    </>
+  );
+  const cls = "flex items-baseline gap-3 max-sm:flex-wrap max-sm:gap-y-0.5 px-2 py-1.5 border-b border-[#161616] hover:bg-[#161616]";
+  return r.link ? (
+    <a href={r.link} target="_blank" rel="noreferrer" className={cls} title={r.category === "onchain" ? "Buka transaksi di mempool.space" : r.category === "whale" ? "Buka transaksi di Etherscan" : r.source ? `Belum ada 8-K: dari berita — ${r.source}` : "Buka sumbernya"}>
+      {body}
+    </a>
+  ) : (
+    <div className={cls}>
+      {body}
+    </div>
+  );
+});
+
 const OWN_LABEL: Record<Category, string> = { onchain: "ON-CHAIN", exchange: "EXCHANGE", insider: "INSIDER", institution: "INSTITUSI", whale: "WHALE", tape: "REAL-TIME" };
 
+const PAGE = 150;
 const isCoin = (symbol: string) => /-USDT?$/.test(symbol.toUpperCase());
 const EXCHANGES = ["Binance", ...ADAPTERS.map((a) => a.name)];
 
@@ -153,11 +197,10 @@ function useTape(symbol: string, currency: string | undefined): { rows: Row[]; s
     const stop = subscribeTicks(
       symbol,
       (ticks) => {
+        for (const t of ticks) if (t.value > 0) recent.push(t.value);
+        if (recent.length > 1000) recent.splice(0, recent.length - 1000);
+        const floor = recent.length >= 50 ? bigTradeFloor(recent, 0) : Infinity;
         for (const t of ticks) {
-          if (t.value > 0) {
-            recent.push(t.value);
-            if (recent.length > 1000) recent.shift();
-          }
           pending.push({
             id: `tape-${++seq}-${t.time}`,
             category: "tape",
@@ -170,7 +213,7 @@ function useTape(symbol: string, currency: string | undefined): { rows: Row[]; s
             side: t.side,
             price: t.price,
             currency: currency && currency !== "USD" ? currency : undefined,
-            big: recent.length >= 50 && t.value >= bigTradeFloor(recent, 0),
+            big: t.value >= floor,
           });
         }
       },
@@ -187,11 +230,30 @@ function useTape(symbol: string, currency: string | undefined): { rows: Row[]; s
   return { rows, state };
 }
 
-export default function TransfersList({ symbol, currency }: { symbol: string; currency?: string }) {
+export default memo(function TransfersList({ symbol, currency }: { symbol: string; currency?: string }) {
   const poll = usePoll(15_000);
   const [only, setOnly] = useWidgetSetting<"all" | Category>("txFilter", "all");
   const [flow, setFlow] = useWidgetSetting<"both" | "in" | "out">("txFlow", "both");
   const [venue, setVenue] = useWidgetSetting<string>("txExchange", "all");
+  // The filters answer at once: the button shows the choice now, the list follows (deferred), and
+  // the choice is saved with the widget just after.
+  const [flowNow, setFlowNow] = useState(flow);
+  useEffect(() => setFlowNow(flow), [flow]);
+  const pickFlow = (f: "both" | "in" | "out") => {
+    setFlowNow(f);
+    setTimeout(() => setFlow(f), 0);
+  };
+  const flowShown = useDeferredValue(flowNow);
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const id = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 5000);
+    return () => clearInterval(id);
+  }, []);
+  const [limit, setLimit] = useState(PAGE);
+  // The kind and exchange chosen are deferred too: their buttons light at once, the list after.
+  const onlyShown = useDeferredValue(only);
+  const venueShown = useDeferredValue(venue);
+  useEffect(() => setLimit(PAGE), [flowShown, onlyShown, venueShown, symbol]);
   const { data, error, isLoading } = useQuery({
     queryKey: ["transfers", symbol],
     queryFn: () => apiGet<Transfers>(`/api/transfers/${encodeURIComponent(symbol)}`),
@@ -222,11 +284,13 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
     const stop = subscribeExchanges(
       base,
       (trades) => {
+        for (const t of trades) recent.push(t.price * t.qty);
+        if (recent.length > 3000) recent.splice(0, recent.length - 3000);
+        if (recent.length < 200) return;
+        const floor = bigTradeFloor(recent);
         for (const t of trades) {
           const usd = t.price * t.qty;
-          recent.push(usd);
-          if (recent.length > 3000) recent.shift();
-          if (recent.length < 200 || usd < bigTradeFloor(recent)) continue;
+          if (usd < floor) continue;
           const side = t.buyerMaker ? "sell" : "buy";
           pending.push({
             // Binance's as the server lists them (its aggregate trade ids), so they're listed once.
@@ -267,14 +331,16 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
     (k) => rows.some((r) => r.category === k) || (k === "institution" && (data?.wallets?.length ?? 0) > 0) || (k === "tape" && tapeOn)
   );
   const tapeLabel = tape.state && tapeOn ? liveLabel(tape.state) : null;
-  const byKind = only === "all" || !kinds.includes(only) ? rows : rows.filter((r) => r.category === only);
+  const byKind = onlyShown === "all" || !kinds.includes(onlyShown) ? rows : rows.filter((r) => r.category === onlyShown);
   // Under EXCHANGE, one exchange's alone.
-  const exchangesListed = only === "exchange" ? [...new Set(byKind.map((r) => r.to.name ?? r.from.name).filter((n): n is string => Boolean(n) && EXCHANGES.includes(n!)))] : [];
-  const ofKind = only === "exchange" && venue !== "all" && exchangesListed.includes(venue) ? byKind.filter((r) => r.to.name === venue || r.from.name === venue) : byKind;
+  const exchangesListed = onlyShown === "exchange" ? [...new Set(byKind.map((r) => r.to.name ?? r.from.name).filter((n): n is string => Boolean(n) && EXCHANGES.includes(n!)))] : [];
+  const ofKind = onlyShown === "exchange" && venueShown !== "all" && exchangesListed.includes(venueShown) ? byKind.filter((r) => r.to.name === venueShown || r.from.name === venueShown) : byKind;
   // Inflow (bought, taken into holding) and outflow (sold, sent to be sold), each on its own or both.
   const inflows = ofKind.filter((r) => r.side === "buy");
   const outflows = ofKind.filter((r) => r.side === "sell");
-  const shown = flow === "in" ? inflows : flow === "out" ? outflows : ofKind;
+  const shown = flowShown === "in" ? inflows : flowShown === "out" ? outflows : ofKind;
+  // A long list is drawn a page at a time.
+  const visible = shown.length > limit ? shown.slice(0, limit) : shown;
   // The totals in dollars; a stock's rupiah can't be added to them, so a list in one currency sums in it.
   const currencyOf = ofKind.find((r) => r.currency)?.currency;
   const sum = (list: Row[]) => list.reduce((a, r) => a + (r.usd ?? 0), 0);
@@ -316,13 +382,13 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
       )}
       <div className="flex gap-1 flex-wrap items-center">
         <span className="dim text-fs-10 mr-1">ARAH</span>
-        <button className={`term-btn ${flow === "both" ? "active" : ""}`} onClick={() => setFlow("both")} title="Inflow dan outflow">
+        <button className={`term-btn ${flowNow === "both" ? "active" : ""}`} onClick={() => pickFlow("both")} title="Inflow dan outflow">
           IN + OUT
         </button>
-        <button className={`term-btn ${flow === "in" ? "active" : ""}`} onClick={() => setFlow("in")} title="Uang masuk: beli, ETF inflow, koin ditarik dari exchange untuk disimpan">
+        <button className={`term-btn ${flowNow === "in" ? "active" : ""}`} onClick={() => pickFlow("in")} title="Uang masuk: beli, ETF inflow, koin ditarik dari exchange untuk disimpan">
           <span className="up">▲ INFLOW</span> <span className="dim">{inflows.length}</span>
         </button>
-        <button className={`term-btn ${flow === "out" ? "active" : ""}`} onClick={() => setFlow("out")} title="Uang keluar: jual, ETF outflow, koin disetor ke exchange untuk dijual">
+        <button className={`term-btn ${flowNow === "out" ? "active" : ""}`} onClick={() => pickFlow("out")} title="Uang keluar: jual, ETF outflow, koin disetor ke exchange untuk dijual">
           <span className="down">▼ OUTFLOW</span> <span className="dim">{outflows.length}</span>
         </button>
         {inTotal + outTotal > 0 && (
@@ -354,51 +420,20 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
           </span>
         )}
       </div>
-      {rows.length > 0 && shown.length === 0 && <div className="dim">Tidak ada {flow === "in" ? "inflow" : "outflow"} di daftar ini.</div>}
+      {rows.length > 0 && shown.length === 0 && <div className="dim">Tidak ada {flowShown === "in" ? "inflow" : "outflow"} di daftar ini.</div>}
       {rows.length === 0 && (
         <div className="dim">{kind === "exchange" ? "Belum ada transaksi besar yang terekam; daftar ini terisi selama halaman terbuka." : "Belum ada transaksi."}</div>
       )}
       <div className="border border-[var(--border)]">
-        {shown.map((r) => {
-          const color = r.side === "sell" ? "down" : r.side === "buy" ? "up" : "text-[var(--text)]";
-          const value = r.usd === null ? "—" : r.currency ? `${r.currency} ${fmtBig(r.usd)}` : `$${fmtBig(r.usd)}`;
-          const body = (
-            <>
-              <span className="w-[96px] max-sm:w-auto shrink-0 text-[#5b9cf6] tabular-nums whitespace-nowrap" title={new Date(r.time * 1000).toLocaleString("id-ID")}>
-                {ago(r.time)}
-              </span>
-              <span className="flex-1 min-w-0 max-sm:basis-full max-sm:order-first grid grid-cols-[minmax(0,1fr)_14px_minmax(0,1fr)] gap-2 items-baseline">
-                <PartyCell p={r.from} />
-                <span className="dim">→</span>
-                <PartyCell p={r.to} />
-              </span>
-              <span
-                className={`text-fs-9 shrink-0 w-[34px] text-center border ${r.side === "buy" ? "up border-[var(--up)]" : r.side === "sell" ? "down border-[var(--down)]" : "dim border-[#333]"}`}
-                title={r.side === "buy" ? "Inflow: uang masuk ke aset ini" : r.side === "sell" ? "Outflow: uang keluar dari aset ini" : "Transfer antar wallet: bukan beli atau jual"}
-              >
-                {r.side === "buy" ? "IN" : r.side === "sell" ? "OUT" : "—"}
-              </span>
-              {r.note && <span className="dim text-fs-10 shrink-0 w-[110px] max-sm:w-auto truncate" title={r.note}>{r.note}</span>}
-              {r.side && !r.note && <span className={`${color} text-fs-10 shrink-0 w-[40px] max-sm:w-auto uppercase`}>{r.side === "buy" ? "beli" : "jual"}</span>}
-              <span className={`${color} shrink-0 w-[110px] max-sm:w-auto max-sm:ml-auto text-right tabular-nums ${r.big ? "font-bold" : ""}`}>
-                {r.category === "tape" && r.amount === 0 ? "—" : r.amount >= 1000 ? fmtBig(r.amount) : fmt(r.amount, r.amount >= 100 || r.category === "tape" ? 0 : 2)} <span className="dim">{r.unit}</span>
-              </span>
-              {r.price !== undefined && <span className="dim shrink-0 w-[84px] max-sm:w-auto text-right tabular-nums">{r.price ? `@ ${fmtPrice(r.price)}` : ""}</span>}
-              <span className={`shrink-0 w-[84px] max-sm:w-auto text-right tabular-nums ${r.big ? "amber font-bold" : "text-[var(--text)]"}`}>{value}</span>
-            </>
-          );
-          const cls = "flex items-baseline gap-3 max-sm:flex-wrap max-sm:gap-y-0.5 px-2 py-1.5 border-b border-[#161616] hover:bg-[#161616]";
-          return r.link ? (
-            <a key={r.id} href={r.link} target="_blank" rel="noreferrer" className={cls} title={r.category === "onchain" ? "Buka transaksi di mempool.space" : r.category === "whale" ? "Buka transaksi di Etherscan" : r.source ? `Belum ada 8-K: dari berita — ${r.source}` : "Buka sumbernya"}>
-              {body}
-            </a>
-          ) : (
-            <div key={r.id} className={cls}>
-              {body}
-            </div>
-          );
-        })}
+        {visible.map((r) => (
+          <TxRow key={r.id} r={r} now={now} />
+        ))}
       </div>
+      {shown.length > visible.length && (
+        <button className="term-btn self-start" onClick={() => setLimit((l) => l + PAGE)}>
+          Tampilkan {Math.min(PAGE, shown.length - visible.length)} lagi <span className="dim">({shown.length - visible.length} tersisa)</span>
+        </button>
+      )}
       {data?.note && kind !== "none" && <div className="dim text-fs-10 leading-relaxed">{data.note}</div>}
       {kinds.includes("tape") && (
         <div className="dim text-fs-10 leading-relaxed">
@@ -417,4 +452,4 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
       )}
     </div>
   );
-}
+});
