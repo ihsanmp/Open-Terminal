@@ -2,7 +2,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { bigTradeFloor, subscribeTrades } from "../../lib/binance-stream";
+import { bigTradeFloor } from "../../lib/binance-stream";
+import { ADAPTERS, subscribeExchanges, type ExchangeStatus } from "../../lib/exchange-streams";
 import { apiGet, fmt, fmtBig, fmtPrice } from "../../lib/api";
 import { liveLabel, subscribeTicks, type LiveState } from "../../lib/live-ticks";
 import { usePoll } from "../../lib/refresh";
@@ -11,7 +12,8 @@ import { useWidgetSetting } from "../../store/terminal";
 // An asset's transactions, newest first, each from whom to whom (server: providers/transfers.ts):
 // a Bitcoin transfer between named wallets, a big trade on Binance, a US insider's trade, and the
 // big institutions' buys and sales (spot ETFs' daily flows, treasury companies' 8-K reports).
-// A coin on Binance gets its big trades there as they happen, from Binance's stream; a stock its
+// A coin gets its big trades as they happen from the exchanges' own streams (Binance, Bybit,
+// Bitget, Gate, HTX, BingX, Hyperliquid: lib/exchange-streams.ts); a stock its
 // every trade (the tape) from TradingView's quote stream through the server.
 
 type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" | "whale" | "news" };
@@ -125,9 +127,10 @@ function PartyCell({ p }: { p: Party }) {
   );
 }
 
-const OWN_LABEL: Record<Category, string> = { onchain: "ON-CHAIN", exchange: "BINANCE", insider: "INSIDER", institution: "INSTITUSI", whale: "WHALE", tape: "REAL-TIME" };
+const OWN_LABEL: Record<Category, string> = { onchain: "ON-CHAIN", exchange: "EXCHANGE", insider: "INSIDER", institution: "INSTITUSI", whale: "WHALE", tape: "REAL-TIME" };
 
 const isCoin = (symbol: string) => /-USDT?$/.test(symbol.toUpperCase());
+const EXCHANGES = ["Binance", ...ADAPTERS.map((a) => a.name)];
 
 /** A stock's every trade as it happens (shares, at what price, buyer- or seller-started). */
 function useTape(symbol: string, currency: string | undefined): { rows: Row[]; state: LiveState | null } {
@@ -188,6 +191,7 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
   const poll = usePoll(15_000);
   const [only, setOnly] = useWidgetSetting<"all" | Category>("txFilter", "all");
   const [flow, setFlow] = useWidgetSetting<"both" | "in" | "out">("txFlow", "both");
+  const [venue, setVenue] = useWidgetSetting<string>("txExchange", "all");
   const { data, error, isLoading } = useQuery({
     queryKey: ["transfers", symbol],
     queryFn: () => apiGet<Transfers>(`/api/transfers/${encodeURIComponent(symbol)}`),
@@ -197,12 +201,13 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
   const tape = useTape(symbol, currency);
   const tapeOn = tape.state !== null && !tape.state.unavailable;
 
-  // A coin traded on Binance: its big trades from the stream, as they happen.
-  const base = data?.kind === "exchange" || data?.kind === "onchain" ? /^([A-Z0-9]{1,20})-USDT?$/.exec(symbol.toUpperCase())?.[1] ?? null : null;
+  // A coin: its big trades on the exchanges, from their streams, as they happen.
+  const base = isCoin(symbol) ? /^([A-Z0-9]{1,20})-USDT?$/.exec(symbol.toUpperCase())?.[1] ?? null : null;
   const [liveRows, setLiveRows] = useState<Row[]>([]);
-  const [live, setLive] = useState(false);
+  const [streams, setStreams] = useState<ExchangeStatus>({});
   useEffect(() => {
     setLiveRows([]);
+    setStreams({});
     if (!base) return;
     // The latest trades' values, for what counts as big (the top 2%, at least $10,000).
     const recent: number[] = [];
@@ -213,21 +218,23 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
       pending = [];
       setLiveRows((rows) => [...batch.reverse(), ...rows].slice(0, 300));
     }, 1000);
-    const stop = subscribeTrades(
+    // The biggest across all the exchanges: the top 2% of the latest trades' values.
+    const stop = subscribeExchanges(
       base,
       (trades) => {
         for (const t of trades) {
           const usd = t.price * t.qty;
           recent.push(usd);
-          if (recent.length > 2000) recent.shift();
+          if (recent.length > 3000) recent.shift();
           if (recent.length < 200 || usd < bigTradeFloor(recent)) continue;
           const side = t.buyerMaker ? "sell" : "buy";
           pending.push({
-            id: String(t.id),
+            // Binance's as the server lists them (its aggregate trade ids), so they're listed once.
+            id: t.exchange === "Binance" ? String(t.id) : `${t.exchange}-${t.id}`,
             category: "exchange",
             time: Math.floor(t.time / 1000),
             from: { name: side === "buy" ? "Pembeli" : "Penjual", address: null, role: "taker" },
-            to: { name: "Binance", address: null, role: `${base}/USDT` },
+            to: { name: t.exchange, address: null, role: t.exchange === "Hyperliquid" ? `${base} perp` : `${base}/USDT` },
             amount: t.qty,
             unit: base,
             usd,
@@ -236,7 +243,7 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
           });
         }
       },
-      setLive
+      (name, live, trading) => setStreams((s) => ({ ...s, [name]: { live, trading } }))
     );
     return () => {
       stop();
@@ -260,7 +267,10 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
     (k) => rows.some((r) => r.category === k) || (k === "institution" && (data?.wallets?.length ?? 0) > 0) || (k === "tape" && tapeOn)
   );
   const tapeLabel = tape.state && tapeOn ? liveLabel(tape.state) : null;
-  const ofKind = only === "all" || !kinds.includes(only) ? rows : rows.filter((r) => r.category === only);
+  const byKind = only === "all" || !kinds.includes(only) ? rows : rows.filter((r) => r.category === only);
+  // Under EXCHANGE, one exchange's alone.
+  const exchangesListed = only === "exchange" ? [...new Set(byKind.map((r) => r.to.name ?? r.from.name).filter((n): n is string => Boolean(n) && EXCHANGES.includes(n!)))] : [];
+  const ofKind = only === "exchange" && venue !== "all" && exchangesListed.includes(venue) ? byKind.filter((r) => r.to.name === venue || r.from.name === venue) : byKind;
   // Inflow (bought, taken into holding) and outflow (sold, sent to be sold), each on its own or both.
   const inflows = ofKind.filter((r) => r.side === "buy");
   const outflows = ofKind.filter((r) => r.side === "sell");
@@ -287,6 +297,19 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
               title={k === "tape" ? "Setiap transaksi saham ini saat terjadi (stream TradingView)" : k === "institution" ? "ETF spot (BlackRock, Fidelity, Grayscale …) dan perusahaan treasury (Strategy, MARA …)" : k === "whale" ? "Wallet Ethereum yang dipantau (Vitalik, Justin Sun, Binance …)" : undefined}
             >
               {OWN_LABEL[k]} <span className="dim">{rows.filter((r) => r.category === k).length}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {exchangesListed.length > 1 && (
+        <div className="flex gap-1 flex-wrap items-center">
+          <span className="dim text-fs-10 mr-1">EXCHANGE</span>
+          <button className={`term-btn ${venue === "all" || !exchangesListed.includes(venue) ? "active" : ""}`} onClick={() => setVenue("all")}>
+            SEMUA
+          </button>
+          {EXCHANGES.filter((n) => exchangesListed.includes(n)).map((n) => (
+            <button key={n} className={`term-btn ${venue === n ? "active" : ""}`} onClick={() => setVenue(n)}>
+              {n} <span className="dim">{byKind.filter((r) => r.to.name === n || r.from.name === n).length}</span>
             </button>
           ))}
         </div>
@@ -318,8 +341,16 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
           </span>
         )}
         {base && (
-          <span className="ml-2">
-            <span className={live ? "up" : "amber"}>●</span> {live ? "LIVE dari stream Binance" : "menyambung ke stream…"}
+          <span className="ml-2" title="Transaksi besar (2% terbesar, minimal $10.000) dari stream publik tiap exchange. Hijau: tersambung dan ada transaksi koin ini; kuning: menyambung; abu-abu: tersambung tapi koin ini tidak diperdagangkan di sana (atau belum ada transaksi). Coinbase, OKX dan Kraken diblokir di jaringan ini.">
+            LIVE:{" "}
+            {EXCHANGES.map((name) => {
+              const st = streams[name];
+              return (
+                <span key={name} className="mr-1.5 whitespace-nowrap">
+                  <span className={st?.live && st.trading ? "up" : st?.live ? "dim" : "amber"}>●</span> {name}
+                </span>
+              );
+            })}
           </span>
         )}
       </div>
