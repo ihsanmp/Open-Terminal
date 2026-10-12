@@ -91,6 +91,9 @@ type TerminalState = {
   commandOpen: boolean;
   /** What the symbol search opens with (the letters typed on a chart). */
   commandQuery: string;
+  /** A number typed on the chart page: TradingView's "Change interval" box, with what's typed. */
+  typedInterval: string | null;
+  setTypedInterval: (text: string | null) => void;
   setActiveSymbol: (s: string) => void;
   setCommandOpen: (open: boolean, query?: string) => void;
   setView: (view: View) => void;
@@ -275,6 +278,8 @@ export const useTerminal = create<TerminalState>()(
       favoriteIntervals: [],
       commandOpen: false,
       commandQuery: "",
+      typedInterval: null,
+      setTypedInterval: (text) => set({ typedInterval: text }),
       setActiveSymbol: (s) => set({ activeSymbol: s.toUpperCase() }),
       setCommandOpen: (open, query = "") => set({ commandOpen: open, commandQuery: query }),
       setView: (view) => set({ view }),

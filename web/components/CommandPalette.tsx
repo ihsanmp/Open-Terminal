@@ -1,11 +1,47 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { apiGet } from "../lib/api";
 import { useTerminal } from "../store/terminal";
 
+// The symbol search, as TradingView's: typed on a chart it opens with what was typed; the
+// categories under the field narrow it (stocks, funds, futures, forex, crypto, indices, bonds,
+// economy); each result shows its ticker, name, kind and exchange. Enter loads the first (or the
+// one picked with the arrows), Shift+Enter adds it to the watchlist too.
+
 type SearchResult = { symbol: string; name: string; exchange: string; type: string };
+
+/** The categories, as TradingView's chips, with the API's type for each ("" is all). */
+const CATEGORIES: Array<[label: string, type: string]> = [
+  ["All", ""],
+  ["Stocks", "stocks"],
+  ["Funds", "funds"],
+  ["Futures", "futures"],
+  ["Forex", "forex"],
+  ["Crypto", "crypto"],
+  ["Indices", "index"],
+  ["Bonds", "bond"],
+  ["Economy", "economic"],
+];
+
+/** Each kind's badge color, as TradingView's symbol icons are colored by market. */
+const KIND_COLOR: Record<string, string> = {
+  stock: "#2962ff",
+  dr: "#2962ff",
+  fund: "#7e57c2",
+  crypto: "#f7931a",
+  forex: "#26a69a",
+  index: "#ff9800",
+  bond: "#8d6e63",
+  futures: "#ef5350",
+  commodity: "#fbc02d",
+  economic: "#00bcd4",
+};
+const KIND_LABEL: Record<string, string> = { dr: "dr", stock: "stock", fund: "fund", crypto: "crypto", forex: "forex", index: "index", bond: "bond", futures: "futures", commodity: "commodity", economic: "economy" };
+
+/** The ticker as shown: without its exchange (OANDA:EURUSD shows EURUSD). */
+const tickerOf = (symbol: string) => (symbol.includes(":") ? symbol.slice(symbol.indexOf(":") + 1) : symbol);
 
 export default function CommandPalette() {
   const open = useTerminal((s) => s.commandOpen);
@@ -14,15 +50,20 @@ export default function CommandPalette() {
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
   const addToWatchlist = useTerminal((s) => s.addToWatchlist);
   const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("");
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
-  const { data: results = [] } = useQuery({
-    queryKey: ["search", query],
-    queryFn: () => apiGet<SearchResult[]>(`/api/search?q=${encodeURIComponent(query)}`),
-    enabled: open && query.trim().length > 0,
+  const q = query.trim();
+  const { data: results = [], isFetching } = useQuery({
+    queryKey: ["search", category, q],
+    queryFn: () => apiGet<SearchResult[]>(`/api/search?q=${encodeURIComponent(q)}${category ? `&type=${category}` : ""}`),
+    enabled: open && q.length > 0,
     staleTime: 300_000,
+    placeholderData: keepPreviousData,
   });
+  const shown = q ? results : [];
 
   useEffect(() => {
     if (open) {
@@ -41,7 +82,11 @@ export default function CommandPalette() {
     }
   }, [open, initial]);
 
-  useEffect(() => setSelected(0), [results.length]);
+  useEffect(() => setSelected(0), [shown.length, category]);
+  // The row picked with the arrows stays in view.
+  useEffect(() => {
+    listRef.current?.querySelector<HTMLElement>(`[data-row="${selected}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
 
   if (!open) return null;
 
@@ -52,46 +97,96 @@ export default function CommandPalette() {
   };
 
   return (
-    <div
-      className="fixed inset-0 bg-black/70 z-50 flex items-start justify-center pt-24"
-      onClick={() => setOpen(false)}
-    >
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center pt-16" onMouseDown={() => setOpen(false)}>
       <div
-        className="w-[560px] bg-[var(--panel)] border border-[var(--amber-dim)]"
-        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Symbol search"
+        className="w-[min(760px,92vw)] max-h-[80vh] flex flex-col bg-[var(--panel)] border border-[var(--border)] rounded-md shadow-2xl"
+        onMouseDown={(e) => e.stopPropagation()}
       >
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setOpen(false);
-            if (e.key === "ArrowDown") setSelected((s) => Math.min(s + 1, results.length - 1));
-            if (e.key === "ArrowUp") setSelected((s) => Math.max(s - 1, 0));
-            if (e.key === "Enter" && results[selected]) pick(results[selected], e.shiftKey);
-          }}
-          placeholder="Ticker, company, ETF, crypto, index…  (Enter = load · Shift+Enter = load + watchlist)"
-          className="w-full !border-0 !border-b !border-[var(--border)] px-3 py-2 text-fs-13"
-        />
-        <div className="max-h-80 overflow-auto">
-          {results.map((r, i) => (
+        <div className="flex items-center justify-between px-4 pt-3 pb-2">
+          <span className="text-fs-15 font-bold text-[var(--text)]">Symbol search</span>
+          <button className="dim hover:text-[var(--text)] text-fs-15 px-1" onClick={() => setOpen(false)} aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <div className="px-4">
+          <div className="flex items-center gap-2 border border-[var(--border)] focus-within:border-[var(--amber)] rounded px-2">
+            <span className="dim" aria-hidden>
+              ⌕
+            </span>
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setOpen(false);
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setSelected((s) => Math.min(s + 1, shown.length - 1));
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setSelected((s) => Math.max(s - 1, 0));
+                }
+                if (e.key === "Enter" && shown[selected]) pick(shown[selected], e.shiftKey);
+              }}
+              placeholder="Symbol, ISIN, or CUSIP"
+              spellCheck={false}
+              className="flex-1 !border-0 !bg-transparent py-2 text-fs-13 uppercase placeholder:normal-case"
+            />
+            {query && (
+              <button
+                className="dim hover:text-[var(--text)] px-1"
+                aria-label="Clear"
+                onClick={() => {
+                  setQuery("");
+                  inputRef.current?.focus();
+                }}
+              >
+                ⊗
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5 py-2.5">
+            {CATEGORIES.map(([label, type]) => (
+              <button
+                key={label}
+                onClick={() => {
+                  setCategory(type);
+                  inputRef.current?.focus();
+                }}
+                className={`px-3 py-1 rounded-full text-fs-11 border ${
+                  category === type ? "bg-[var(--text)] text-[var(--bg)] border-[var(--text)] font-bold" : "border-[var(--border)] hover:border-[#555] text-[var(--text)]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div ref={listRef} className="flex-1 min-h-[120px] overflow-auto border-t border-[var(--border)]">
+          {shown.map((r, i) => (
             <div
               key={r.symbol + i}
+              data-row={i}
               onClick={() => pick(r)}
-              className={`px-3 py-1.5 flex gap-3 cursor-pointer ${
-                i === selected ? "bg-[#1f1a10] text-[var(--amber)]" : "hover:bg-[#161616]"
-              }`}
+              onMouseEnter={() => setSelected(i)}
+              className={`px-4 py-2 flex items-center gap-3 cursor-pointer border-b border-[#161616] ${i === selected ? "bg-[#1f1a10]" : ""}`}
             >
-              <span className="w-24 font-bold">{r.symbol}</span>
+              <span className="w-6 h-6 rounded-full shrink-0 flex items-center justify-center text-fs-10 font-bold text-white" style={{ background: KIND_COLOR[r.type] ?? "#555" }}>
+                {tickerOf(r.symbol).replace(/[^A-Z0-9]/gi, "").slice(0, 1)}
+              </span>
+              <span className={`w-28 shrink-0 font-bold truncate ${i === selected ? "amber" : "text-[var(--text)]"}`}>{tickerOf(r.symbol)}</span>
               <span className="flex-1 truncate">{r.name}</span>
-              <span className="dim">{r.exchange}</span>
-              <span className="dim w-16 text-right">{r.type}</span>
+              <span className="dim text-fs-10 shrink-0">{KIND_LABEL[r.type] ?? r.type}</span>
+              <span className="text-[var(--text)] text-fs-10 w-28 text-right truncate shrink-0">{r.exchange}</span>
             </div>
           ))}
-          {query && results.length === 0 && (
-            <div className="px-3 py-3 dim">No results for “{query}”</div>
-          )}
+          {q && !isFetching && shown.length === 0 && <div className="px-4 py-10 text-center dim">No symbols match your criteria</div>}
+          {!q && <div className="px-4 py-10 text-center dim">Type a ticker, a company, a currency pair or an index</div>}
         </div>
+        <div className="px-4 py-1.5 dim text-fs-10 border-t border-[var(--border)]">Enter: load · Shift+Enter: load and add to the watchlist · ↑↓: pick</div>
       </div>
     </div>
   );

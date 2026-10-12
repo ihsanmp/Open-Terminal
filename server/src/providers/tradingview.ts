@@ -234,34 +234,62 @@ function yahooSuffixFor(exchange: string): string {
   return "";
 }
 
-export async function search(query: string): Promise<SearchResult[]> {
+/** TradingView's own search types, by the symbol search's categories. */
+export const SEARCH_TYPES: Record<string, string> = {
+  stocks: "stocks",
+  funds: "funds",
+  futures: "futures",
+  forex: "forex",
+  index: "index",
+  bond: "bond",
+  economic: "economic",
+};
+
+/** Listings charted under a plain ticker (with a Yahoo suffix outside the US). */
+const LISTED = new Set(["stock", "fund", "dr"]);
+/** What else the search lists, each charted as EXCHANGE:TICKER (OANDA:EURUSD, TVC:GOLD, SP:SPX …). */
+const OTHER_TYPES = new Set(["forex", "commodity", "index", "bond", "futures", "economic", "cfd"]);
+
+/** A search row as the terminal names it, or null for kinds it doesn't chart (crypto pairs have
+ *  their own search). */
+export function searchRow(r: { symbol: string; description?: string; type?: string; exchange?: string; prefix?: string; source_id?: string }): SearchResult | null {
+  const strip = (x: string) => x.replace(/<\/?em>/g, "");
+  const type = r.type ?? "";
+  const symbol = strip(r.symbol);
+  const exchange = r.exchange ?? "";
+  const name = strip(r.description ?? r.symbol);
+  if (LISTED.has(type)) {
+    // Non-US listings get a Yahoo-compatible suffix (e.g. "ISP" -> "ISP.MI") so quote/chart
+    // lookups downstream can resolve them — a bare symbol collides with US names.
+    return { symbol: symbol.includes(".") ? symbol : yahooSymbolOf(exchange, symbol), name, exchange, type };
+  }
+  const source = r.prefix || r.source_id;
+  if (OTHER_TYPES.has(type) && source) return { symbol: `${source}:${symbol}`, name, exchange, type: type === "cfd" ? "commodity" : type };
+  return null;
+}
+
+export async function search(query: string, searchType?: string): Promise<SearchResult[]> {
   // "BBCA.JK": TradingView knows that listing as BBCA on IDX, and finds nothing useful for the
   // whole string — so the code is searched on the exchange the suffix names.
   const [code, exchange] = splitSuffixed(query) ?? [query, null];
+  const type = searchType && SEARCH_TYPES[searchType] ? SEARCH_TYPES[searchType] : "undefined";
   const url = `https://symbol-search.tradingview.com/symbol_search/v3/?text=${encodeURIComponent(
     code
-  )}&hl=1&lang=en&search_type=undefined&domain=production&sort_by_country=US${exchange ? `&exchange=${exchange}` : ""}`;
+  )}&hl=1&lang=en&search_type=${type}&domain=production&sort_by_country=US${exchange ? `&exchange=${exchange}` : ""}`;
   const res = await fetch(url, { headers: HEADERS });
   if (!res.ok) throw new Error(`tradingview search ${res.status}`);
   const json = await res.json();
   const rows: any[] = json?.symbols ?? [];
-  const strip = (s: string) => s.replace(/<\/?em>/g, "");
-  return rows
-    .filter((r) => ["stock", "fund", "dr"].includes(r.type))
-    .slice(0, 15)
-    .map((r) => {
-      const exchange = r.exchange ?? "";
-      const symbol = strip(r.symbol);
-      return {
-        // Non-US listings get a Yahoo-compatible suffix (e.g. "ISP" -> "ISP.MI")
-        // so quote/chart lookups downstream can actually resolve them — Nasdaq's
-        // API only covers US tickers, and a bare symbol collides with US names.
-        symbol: symbol.includes(".") ? symbol : yahooSymbolOf(exchange, symbol),
-        name: strip(r.description ?? r.symbol),
-        exchange,
-        type: r.type ?? "",
-      };
-    });
+  const seen = new Set<string>();
+  const out: SearchResult[] = [];
+  for (const r of rows) {
+    const row = searchRow(r);
+    if (!row || seen.has(row.symbol)) continue;
+    seen.add(row.symbol);
+    out.push(row);
+    if (out.length >= (searchType ? 30 : 20)) break;
+  }
+  return out;
 }
 
 // ---- equity research: profile, TTM ratios, analyst consensus, peers ----

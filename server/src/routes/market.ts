@@ -185,6 +185,12 @@ async function getQuotes(symbols: string[]): Promise<yahoo.Quote[]> {
   if (pairSymbols.length > 0) {
     const found = await tradingview.pairQuotes(pairSymbols).catch(() => new Map<string, yahoo.Quote>());
     for (const [s, q] of found) fetched.set(s, q);
+    // Not a crypto pair (OANDA:EURUSD, TVC:GOLD, SP:SPX …): the global scanner has it.
+    const rest = pairSymbols.filter((s) => !fetched.has(s));
+    if (rest.length) {
+      const more = await tradingview.batchQuotes(rest, (s) => [s.toUpperCase()]).catch(() => new Map<string, yahoo.Quote>());
+      for (const [s, q] of more) fetched.set(s, q);
+    }
     remaining = remaining.filter((s) => !isTvPair(s));
   }
 
@@ -431,8 +437,26 @@ async function searchCoins(q: string): Promise<SearchResult[]> {
 
 marketRouter.get("/search", async (req, res) => {
   const q = String(req.query.q ?? "").trim();
+  // A category of the symbol search (TradingView's chips): stocks, funds, futures, forex, crypto,
+  // index, bond, economic; anything else is all of them.
+  const kind = typeof req.query.type === "string" ? req.query.type : "";
   if (!q) return res.json([]);
   try {
+    if (kind === "crypto" || tradingview.SEARCH_TYPES[kind]) {
+      const data = await cached(`search:${kind}:${q.toLowerCase()}`, 300_000, async () => {
+        if (kind !== "crypto") return rankResults([await tradingview.search(q, kind)], q, 40);
+        const [coins, tokens] = await Promise.allSettled([
+          searchCoins(q),
+          q.length >= 2 ? tradingview.searchTokens(cryptoTerm(q).term, 15) : Promise.resolve([]),
+        ]);
+        const tokenResults =
+          tokens.status === "fulfilled"
+            ? await Promise.all(tokens.value.map(async (p) => ({ symbol: await tradingview.tokenSymbol(p), name: p.name, exchange: p.exchange, type: "crypto" })))
+            : [];
+        return rankResults([coins.status === "fulfilled" ? coins.value : [], tokenResults], q, 40);
+      });
+      return res.json(data);
+    }
     const data = await cached(`search:${q.toLowerCase()}`, 300_000, async () => {
       const [stocks, coins, tokens] = await Promise.allSettled([
         withFallback([
