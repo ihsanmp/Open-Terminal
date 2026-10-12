@@ -50,7 +50,9 @@ export function rankResults(lists: SearchResult[][], query: string, limit = 25):
   const coin = cryptoTicker(term);
   const rank = (r: SearchResult) => {
     const sym = r.symbol.toUpperCase();
-    if (sym === needle || (pair && sym === coin)) return 0;
+    // OANDA:EURUSD is "EURUSD" typed.
+    const bare = sym.includes(":") ? sym.slice(sym.indexOf(":") + 1) : sym;
+    if (sym === needle || bare === needle || (pair && sym === coin)) return 0;
     if (sym === `${needle}-USD` || sym === `^${needle}` || r.name.toUpperCase() === needle) return 1;
     if (r.type === "index" || sym.startsWith(needle) || (pair && r.type === "crypto")) return 2;
     return 3;

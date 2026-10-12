@@ -100,3 +100,16 @@ describe("rankResults", () => {
     expect(out).toHaveLength(25);
   });
 });
+
+describe("search beyond stocks", () => {
+  it("names forex, commodities, indices, bonds and futures by their exchange", async () => {
+    const { searchRow } = await import("./providers/tradingview.js");
+    expect(searchRow({ symbol: "<em>EURUSD</em>", description: "EUR/USD", type: "forex", exchange: "OANDA", source_id: "OANDA" })).toEqual({ symbol: "OANDA:EURUSD", name: "EUR/USD", exchange: "OANDA", type: "forex" });
+    expect(searchRow({ symbol: "XAUUSD", description: "XAU/USD", type: "commodity", exchange: "FXCM", prefix: "FX", source_id: "FXCM" })?.symbol).toBe("FX:XAUUSD");
+    expect(searchRow({ symbol: "US10Y", description: "US 10Y", type: "bond", exchange: "TVC", source_id: "TVC" })?.symbol).toBe("TVC:US10Y");
+    expect(searchRow({ symbol: "AAPL", description: "Apple", type: "stock", exchange: "NASDAQ", source_id: "NASDAQ" })?.symbol).toBe("AAPL");
+    expect(searchRow({ symbol: "BTCUSDT", description: "Bitcoin", type: "spot", exchange: "Binance", source_id: "BINANCE" })).toBeNull();
+    const ranked = rankResults([[{ symbol: "EURUSDX", name: "x", exchange: "", type: "stock" }, { symbol: "OANDA:EURUSD", name: "EUR/USD", exchange: "OANDA", type: "forex" }]], "eurusd");
+    expect(ranked[0].symbol).toBe("OANDA:EURUSD");
+  });
+});

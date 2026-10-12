@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { INTERVALS, INTERVAL_GROUPS, INTERVAL_LABEL, INTERVAL_SOURCE, MIN_VISIBLE_BARS, latestBarsView, loadRange, orderedFavorites, resolveInterval } from "./chart-intervals";
+import { INTERVALS, INTERVAL_GROUPS, INTERVAL_LABEL, INTERVAL_SOURCE, MIN_VISIBLE_BARS, RANGE_PRESETS, latestBarsView, loadRange, orderedFavorites, parseIntervalInput, presetStart, resolveInterval } from "./chart-intervals";
 
 describe("chart intervals", () => {
   it("labels intervals as TradingView's toolbar does and groups every one in the menu", () => {
     expect(INTERVALS.map((i) => INTERVAL_LABEL[i])).toEqual([
-      "1m", "5m", "15m", "H1", "H2", "H4", "H6", "D1", "D2", "D3", "D4", "D5", "W", "M", "1R", "10R", "100R", "1000R",
+      "1m", "5m", "15m", "30m", "H1", "H2", "H4", "H6", "D1", "D2", "D3", "D4", "D5", "W", "M", "1R", "10R", "100R", "1000R",
     ]);
     expect(INTERVAL_GROUPS.flatMap(([, list]) => list)).toEqual([...INTERVALS]);
   });
@@ -45,5 +45,34 @@ describe("chart intervals", () => {
     // A narrow chart still shows MIN_VISIBLE_BARS.
     const narrow = latestBarsView(5000, 100);
     expect(narrow.to - narrow.from).toBeCloseTo(MIN_VISIBLE_BARS + 0.5, 6);
+  });
+});
+
+describe("intervals typed on the chart and the range buttons", () => {
+  it("reads a typed interval as TradingView's box does", () => {
+    expect(parseIntervalInput("15")).toBe("15m");
+    expect(parseIntervalInput("30")).toBe("30m");
+    expect(parseIntervalInput("240")).toBe("4h");
+    expect(parseIntervalInput("4h")).toBe("4h");
+    expect(parseIntervalInput("1D")).toBe("1D");
+    expect(parseIntervalInput("3d")).toBe("3D");
+    expect(parseIntervalInput("7D")).toBe("1W");
+    expect(parseIntervalInput("1W")).toBe("1W");
+    expect(parseIntervalInput("1M")).toBe("1M");
+    expect(parseIntervalInput("1m")).toBe("1m");
+    expect(parseIntervalInput("10R")).toBe("10R");
+    expect(parseIntervalInput("7")).toBeNull();
+    expect(parseIntervalInput("")).toBeNull();
+    expect(parseIntervalInput("0")).toBeNull();
+  });
+
+  it("starts a range preset where its span begins", () => {
+    const day = 86_400;
+    const times = Array.from({ length: 400 }, (_, i) => Date.UTC(2026, 0, 1) / 1000 - 100 * day + i * day);
+    expect(presetStart(times, "all")).toBe(0);
+    expect(times[presetStart(times, 30)]).toBe(times[times.length - 1] - 30 * day);
+    expect(times[presetStart(times, "ytd")]).toBe(Date.UTC(new Date(times[times.length - 1] * 1000).getUTCFullYear(), 0, 1) / 1000);
+    expect(presetStart([], 30)).toBe(0);
+    expect(RANGE_PRESETS.map((p) => p.label)).toEqual(["1D", "5D", "1M", "3M", "6M", "YTD", "1Y", "5Y", "All"]);
   });
 });

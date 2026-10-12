@@ -17,7 +17,7 @@ const isField = (el: Element | null) => el instanceof HTMLElement && (el.isConte
  *  menu or dialog taking keys. */
 function typingOpensSearch(): boolean {
   const st = useTerminal.getState();
-  if (st.view !== "chart" || st.commandOpen) return false;
+  if (st.view !== "chart" || st.commandOpen || st.typedInterval !== null) return false;
   if (isField(document.activeElement)) return false;
   return !document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]');
 }
@@ -54,6 +54,12 @@ export default function Terminal() {
       if (!e.altKey && !e.ctrlKey && !e.metaKey && /^[a-z]$/i.test(e.key) && typingOpensSearch()) {
         e.preventDefault();
         setCommandOpen(true, e.key.toUpperCase());
+        return;
+      }
+      // A number typed on the chart changes its interval, in TradingView's "Change interval" box.
+      if (!e.altKey && !e.ctrlKey && !e.metaKey && /^[0-9]$/.test(e.key) && typingOpensSearch()) {
+        e.preventDefault();
+        useTerminal.getState().setTypedInterval(e.key);
         return;
       }
       // Typed on quickly, before the search's field has the keys: they go on what's searched.

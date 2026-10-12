@@ -45,7 +45,7 @@ import { movedBound, styledLevels, styleResult } from "../../lib/ta/style";
 import { BackgroundPrimitive, CountdownPrimitive, DrawingsPrimitive, FillPrimitive, type DrawingsSpec } from "../../lib/ta/chart-primitives";
 import { IndicatorTableView } from "../chart/IndicatorTableView";
 import { chartContext } from "../../lib/chart-context";
-import { INTERVAL_LABEL, INTERVAL_SECONDS, INTERVAL_SOURCE, isRangeInterval, latestBarsView, loadRange, orderedFavorites, resolveInterval, type ChartInterval } from "../../lib/chart-intervals";
+import { INTERVAL_LABEL, INTERVAL_SECONDS, INTERVAL_SOURCE, RANGE_PRESETS, isRangeInterval, latestBarsView, loadRange, orderedFavorites, presetStart, resolveInterval, type ChartInterval } from "../../lib/chart-intervals";
 import { groupDays, groupHours, rangeBars } from "../../lib/chart-aggregate";
 import { TimeGridPrimitive, zonedTimes } from "../../lib/chart-grid";
 import { priceDigits } from "../../lib/watchlist";
@@ -61,7 +61,9 @@ import { formatAxisCountdown, formatCountdown, isIntradayInterval, secondsUntilC
 import { fontPx } from "../../lib/font-scale";
 import { DrawingLayer } from "../../lib/drawings/layer";
 import { History, describeChange } from "../../lib/undo";
-import { attachDrawing, type PaneLayer } from "../../lib/drawings/controller";
+import { attachDrawing, type DrawingHandle, type PaneLayer } from "../../lib/drawings/controller";
+import ChartContextMenu, { type MenuItem } from "../chart/ChartContextMenu";
+import IntervalTypeBox from "../chart/IntervalTypeBox";
 import { TOOL_BY_ID, TOOL_FEATURES, timeframeKindOf, type Drawing, type DrawingTemplate, type DrawPoint, type ToolGroup, type ToolId } from "../../lib/drawings/tools";
 import { DrawingSettings } from "../chart/DrawingSettings";
 import { DrawingToolbar, FavoritesBar } from "../chart/DrawingToolbar";
@@ -109,6 +111,8 @@ type ChartNav = {
   reset: () => void;
   auto: () => void;
   overPriceAxis: (clientX: number, clientY: number) => boolean;
+  /** A date-range button's span in view, up to the latest bar. */
+  showSpan: (span: number | "ytd" | "all") => void;
 };
 
 const LINE_STYLE: Record<LineDash, LineStyle> = { solid: LineStyle.Solid, dashed: LineStyle.Dashed, dotted: LineStyle.Dotted };
@@ -155,12 +159,27 @@ function shifted<T>(values: T[], offset: number, total: number, empty: T): T[] {
   return out;
 }
 
-/** Decimals needed to show a price series (sub-cent tokens need many). */
+/** Decimals needed to show a price series: as many as its prices are quoted in (EURUSD's five,
+ *  a stock's two — TradingView's tick size), and enough for sub-cent tokens. */
 function pricePrecision(candles: Candle[]): number {
-  const ref = Math.min(...candles.slice(-50).map((c) => Math.abs(c.low)).filter((x) => x > 0));
-  if (!isFinite(ref) || ref >= 1) return 2;
-  if (ref >= 0.01) return 4;
-  return Math.min(12, Math.ceil(-Math.log10(ref)) + 3);
+  const recent = candles.slice(-300);
+  const ref = Math.min(...recent.slice(-50).map((c) => Math.abs(c.low)).filter((x) => x > 0));
+  const bySize = !isFinite(ref) || ref >= 1 ? 2 : ref >= 0.01 ? 4 : Math.min(12, Math.ceil(-Math.log10(ref)) + 3);
+  // The decimals the quotes carry (float noise from grouping bars aside), at most eight.
+  let quoted = 0;
+  for (const c of recent) {
+    for (const v of [c.open, c.high, c.low, c.close]) {
+      if (!(v > 0)) continue;
+      let d = quoted;
+      while (d < 8) {
+        const x = v * 10 ** d;
+        if (Math.abs(x - Math.round(x)) <= x * 3e-7 + 1e-9) break;
+        d++;
+      }
+      quoted = Math.max(quoted, d);
+    }
+  }
+  return Math.max(bySize, Math.min(quoted, ref >= 1 ? 5 : 12));
 }
 
 /**
@@ -211,6 +230,31 @@ function formatValue(v: number | undefined, precision: number): string {
   return Math.abs(v) >= 100_000 ? fmtBig(v) : fmt(v, precision);
 }
 
+/** The drawing copied with Ctrl+C, for Ctrl+V on any chart. */
+let copiedDrawing: Drawing | null = null;
+
+/** The time now in the chart's zone, as TradingView shows under its chart. */
+function ChartClock({ zone }: { zone: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!document.hidden) setNow(Date.now());
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+  let text: string;
+  try {
+    text = new Date(now).toLocaleTimeString("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  } catch {
+    text = new Date(now).toLocaleTimeString("en-GB");
+  }
+  return (
+    <span className="tabular-nums">
+      {text} <span className="dim">{zone.replace(/_/g, " ")}</span>
+    </span>
+  );
+}
+
 /** No drawings yet on a symbol: one empty list, so it compares equal from render to render. */
 const NO_DRAWINGS: Drawing[] = [];
 
@@ -238,6 +282,11 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const favoriteIntervals = useTerminal((s) => s.favoriteIntervals);
   const toggleFavoriteInterval = useTerminal((s) => s.toggleFavoriteInterval);
   const setInterval_ = (i: ChartInterval) => setWidgetChart(widget.id, { chartInterval: i });
+  /** A date-range button's span, applied once its interval's bars are on the chart. */
+  const pendingPreset = useRef<{ interval: ChartInterval; span: number | "ytd" | "all" } | null>(null);
+  /** The page chart answers the interval typed on it (Terminal opens the box). */
+  const typedInterval = useTerminal((s) => (widget.id.startsWith("page-") ? s.typedInterval : null));
+  const setTypedInterval = useTerminal((s) => s.setTypedInterval);
   // Price scale like TradingView's corner buttons: auto-fit (A), logarithmic (L), percentage (%).
   const scaleMode = widget.chartScale ?? "normal";
   const setScaleMode = (m: ChartScaleMode) => setWidgetChart(widget.id, { chartScale: m });
@@ -314,6 +363,10 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   /** The price pane's drawing layer, and every pane's (the indicators' below it too). */
   const layerRef = useRef<DrawingLayer | null>(null);
   const layersRef = useRef<DrawingLayer[]>([]);
+  /** The drawings' quick placing (TradingView's Alt+H, Alt+V …). */
+  const drawingHandleRef = useRef<DrawingHandle | null>(null);
+  /** The right-click menu: at the pointer, for the drawing under it if any. */
+  const [chartMenu, setChartMenu] = useState<{ x: number; y: number; drawingId: string | null; price: number | null; pane: string | undefined } | null>(null);
   const placingRef = useRef<DrawPoint[] | null>(null) as React.MutableRefObject<DrawPoint[] | null> & { pane?: string | null };
   const drawStateRef = useRef({ tool, magnet, locked: drawingsLocked, drawings, selected: selectedDrawing, cursor: cursorMode });
   const drawHiddenRef = useRef(drawingsHidden);
@@ -812,7 +865,12 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       }
     });
 
-    if (savedRange.current?.key === viewKey) chart.timeScale().setVisibleLogicalRange(savedRange.current.range);
+    const preset = pendingPreset.current;
+    if (preset && preset.interval === interval) {
+      // A date-range button: its span, from where it starts to the latest bar.
+      pendingPreset.current = null;
+      chart.timeScale().setVisibleLogicalRange({ from: presetStart(times as number[], preset.span) - 0.5, to: candles.length + 1 });
+    } else if (savedRange.current?.key === viewKey) chart.timeScale().setVisibleLogicalRange(savedRange.current.range);
     // The latest bars in view; the rest of the loaded history sits to the left.
     else chart.timeScale().setVisibleLogicalRange(latestBarsView(candles.length, el.clientWidth * 0.94));
 
@@ -874,6 +932,10 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       },
       auto: autoOn,
       overPriceAxis,
+      showSpan: (span: number | "ytd" | "all") => {
+        autoOn();
+        ts.setVisibleLogicalRange({ from: presetStart(times as number[], span) - 0.5, to: candles.length + 1 });
+      },
     };
     const onRange = (r: LogicalRange | null) => setAwayFromLatest(Boolean(r && r.to < candles.length - 2));
     ts.subscribeVisibleLogicalRangeChange(onRange);
@@ -967,7 +1029,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     }
     layerRef.current = layer;
     layersRef.current = paneLayers.map((p) => p.layer);
-    const detachDrawing = attachDrawing(el, chart, paneLayers, times as number[], intervalSeconds, candles, {
+    const drawingHandle = attachDrawing(el, chart, paneLayers, times as number[], intervalSeconds, candles, {
       state: () => drawStateRef.current,
       placing: placingRef,
       onAdd: (d) => setDrawingsRef.current((list) => [...list, d]),
@@ -980,7 +1042,12 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         setDrawingsRef.current((list) => list.filter((d) => d.id !== id));
         setSelectedDrawing((s) => (s === id ? null : s));
       },
+      onMenu: (at) => {
+        if (at.drawingId) setSelectedDrawing(at.drawingId);
+        setChartMenu({ x: at.clientX, y: at.clientY, drawingId: at.drawingId, price: at.price, pane: at.pane });
+      },
     });
+    drawingHandleRef.current = drawingHandle;
 
     el.addEventListener("pointerdown", onPointerDown, { capture: true });
     el.addEventListener("pointermove", onPointerMove, { capture: true });
@@ -996,7 +1063,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       chartRef.current = null;
       layerRef.current = null;
       layersRef.current = [];
-      detachDrawing();
+      drawingHandleRef.current = null;
+      drawingHandle.detach();
       disposed = true;
       navRef.current = null;
       ts.unsubscribeVisibleLogicalRangeChange(onRange);
@@ -1026,7 +1094,9 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const remove = (uid: string) => saveInstances(latestIndicators(widget.id).filter((i) => i.uid !== uid));
 
   const legendPrecision = chartStyle.precision !== "default" ? chartStyle.precision : candles && n > 0 ? pricePrecision(candles) : 2;
-  const px = (v: number) => (chartStyle.precision === "default" ? fmtPrice(v) : fmt(v, chartStyle.precision));
+  // The legend writes prices as the price axis does (EURUSD to five decimals).
+  const legendDigits = useMemo(() => (candles?.length ? pricePrecision(candles) : null), [candles]);
+  const px = (v: number) => (chartStyle.precision !== "default" ? fmt(v, chartStyle.precision) : legendDigits !== null ? fmt(v, legendDigits) : fmtPrice(v));
   const legendMarket = useMemo<Market>(() => ({ type: ctx.type, timezone: ctx.timezone }), [ctx.type, ctx.timezone]);
 
   const legendRow = (it: Prepared, idx: number) => (
@@ -1070,7 +1140,58 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const keepChartFocus = (e: React.MouseEvent) => e.preventDefault();
 
   // TradingView's chart hotkeys while the chart has focus (it takes focus when clicked).
+  /** A copy of a drawing (Ctrl+C), pasted as a new one (Ctrl+V), on this chart or another. */
+  const copyDrawing = (d: Drawing) => {
+    copiedDrawing = structuredClone(d);
+  };
+  const pasteDrawing = () => {
+    if (!copiedDrawing || drawingsLocked) return;
+    const d: Drawing = { ...structuredClone(copiedDrawing), id: `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, locked: false };
+    setDrawings((list) => [...list, d]);
+    setSelectedDrawing(d.id);
+  };
+  const cloneDrawing = (d: Drawing) => {
+    const copy: Drawing = { ...structuredClone(d), id: `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, locked: false };
+    setDrawings((list) => [...list, copy]);
+    setSelectedDrawing(copy.id);
+  };
+  /** TradingView's drawing hotkeys: a one-point line right where the pointer is, or a tool in hand. */
+  const DRAW_KEYS: Record<string, { place?: ToolId; tool?: ToolId }> = {
+    h: { place: "hline" },
+    v: { place: "vline" },
+    j: { place: "hray" },
+    c: { place: "crossLine" },
+    t: { tool: "trend" },
+    f: { tool: "fibRetracement" },
+  };
+
   const onChartKey = (e: React.KeyboardEvent) => {
+    const ctrlKey = e.ctrlKey || e.metaKey;
+    const k = e.key.toLowerCase();
+    // Ctrl+C / Ctrl+V copy the selected drawing and paste it.
+    if (ctrlKey && !e.altKey && !e.shiftKey && k === "c" && selected) {
+      e.preventDefault();
+      copyDrawing(selected);
+      return;
+    }
+    if (ctrlKey && !e.altKey && !e.shiftKey && k === "v" && copiedDrawing) {
+      e.preventDefault();
+      pasteDrawing();
+      return;
+    }
+    // Alt+H horizontal line, Alt+V vertical line, Alt+J horizontal ray, Alt+C cross line (at the
+    // pointer), Alt+T trend line, Alt+F Fib retracement, Alt+Shift+R rectangle.
+    if (e.altKey && !ctrlKey) {
+      const hot = e.shiftKey ? (k === "r" ? { tool: "rect" as ToolId } : undefined) : DRAW_KEYS[k];
+      if (hot) {
+        e.preventDefault();
+        // Ahead of the terminal's own Alt keys (Alt+T copies the tab elsewhere).
+        e.stopPropagation();
+        if (hot.place) drawingHandleRef.current?.quickPlace(hot.place);
+        else if (hot.tool) pickTool(hot.tool);
+        return;
+      }
+    }
     // Ctrl+Z undoes, Ctrl+Y (or Ctrl+Shift+Z) redoes.
     if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) {
       e.preventDefault();
@@ -1402,6 +1523,71 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         )}
       </div>
       </div>
+      {/* TradingView's date-range buttons: an interval and a span together. */}
+      <div className="flex items-center gap-0.5 px-1 h-6 border-t border-[var(--border)] shrink-0 text-fs-10">
+        {RANGE_PRESETS.map((p) => (
+          <button
+            key={p.label}
+            title={p.title}
+            onMouseDown={keepChartFocus}
+            className="px-1.5 h-5 rounded dim hover:text-[var(--text)] hover:bg-[#1a1a1a]"
+            onClick={() => {
+              if (p.interval === interval) navRef.current?.showSpan(p.span);
+              else {
+                pendingPreset.current = { interval: p.interval, span: p.span };
+                setInterval_(p.interval);
+              }
+            }}
+          >
+            {p.label}
+          </button>
+        ))}
+        <span className="ml-auto dim pr-1">
+          <ChartClock zone={timezone} />
+        </span>
+      </div>
+      {chartMenu && (
+        <ChartContextMenu
+          at={{ x: chartMenu.x, y: chartMenu.y }}
+          onClose={() => setChartMenu(null)}
+          items={(() => {
+            const d = chartMenu.drawingId ? drawings.find((x) => x.id === chartMenu.drawingId) : undefined;
+            if (d) {
+              return [
+                { label: "Settings…", onClick: () => setDrawingSettings(d.id) },
+                "separator",
+                { label: "Copy", hint: "Ctrl+C", onClick: () => copyDrawing(d) },
+                { label: "Clone", onClick: () => cloneDrawing(d), disabled: drawingsLocked },
+                { label: d.locked ? "Unlock" : "Lock", onClick: () => patchDrawing(d.id, { locked: !d.locked }) },
+                "separator",
+                { label: "Remove", hint: "Del", danger: true, disabled: d.locked || drawingsLocked, onClick: () => removeDrawing(d.id) },
+              ] as MenuItem[];
+            }
+            const price = chartMenu.pane === undefined ? chartMenu.price : null;
+            return [
+              { label: "Reset chart view", hint: "Alt+R", onClick: () => navRef.current?.reset() },
+              ...(price !== null ? [{ label: `Copy price ${fmt(price, pricePrecision(candles ?? []))}`, onClick: () => void navigator.clipboard?.writeText(String(price)) }] : []),
+              { label: "Paste", hint: "Ctrl+V", disabled: !copiedDrawing, onClick: pasteDrawing },
+              "separator",
+              ...(instances.length ? [{ label: `Remove ${instances.length} indicator${instances.length > 1 ? "s" : ""}`, danger: true, onClick: () => saveInstances([]) }] : []),
+              ...(drawings.length ? [{ label: `Remove ${drawings.length} drawing${drawings.length > 1 ? "s" : ""}`, danger: true, onClick: () => { setDrawings(() => []); setSelectedDrawing(null); } }] : []),
+              { label: drawingsHidden ? "Show drawings" : "Hide drawings", onClick: () => setDrawingsHidden(!drawingsHidden), disabled: !drawings.length && !drawingsHidden },
+              "separator",
+              { label: "Settings…", onClick: () => setSettingsOpen(true) },
+            ] as MenuItem[];
+          })()}
+        />
+      )}
+      {typedInterval !== null && (
+        <IntervalTypeBox
+          initial={typedInterval}
+          onApply={(i) => setInterval_(i)}
+          onClose={() => {
+            setTypedInterval(null);
+            containerRef.current?.focus({ preventScroll: true });
+          }}
+        />
+      )}
       {drawingSettings && drawings.some((d) => d.id === drawingSettings) && (
         <DrawingSettings
           drawing={drawings.find((d) => d.id === drawingSettings)!}

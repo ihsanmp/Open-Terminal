@@ -45,6 +45,9 @@ export type DrawCallbacks = {
   onOpenSettings: (id: string) => void;
   /** A drawing clicked with the Eraser. */
   onErase: (id: string) => void;
+  /** A right-click on the chart with no drawing under way: TradingView's menu there, for the
+   *  drawing under the pointer if any, and the price at it. */
+  onMenu?: (at: { clientX: number; clientY: number; drawingId: string | null; price: number | null; pane: string | undefined }) => void;
   /** The look a tool's new drawings take (the one last given it), while placed and once placed. */
   styleOf: (tool: ToolId) => Partial<Pick<Drawing, "color" | "width" | "dash" | "options">> | undefined;
 };
@@ -54,7 +57,11 @@ type Bar = { open: number; high: number; low: number; close: number };
 /** A pane's drawing layer: the price pane's (pane undefined) or an indicator's (its uid). */
 export type PaneLayer = { pane: string | undefined; index: number; layer: DrawingLayer };
 
-export function attachDrawing(el: HTMLElement, chart: IChartApi, layers: PaneLayer[], times: number[], interval: number, bars: Bar[], cb: DrawCallbacks): () => void {
+/** What the chart can ask of its drawings besides the pointer: a one-point drawing put where the
+ *  pointer is (TradingView's Alt+H, Alt+V …), and letting go. */
+export type DrawingHandle = { quickPlace: (tool: ToolId) => boolean; detach: () => void };
+
+export function attachDrawing(el: HTMLElement, chart: IChartApi, layers: PaneLayer[], times: number[], interval: number, bars: Bar[], cb: DrawCallbacks): DrawingHandle {
   /** Each pane's top and height, in the chart's pixels. */
   const geometry = () => {
     const top = el.getBoundingClientRect().top;
@@ -425,7 +432,16 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layers: PaneLay
       setCursor(null);
       return;
     }
-    if (!s.tool) return;
+    if (!s.tool) {
+      // Over a pane (not its axes): TradingView's chart menu, for the drawing there if any.
+      if (!cb.onMenu) return;
+      const { x, y } = local(e);
+      if (!inPane(x, y)) return;
+      swallow(e);
+      const hit = layer.pick(x, y);
+      cb.onMenu({ clientX: e.clientX, clientY: e.clientY, drawingId: hit?.id ?? null, price: layer.toChart(x, y)?.price ?? null, pane: active.pane });
+      return;
+    }
     swallow(e);
     pressAt = null;
     const def = TOOL_BY_ID.get(s.tool)!;
@@ -460,7 +476,17 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layers: PaneLay
   window.addEventListener("pointerup", onUp);
   window.addEventListener("keydown", onShift);
   window.addEventListener("keyup", onShift);
-  return () => {
+  /** A one-point drawing (a horizontal or vertical line, a cross …) where the pointer is now. */
+  const quickPlace = (tool: ToolId): boolean => {
+    const s = cb.state();
+    if (!last || s.locked || drag || stroke || cb.placing.current?.length || !inPane(last.x, last.y)) return false;
+    const p = pointAt(last.x, last.y, s.magnet);
+    if (!p) return false;
+    finish(tool, [p]);
+    return true;
+  };
+
+  const detach = () => {
     el.removeEventListener("pointerdown", onDown, { capture: true });
     el.removeEventListener("mousedown", onMouseDown, { capture: true });
     el.removeEventListener("dblclick", onDblClick, { capture: true });
@@ -477,4 +503,5 @@ export function attachDrawing(el: HTMLElement, chart: IChartApi, layers: PaneLay
     canvas.remove();
     setCursor(null);
   };
+  return { quickPlace, detach };
 }
