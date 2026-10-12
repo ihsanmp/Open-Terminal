@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { bigTradeFloor, subscribeTrades } from "../../lib/binance-stream";
 import { apiGet, fmt, fmtBig, fmtPrice } from "../../lib/api";
 import { usePoll } from "../../lib/refresh";
 import { useWidgetSetting } from "../../store/terminal";
@@ -9,6 +10,7 @@ import { useWidgetSetting } from "../../store/terminal";
 // An asset's transactions, newest first, each from whom to whom (server: providers/transfers.ts):
 // a Bitcoin transfer between named wallets, a big trade on Binance, a US insider's trade, and the
 // big institutions' buys and sales (spot ETFs' daily flows, treasury companies' 8-K reports).
+// A coin on Binance gets its big trades there as they happen, from Binance's stream.
 
 type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" | "whale" };
 type Category = "onchain" | "exchange" | "insider" | "institution" | "whale";
@@ -125,23 +127,74 @@ export default function TransfersList({ symbol }: { symbol: string }) {
     queryFn: () => apiGet<Transfers>(`/api/transfers/${encodeURIComponent(symbol)}`),
     refetchInterval: poll,
   });
+
+  // A coin traded on Binance: its big trades from the stream, as they happen.
+  const base = data?.kind === "exchange" ? /^([A-Z0-9]{1,20})-USDT?$/.exec(symbol.toUpperCase())?.[1] ?? null : null;
+  const [liveRows, setLiveRows] = useState<Row[]>([]);
+  const [live, setLive] = useState(false);
+  useEffect(() => {
+    setLiveRows([]);
+    if (!base) return;
+    // The latest trades' values, for what counts as big (the top 2%, at least $10,000).
+    const recent: number[] = [];
+    let pending: Row[] = [];
+    const flush = setInterval(() => {
+      if (!pending.length) return;
+      const batch = pending;
+      pending = [];
+      setLiveRows((rows) => [...batch.reverse(), ...rows].slice(0, 300));
+    }, 1000);
+    const stop = subscribeTrades(
+      base,
+      (trades) => {
+        for (const t of trades) {
+          const usd = t.price * t.qty;
+          recent.push(usd);
+          if (recent.length > 2000) recent.shift();
+          if (recent.length < 200 || usd < bigTradeFloor(recent)) continue;
+          const side = t.buyerMaker ? "sell" : "buy";
+          pending.push({
+            id: String(t.id),
+            category: "exchange",
+            time: Math.floor(t.time / 1000),
+            from: { name: side === "buy" ? "Pembeli" : "Penjual", address: null, role: "taker" },
+            to: { name: "Binance", address: null, role: `${base}/USDT` },
+            amount: t.qty,
+            unit: base,
+            usd,
+            side,
+            price: t.price,
+          });
+        }
+      },
+      setLive
+    );
+    return () => {
+      stop();
+      clearInterval(flush);
+    };
+  }, [base]);
   if (error) return <div className="down">Error: {(error as Error).message}</div>;
   if (isLoading || !data) return <div className="dim">Memuat riwayat transaksi {symbol}…</div>;
   if (data.kind === "none") return <div className="dim">{data.note}</div>;
 
+  // The stream's trades the server hasn't listed yet go on top.
+  const listed = new Set(data.rows.map((r) => r.id));
+  const rows = liveRows.length ? [...liveRows.filter((r) => !listed.has(r.id)), ...data.rows].sort((a, b) => b.time - a.time) : data.rows;
+
   // The kinds this asset has, institutions first: each a filter.
   // The institutions' filter shows the named wallets too, so it's there whenever there are some.
   const kinds = (["institution", "whale", "onchain", "exchange", "insider"] as Category[]).filter(
-    (k) => data.rows.some((r) => r.category === k) || (k === "institution" && (data.wallets?.length ?? 0) > 0)
+    (k) => rows.some((r) => r.category === k) || (k === "institution" && (data.wallets?.length ?? 0) > 0)
   );
-  const shown = only === "all" || !kinds.includes(only) ? data.rows : data.rows.filter((r) => r.category === only);
+  const shown = only === "all" || !kinds.includes(only) ? rows : rows.filter((r) => r.category === only);
 
   return (
     <div className="flex flex-col gap-1">
       {kinds.length > 1 && (
         <div className="flex gap-1 flex-wrap">
           <button className={`term-btn ${only === "all" || !kinds.includes(only) ? "active" : ""}`} onClick={() => setOnly("all")}>
-            SEMUA <span className="dim">{data.rows.length}</span>
+            SEMUA <span className="dim">{rows.length}</span>
           </button>
           {kinds.map((k) => (
             <button
@@ -150,7 +203,7 @@ export default function TransfersList({ symbol }: { symbol: string }) {
               onClick={() => setOnly(k)}
               title={k === "institution" ? "ETF spot (BlackRock, Fidelity, Grayscale …) dan perusahaan treasury (Strategy, MARA …)" : k === "whale" ? "Wallet Ethereum yang dipantau (Vitalik, Justin Sun, Binance …)" : undefined}
             >
-              {OWN_LABEL[k]} <span className="dim">{data.rows.filter((r) => r.category === k).length}</span>
+              {OWN_LABEL[k]} <span className="dim">{rows.filter((r) => r.category === k).length}</span>
             </button>
           ))}
         </div>
@@ -158,8 +211,13 @@ export default function TransfersList({ symbol }: { symbol: string }) {
       {(only === "institution" || only === "whale") && kinds.includes(only) && data.wallets && data.wallets.length > 0 && <WalletDirectory wallets={data.wallets} />}
       <div className="dim text-fs-10">
         {shown.length} transaksi · sumber: {data.source}
+        {base && (
+          <span className="ml-2">
+            <span className={live ? "up" : "amber"}>●</span> {live ? "LIVE dari stream Binance" : "menyambung ke stream…"}
+          </span>
+        )}
       </div>
-      {data.rows.length === 0 && (
+      {rows.length === 0 && (
         <div className="dim">{data.kind === "exchange" ? "Belum ada transaksi besar yang terekam; daftar ini terisi selama halaman terbuka." : "Belum ada transaksi."}</div>
       )}
       <div className="border border-[var(--border)]">

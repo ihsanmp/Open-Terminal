@@ -615,7 +615,10 @@ marketRouter.get("/watcher/posts/:id", async (req, res) => {
 marketRouter.get("/moneyflow/:symbol", async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
   try {
-    const data = await cached(`moneyflow:${symbol}`, 60_000, async () => {
+    // Short-lived: a coin's page adds each trade as it happens on top of this (from Binance's
+    // stream, after asOf); anything else polls it every 15 seconds while its market trades.
+    const data = await cached(`moneyflow:${symbol}`, 10_000, async () => {
+      const asOf = Date.now();
       const base = cryptoBase(symbol);
       // A coin on Binance: its buys and sells as traded. Anything else: estimated from its bars.
       const taker = base !== null && (await onBinance(base));
@@ -633,7 +636,7 @@ marketRouter.get("/moneyflow/:symbol", async (req, res) => {
         })
       );
       if (periods.every((p) => p.error)) throw new Error(periods[0].error ?? "no data");
-      return { symbol, method: taker ? "taker" : "clv", unit: taker ? "USDT" : null, periods };
+      return { symbol, method: taker ? "taker" : "clv", unit: taker ? "USDT" : null, base: taker ? base : null, asOf, periods };
     });
     res.json(data);
   } catch (err) {
