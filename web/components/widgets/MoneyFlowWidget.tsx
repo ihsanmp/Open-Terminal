@@ -7,6 +7,7 @@ import { apiGet, fmt, fmtBig, fmtPrice, pctClass, type Quote } from "../../lib/a
 import { fontPx } from "../../lib/font-scale";
 import { quoteRefreshMs, usePoll } from "../../lib/refresh";
 import { subscribeTrades, withTrades, type LiveTrade } from "../../lib/binance-stream";
+import { liveLabel, subscribeTicks, type LiveState } from "../../lib/live-ticks";
 import { useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 import Flash from "../Flash";
 import TransfersList from "./TransfersList";
@@ -17,8 +18,9 @@ import TransfersList from "./TransfersList";
 // tab lists the asset's transactions, from whom to whom (TransfersList).
 //
 // Kept up to date: a coin on Binance takes every trade from Binance's stream as it happens (each
-// added to its bar on top of what the server read, asOf); anything else is read again every 15
-// seconds while its market trades.
+// added to its bar on top of what the server read, asOf); a stock takes its trades from
+// TradingView's quote stream through the server (real time for US listings, ten minutes late for
+// IDX), and is read again every 15 seconds while its market trades.
 
 type FlowBar = { time: number; inflow: number; outflow: number };
 type Period = { period: string; interval: string; bars: FlowBar[]; inflow: number; outflow: number; net: number; buyShare: number | null; error: string | null };
@@ -79,33 +81,47 @@ export default function MoneyFlowWidget({ widget }: { widget: WidgetInstance }) 
     refetchInterval: flowPoll,
   });
 
-  // Every trade since the server's read, from Binance's stream, while this page is open.
+  // Every trade since the server's read while this page is open: a coin's from Binance's stream,
+  // anything else's from the server's (TradingView's quote stream).
   const [trades, setTrades] = useState<LiveTrade[]>([]);
   const [live, setLive] = useState(false);
+  const [stock, setStock] = useState<LiveState | null>(null);
+  const [lastTrade, setLastTrade] = useState<number | null>(null);
   const base = data?.base ?? null;
+  const tape = data ? (base ? null : data.symbol) : null;
   useEffect(() => {
     setTrades([]);
+    setLastTrade(null);
+    setStock(null);
     setStreamed(Boolean(base));
-    if (!base) return;
+    if (!base && !tape) return;
     // Taken in as they come, shown once a second (the chart isn't redrawn for every trade).
     let pending: LiveTrade[] = [];
+    let seq = 0;
     const flush = setInterval(() => {
       if (!pending.length) return;
       const batch = pending;
       pending = [];
       setTrades((list) => [...list, ...batch]);
+      setLastTrade(batch[batch.length - 1].time);
     }, 1000);
-    const stop = subscribeTrades(base, (batch) => pending.push(...batch), setLive);
+    const stop = base
+      ? subscribeTrades(base, (batch) => pending.push(...batch), setLive)
+      : subscribeTicks(
+          tape!,
+          (ticks) => pending.push(...ticks.map((t) => ({ id: ++seq, time: t.time, price: t.price, qty: t.size, buyerMaker: t.side === "sell" }))),
+          setStock
+        );
     return () => {
       stop();
       clearInterval(flush);
     };
-  }, [base]);
+  }, [base, tape]);
   // What the server has read is not added again.
   const asOf = data?.asOf ?? 0;
   useEffect(() => setTrades((list) => (list.some((t) => t.time <= asOf) ? list.filter((t) => t.time > asOf) : list)), [asOf]);
-  const periods = useMemo(() => (data ? withTrades(data.periods, trades, data.asOf) : []), [data, trades]);
-  const lastTrade = trades.length ? trades[trades.length - 1].time : null;
+  const periods = useMemo(() => (data ? withTrades(data.periods, trades, data.asOf, Boolean(base)) : []), [data, trades, base]);
+  const stockLabel = stock && !stock.unavailable ? liveLabel(stock) : null;
 
   const q = quote.data;
   const unit = data?.unit === "USDT" ? "$" : q?.currency === "USD" ? "$" : q?.currency ? `${q.currency} ` : "";
@@ -135,10 +151,24 @@ export default function MoneyFlowWidget({ widget }: { widget: WidgetInstance }) 
           </>
         )}
         {data && (
-          <span className="ml-auto text-fs-10 tabular-nums" title={base ? "Setiap transaksi di Binance langsung ditambahkan" : "Dibaca ulang setiap 15 detik saat pasar buka"}>
+          <span
+            className="ml-auto text-fs-10 tabular-nums"
+            title={
+              base
+                ? "Setiap transaksi di Binance langsung ditambahkan"
+                : stockLabel
+                  ? `Setiap transaksi dari stream TradingView ${stock?.ticker ?? ""} langsung ditambahkan${stock?.status?.delaySeconds ? " (bursa ini hanya tersedia tertunda)" : ""}; data candle dibaca ulang setiap 15 detik`
+                  : "Dibaca ulang setiap 15 detik saat pasar buka"
+            }
+          >
             {base ? (
               <>
                 <span className={live ? "up" : "amber"}>●</span> {live ? "LIVE" : "menyambung…"}
+                {lastTrade && <span className="dim"> · transaksi terakhir {new Date(lastTrade).toLocaleTimeString("id-ID")}</span>}
+              </>
+            ) : stockLabel ? (
+              <>
+                <span className={stockLabel.live ? "up" : "amber"}>●</span> {stockLabel.text}
                 {lastTrade && <span className="dim"> · transaksi terakhir {new Date(lastTrade).toLocaleTimeString("id-ID")}</span>}
               </>
             ) : (
@@ -165,7 +195,7 @@ export default function MoneyFlowWidget({ widget }: { widget: WidgetInstance }) 
       </div>
 
       {view === "tx" ? (
-        <TransfersList symbol={symbol} />
+        <TransfersList symbol={symbol} currency={q?.currency ?? undefined} />
       ) : (
         <>
       <div className="flex gap-1 items-center flex-wrap">

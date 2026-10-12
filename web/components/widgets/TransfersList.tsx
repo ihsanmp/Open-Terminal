@@ -4,16 +4,18 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { bigTradeFloor, subscribeTrades } from "../../lib/binance-stream";
 import { apiGet, fmt, fmtBig, fmtPrice } from "../../lib/api";
+import { liveLabel, subscribeTicks, type LiveState } from "../../lib/live-ticks";
 import { usePoll } from "../../lib/refresh";
 import { useWidgetSetting } from "../../store/terminal";
 
 // An asset's transactions, newest first, each from whom to whom (server: providers/transfers.ts):
 // a Bitcoin transfer between named wallets, a big trade on Binance, a US insider's trade, and the
 // big institutions' buys and sales (spot ETFs' daily flows, treasury companies' 8-K reports).
-// A coin on Binance gets its big trades there as they happen, from Binance's stream.
+// A coin on Binance gets its big trades there as they happen, from Binance's stream; a stock its
+// every trade (the tape) from TradingView's quote stream through the server.
 
 type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" | "whale" };
-type Category = "onchain" | "exchange" | "insider" | "institution" | "whale";
+type Category = "onchain" | "exchange" | "insider" | "institution" | "whale" | "tape";
 type Row = {
   id: string;
   category: Category;
@@ -27,6 +29,10 @@ type Row = {
   price?: number | null;
   note?: string;
   link?: string;
+  /** The value's currency when not dollars (an IDX stock's rupiah). */
+  currency?: string;
+  /** Among the biggest of those seen lately. */
+  big?: boolean;
 };
 type Wallet = { name: string; address: string; chain: "BTC" | "ETH"; kind: string; link: string };
 type Transfers = { kind: "onchain" | "exchange" | "insider" | "none"; source: string; rows: Row[]; note?: string; wallets?: Wallet[] };
@@ -117,9 +123,66 @@ function PartyCell({ p }: { p: Party }) {
   );
 }
 
-const OWN_LABEL: Record<Category, string> = { onchain: "ON-CHAIN", exchange: "BINANCE", insider: "INSIDER", institution: "INSTITUSI", whale: "WHALE" };
+const OWN_LABEL: Record<Category, string> = { onchain: "ON-CHAIN", exchange: "BINANCE", insider: "INSIDER", institution: "INSTITUSI", whale: "WHALE", tape: "REAL-TIME" };
 
-export default function TransfersList({ symbol }: { symbol: string }) {
+const isCoin = (symbol: string) => /-USDT?$/.test(symbol.toUpperCase());
+
+/** A stock's every trade as it happens (shares, at what price, buyer- or seller-started). */
+function useTape(symbol: string, currency: string | undefined): { rows: Row[]; state: LiveState | null } {
+  const [rows, setRows] = useState<Row[]>([]);
+  const [state, setState] = useState<LiveState | null>(null);
+  useEffect(() => {
+    setRows([]);
+    setState(null);
+    if (isCoin(symbol)) return;
+    const recent: number[] = [];
+    let pending: Row[] = [];
+    let seq = 0;
+    let ticker: string | null = null;
+    const flush = setInterval(() => {
+      if (!pending.length) return;
+      const batch = pending;
+      pending = [];
+      setRows((list) => [...batch.reverse(), ...list].slice(0, 300));
+    }, 1000);
+    const stop = subscribeTicks(
+      symbol,
+      (ticks) => {
+        for (const t of ticks) {
+          if (t.value > 0) {
+            recent.push(t.value);
+            if (recent.length > 1000) recent.shift();
+          }
+          pending.push({
+            id: `tape-${++seq}-${t.time}`,
+            category: "tape",
+            time: t.time / 1000,
+            from: { name: t.side === "buy" ? "Pembeli" : "Penjual", address: null, role: t.extended ? "extended hours" : "agresif" },
+            to: { name: ticker?.split(":")[0] ?? "Bursa", address: null, role: ticker?.split(":")[1] ?? symbol },
+            amount: t.size,
+            unit: "saham",
+            usd: t.size > 0 ? t.value : null,
+            side: t.side,
+            price: t.price,
+            currency: currency && currency !== "USD" ? currency : undefined,
+            big: recent.length >= 50 && t.value >= bigTradeFloor(recent, 0),
+          });
+        }
+      },
+      (st) => {
+        ticker = st.ticker;
+        setState(st);
+      }
+    );
+    return () => {
+      stop();
+      clearInterval(flush);
+    };
+  }, [symbol, currency]);
+  return { rows, state };
+}
+
+export default function TransfersList({ symbol, currency }: { symbol: string; currency?: string }) {
   const poll = usePoll(15_000);
   const [only, setOnly] = useWidgetSetting<"all" | Category>("txFilter", "all");
   const { data, error, isLoading } = useQuery({
@@ -127,6 +190,9 @@ export default function TransfersList({ symbol }: { symbol: string }) {
     queryFn: () => apiGet<Transfers>(`/api/transfers/${encodeURIComponent(symbol)}`),
     refetchInterval: poll,
   });
+
+  const tape = useTape(symbol, currency);
+  const tapeOn = tape.state !== null && !tape.state.unavailable;
 
   // A coin traded on Binance: its big trades from the stream, as they happen.
   const base = data?.kind === "exchange" ? /^([A-Z0-9]{1,20})-USDT?$/.exec(symbol.toUpperCase())?.[1] ?? null : null;
@@ -174,19 +240,23 @@ export default function TransfersList({ symbol }: { symbol: string }) {
       clearInterval(flush);
     };
   }, [base]);
-  if (error) return <div className="down">Error: {(error as Error).message}</div>;
-  if (isLoading || !data) return <div className="dim">Memuat riwayat transaksi {symbol}…</div>;
-  if (data.kind === "none") return <div className="dim">{data.note}</div>;
+  if (error && !tapeOn) return <div className="down">Error: {(error as Error).message}</div>;
+  if ((isLoading || !data) && !tapeOn) return <div className="dim">Memuat riwayat transaksi {symbol}…</div>;
+  if (data?.kind === "none" && !tapeOn) return <div className="dim">{data.note}</div>;
+  const kind = data?.kind ?? "none";
+  const listedRows = data?.rows ?? [];
 
   // The stream's trades the server hasn't listed yet go on top.
-  const listed = new Set(data.rows.map((r) => r.id));
-  const rows = liveRows.length ? [...liveRows.filter((r) => !listed.has(r.id)), ...data.rows].sort((a, b) => b.time - a.time) : data.rows;
+  const listed = new Set(listedRows.map((r) => r.id));
+  const streamed = [...liveRows, ...tape.rows];
+  const rows = streamed.length ? [...streamed.filter((r) => !listed.has(r.id)), ...listedRows].sort((a, b) => b.time - a.time) : listedRows;
 
-  // The kinds this asset has, institutions first: each a filter.
-  // The institutions' filter shows the named wallets too, so it's there whenever there are some.
-  const kinds = (["institution", "whale", "onchain", "exchange", "insider"] as Category[]).filter(
-    (k) => rows.some((r) => r.category === k) || (k === "institution" && (data.wallets?.length ?? 0) > 0)
+  // The kinds this asset has, a stock's live tape and institutions first: each a filter. The
+  // institutions' filter shows the named wallets too, so it's there whenever there are some.
+  const kinds = (["tape", "institution", "whale", "onchain", "exchange", "insider"] as Category[]).filter(
+    (k) => rows.some((r) => r.category === k) || (k === "institution" && (data?.wallets?.length ?? 0) > 0) || (k === "tape" && tapeOn)
   );
+  const tapeLabel = tape.state && tapeOn ? liveLabel(tape.state) : null;
   const shown = only === "all" || !kinds.includes(only) ? rows : rows.filter((r) => r.category === only);
 
   return (
@@ -201,16 +271,21 @@ export default function TransfersList({ symbol }: { symbol: string }) {
               key={k}
               className={`term-btn ${only === k ? "active" : ""}`}
               onClick={() => setOnly(k)}
-              title={k === "institution" ? "ETF spot (BlackRock, Fidelity, Grayscale …) dan perusahaan treasury (Strategy, MARA …)" : k === "whale" ? "Wallet Ethereum yang dipantau (Vitalik, Justin Sun, Binance …)" : undefined}
+              title={k === "tape" ? "Setiap transaksi saham ini saat terjadi (stream TradingView)" : k === "institution" ? "ETF spot (BlackRock, Fidelity, Grayscale …) dan perusahaan treasury (Strategy, MARA …)" : k === "whale" ? "Wallet Ethereum yang dipantau (Vitalik, Justin Sun, Binance …)" : undefined}
             >
               {OWN_LABEL[k]} <span className="dim">{rows.filter((r) => r.category === k).length}</span>
             </button>
           ))}
         </div>
       )}
-      {(only === "institution" || only === "whale") && kinds.includes(only) && data.wallets && data.wallets.length > 0 && <WalletDirectory wallets={data.wallets} />}
+      {(only === "institution" || only === "whale") && kinds.includes(only) && data?.wallets && data.wallets.length > 0 && <WalletDirectory wallets={data.wallets} />}
       <div className="dim text-fs-10">
-        {shown.length} transaksi · sumber: {data.source}
+        {shown.length} transaksi{data && kind !== "none" ? ` · sumber: ${data.source}` : ""}
+        {tapeLabel && (
+          <span className="ml-2" title="Stream TradingView: tiap kenaikan volume harian dihitung satu transaksi pada harga terakhir; sisi beli/jual dibaca dari bid/ask. Di luar jam reguler hanya harga yang tersedia (ukuran tidak diketahui).">
+            <span className={tapeLabel.live ? "up" : "amber"}>●</span> {tapeLabel.text} · {tape.state?.ticker}
+          </span>
+        )}
         {base && (
           <span className="ml-2">
             <span className={live ? "up" : "amber"}>●</span> {live ? "LIVE dari stream Binance" : "menyambung ke stream…"}
@@ -218,11 +293,12 @@ export default function TransfersList({ symbol }: { symbol: string }) {
         )}
       </div>
       {rows.length === 0 && (
-        <div className="dim">{data.kind === "exchange" ? "Belum ada transaksi besar yang terekam; daftar ini terisi selama halaman terbuka." : "Belum ada transaksi."}</div>
+        <div className="dim">{kind === "exchange" ? "Belum ada transaksi besar yang terekam; daftar ini terisi selama halaman terbuka." : "Belum ada transaksi."}</div>
       )}
       <div className="border border-[var(--border)]">
         {shown.map((r) => {
           const color = r.side === "sell" ? "down" : r.side === "buy" ? "up" : "up";
+          const value = r.usd === null ? "—" : r.currency ? `${r.currency} ${fmtBig(r.usd)}` : `$${fmtBig(r.usd)}`;
           const body = (
             <>
               <span className="w-[96px] shrink-0 text-[#5b9cf6] tabular-nums whitespace-nowrap" title={new Date(r.time * 1000).toLocaleString("id-ID")}>
@@ -235,11 +311,11 @@ export default function TransfersList({ symbol }: { symbol: string }) {
               </span>
               {r.note && <span className="dim text-fs-10 shrink-0 w-[96px] truncate">{r.note}</span>}
               {r.side && !r.note && <span className={`${color} text-fs-10 shrink-0 w-[40px] uppercase`}>{r.side === "buy" ? "beli" : "jual"}</span>}
-              <span className={`${color} shrink-0 w-[110px] text-right tabular-nums`}>
-                {r.amount >= 1000 ? fmtBig(r.amount) : fmt(r.amount, r.amount >= 100 ? 0 : 2)} <span className="dim">{r.unit}</span>
+              <span className={`${color} shrink-0 w-[110px] text-right tabular-nums ${r.big ? "font-bold" : ""}`}>
+                {r.category === "tape" && r.amount === 0 ? "—" : r.amount >= 1000 ? fmtBig(r.amount) : fmt(r.amount, r.amount >= 100 || r.category === "tape" ? 0 : 2)} <span className="dim">{r.unit}</span>
               </span>
               {r.price !== undefined && <span className="dim shrink-0 w-[84px] text-right tabular-nums">{r.price ? `@ ${fmtPrice(r.price)}` : ""}</span>}
-              <span className="text-[var(--text)] shrink-0 w-[72px] text-right tabular-nums">{r.usd === null ? "—" : `$${fmtBig(r.usd)}`}</span>
+              <span className={`shrink-0 w-[84px] text-right tabular-nums ${r.big ? "amber font-bold" : "text-[var(--text)]"}`}>{value}</span>
             </>
           );
           const cls = "flex items-baseline gap-3 px-2 py-1.5 border-b border-[#161616] hover:bg-[#161616]";
@@ -254,7 +330,12 @@ export default function TransfersList({ symbol }: { symbol: string }) {
           );
         })}
       </div>
-      {data.note && <div className="dim text-fs-10 leading-relaxed">{data.note}</div>}
+      {data?.note && kind !== "none" && <div className="dim text-fs-10 leading-relaxed">{data.note}</div>}
+      {kinds.includes("tape") && (
+        <div className="dim text-fs-10 leading-relaxed">
+          Real-time: setiap transaksi saham ini dari stream kuotasi TradingView — tiap kenaikan volume harian dihitung satu transaksi pada harga terakhir (beberapa transaksi dalam satu detik bisa tergabung), beli/jual dibaca dari posisinya terhadap bid/ask. Saham AS real-time; bursa lain (mis. IDX) hanya tersedia tertunda 10 menit tanpa login. Di pra/pasca-pasar hanya harganya yang tersedia. Yang tebal: 2% transaksi terbesar.
+        </div>
+      )}
       {kinds.includes("whale") && (
         <div className="dim text-fs-10 leading-relaxed">
           Whale: transfer ≥ $50.000 dari/ke wallet Ethereum yang dipantau (Vitalik Buterin, Justin Sun, Binance Hot Wallet 1 &amp; Cold Storage, Arbitrum Sequencer Inbox), dari Blockscout. Wallet lain bisa ditambahkan di data/watched-wallets.json.

@@ -354,6 +354,15 @@ export function yahooSymbolOf(exchange: string, code: string): string {
   return (exchange === "HKEX" ? code.padStart(4, "0") : code) + yahooSuffixFor(exchange);
 }
 
+/** The TradingView listing a stock trades as (AAPL → NASDAQ:AAPL), checked with the scanner when
+ *  there's more than one place it could be; null when none lists it. */
+export async function listingOf(symbol: string): Promise<string | null> {
+  const tickers = tvTickers(symbol);
+  if (tickers.length <= 1) return tickers[0] ?? null;
+  const rows = await globalScan({ symbols: { tickers }, columns: ["close"] });
+  return tickers.find((t) => rows.some((r) => r.s === t)) ?? null;
+}
+
 export async function researchProfile(symbol: string): Promise<ResearchProfile> {
   const tickers = tvTickers(symbol);
   if (tickers.length === 0) throw new Error(`tradingview: unsupported exchange for ${symbol}`);
