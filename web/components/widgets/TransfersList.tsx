@@ -14,7 +14,7 @@ import { useWidgetSetting } from "../../store/terminal";
 // A coin on Binance gets its big trades there as they happen, from Binance's stream; a stock its
 // every trade (the tape) from TradingView's quote stream through the server.
 
-type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" | "whale" };
+type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" | "whale" | "news" };
 type Category = "onchain" | "exchange" | "insider" | "institution" | "whale" | "tape";
 type Row = {
   id: string;
@@ -31,6 +31,8 @@ type Row = {
   link?: string;
   /** The value's currency when not dollars (an IDX stock's rupiah). */
   currency?: string;
+  /** The headline it was read from, before a filing reports it. */
+  source?: string;
   /** Among the biggest of those seen lately. */
   big?: boolean;
 };
@@ -113,7 +115,7 @@ function PartyCell({ p }: { p: Party }) {
       <span className={`inline-block w-[7px] h-[7px] rounded-full shrink-0 self-center ${p.tag === "whale" ? "bg-[#b388ff]" : p.tag ? "bg-[var(--amber)]" : named ? "bg-[#5b9cf6]" : "bg-[#404040]"}`} />
       {p.tag && (
         <span className={`text-fs-9 px-1 border shrink-0 ${p.tag === "whale" ? "border-[#b388ff] text-[#b388ff]" : "border-[var(--amber)] amber"}`}>
-          {p.tag === "etf" ? "ETF" : p.tag === "treasury" ? "8-K" : "WHALE"}
+          {p.tag === "etf" ? "ETF" : p.tag === "treasury" ? "8-K" : p.tag === "news" ? "BERITA" : "WHALE"}
         </span>
       )}
       <span className={p.tag === "whale" ? "text-[#b388ff] font-bold" : p.tag ? "amber font-bold" : named ? "text-[var(--text)]" : "dim"}>{p.name ?? (p.address ? short(p.address) : "Tidak diketahui")}</span>
@@ -320,7 +322,7 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
           );
           const cls = "flex items-baseline gap-3 max-sm:flex-wrap max-sm:gap-y-0.5 px-2 py-1.5 border-b border-[#161616] hover:bg-[#161616]";
           return r.link ? (
-            <a key={r.id} href={r.link} target="_blank" rel="noreferrer" className={cls} title={r.category === "onchain" ? "Buka transaksi di mempool.space" : r.category === "whale" ? "Buka transaksi di Etherscan" : "Buka sumbernya"}>
+            <a key={r.id} href={r.link} target="_blank" rel="noreferrer" className={cls} title={r.category === "onchain" ? "Buka transaksi di mempool.space" : r.category === "whale" ? "Buka transaksi di Etherscan" : r.source ? `Belum ada 8-K: dari berita — ${r.source}` : "Buka sumbernya"}>
               {body}
             </a>
           ) : (
@@ -343,7 +345,7 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
       )}
       {kinds.includes("institution") && (
         <div className="dim text-fs-10 leading-relaxed">
-          Institusi: arus harian tiap ETF spot (BlackRock IBIT, Fidelity FBTC, Grayscale GBTC …) dari Farside, dalam koin pada harga penutupan hari itu; dan pembelian/penjualan perusahaan treasury (Strategy, MARA, Strive, BitMine …) dari laporan 8-K mereka ke SEC.
+          Institusi: arus harian tiap ETF spot (BlackRock IBIT, Fidelity FBTC, Grayscale GBTC …) dari Farside, dalam koin pada harga penutupan hari itu; dan pembelian/penjualan perusahaan treasury (Strategy, MARA, Strive, BitMine …) dari laporan 8-K mereka ke SEC (dicek tiap 10 menit). Sebelum 8-K terbit, pembelian yang sudah diberitakan (mis. "Strategy buys 250 bitcoin") langsung tampil dengan catatan "Berita: beli" dan diganti data 8-K begitu filing-nya masuk.
         </div>
       )}
     </div>

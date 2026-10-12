@@ -9,6 +9,8 @@ import { SEC_USER_AGENT } from "./secedgar.js";
 //   ETH  BitMine (weekly holdings, so a week's trade is the change), Sharplink
 //   TRX  Tron Inc
 // Each 8-K (with its press-release exhibits) is fetched once and its parsed result kept in data/.
+// Every few hours all filers' filing lists are read again; in between, EDGAR's feed of each
+// filer's latest 8-Ks is looked at every ten minutes, so a Monday's filing shows within minutes.
 
 export type TreasuryTrade = {
   company: string;
@@ -52,6 +54,7 @@ const VERSION = 3;
 const DAY = 86_400;
 const REFRESH_MS = 3 * 3_600_000;
 const RETRY_MS = 10 * 60_000;
+const QUICK_MS = 10 * 60_000;
 const storeFile = join(dataDir, "crypto-treasuries.json");
 
 type Parsed = { trades: TreasuryTrade[]; holding?: { asset: string; time: number; amount: number } };
@@ -298,8 +301,25 @@ export async function refreshTreasuries(f: Fetch = defaultFetch, now = Date.now(
   writeFileSync(storeFile, JSON.stringify(store));
 }
 
+/** The accession numbers in an EDGAR company feed (newest first). */
+export function feedAccessions(atom: string): string[] {
+  return [...atom.matchAll(/<accession-number>([\d-]+)<\/accession-number>/g)].map((m) => m[1]);
+}
+
+/** Whether any filer has an 8-K the store hasn't read: one small feed per filer. */
+export async function hasNewFilings(f: Fetch = defaultFetch, pause = 150): Promise<boolean> {
+  const store = readStore();
+  for (const filer of FILERS) {
+    const atom = await getText(f, `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${filer.cik}&type=8-K&dateb=&owner=include&count=5&output=atom`);
+    await sleep(pause);
+    if (feedAccessions(atom).some((acc) => !store.filings[acc])) return true;
+  }
+  return false;
+}
+
 let running: Promise<void> | null = null;
 let lastAttempt = 0;
+let lastQuick = 0;
 
 /** Every reported trade, oldest first; new 8-Ks are looked for in the background every few hours. */
 export function treasuryTrades(f: Fetch = defaultFetch, now = Date.now()): TreasuryTrade[] {
@@ -307,6 +327,14 @@ export function treasuryTrades(f: Fetch = defaultFetch, now = Date.now()): Treas
   if (!running && now - store.checkedAt > REFRESH_MS && now - lastAttempt > RETRY_MS) {
     lastAttempt = now;
     running = refreshTreasuries(f, now)
+      .catch((err) => console.warn("treasuries:", err instanceof Error ? err.message : err))
+      .finally(() => {
+        running = null;
+      });
+  } else if (!running && now - lastQuick > QUICK_MS) {
+    lastQuick = now;
+    running = hasNewFilings(f)
+      .then((fresh) => (fresh ? refreshTreasuries(f, now) : undefined))
       .catch((err) => console.warn("treasuries:", err instanceof Error ? err.message : err))
       .finally(() => {
         running = null;
