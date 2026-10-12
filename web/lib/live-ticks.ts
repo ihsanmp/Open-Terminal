@@ -5,7 +5,8 @@
 
 export type StockTick = { time: number; price: number; size: number; value: number; side: "buy" | "sell"; extended?: true };
 export type LiveStatus = { mode: string | null; session: string | null; delaySeconds: number; price: number | null };
-export type LiveState = { connected: boolean; ticker: string | null; status: LiveStatus | null; unavailable: boolean };
+/** `unit`: what a trade's size counts (a stock's shares, a currency future's contracts). */
+export type LiveState = { connected: boolean; ticker: string | null; unit: string; status: LiveStatus | null; unavailable: boolean };
 
 const FLUSH_MS = 300;
 
@@ -29,7 +30,8 @@ function open(symbol: string, feed: Feed) {
   es.onopen = () => set({ connected: true });
   es.addEventListener("listing", (e) => {
     try {
-      set({ ticker: JSON.parse((e as MessageEvent).data).ticker ?? null });
+      const listing = JSON.parse((e as MessageEvent).data);
+      set({ ticker: listing.ticker ?? null, unit: listing.unit ?? "saham" });
     } catch {}
   });
   es.addEventListener("status", (e) => {
@@ -60,7 +62,7 @@ export function subscribeTicks(symbol: string, onTicks: (t: StockTick[]) => void
   const key = symbol.toUpperCase();
   let feed = feeds.get(key);
   if (!feed) {
-    feed = { es: null, listeners: new Set(), watchers: new Set(), state: { connected: false, ticker: null, status: null, unavailable: false } };
+    feed = { es: null, listeners: new Set(), watchers: new Set(), state: { connected: false, ticker: null, unit: "saham", status: null, unavailable: false } };
     feeds.set(key, feed);
     open(key, feed);
   }

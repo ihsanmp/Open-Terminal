@@ -16,7 +16,7 @@ import { useWidgetSetting } from "../../store/terminal";
 // Bitget, Gate, HTX, BingX, Hyperliquid: lib/exchange-streams.ts); a stock its
 // every trade (the tape) from TradingView's quote stream through the server.
 
-type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" | "whale" | "news" };
+type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" | "whale" | "news" | "holder" | "cot" };
 type Category = "onchain" | "exchange" | "insider" | "institution" | "whale" | "tape";
 type Row = {
   id: string;
@@ -120,7 +120,7 @@ function PartyCell({ p }: { p: Party }) {
       <span className={`inline-block w-[7px] h-[7px] rounded-full shrink-0 self-center ${p.tag === "whale" ? "bg-[#b388ff]" : p.tag ? "bg-[var(--amber)]" : named ? "bg-[#5b9cf6]" : "bg-[#404040]"}`} />
       {p.tag && (
         <span className={`text-fs-9 px-1 border shrink-0 ${p.tag === "whale" ? "border-[#b388ff] text-[#b388ff]" : "border-[var(--amber)] amber"}`}>
-          {p.tag === "etf" ? "ETF" : p.tag === "treasury" ? "8-K" : p.tag === "news" ? "BERITA" : "WHALE"}
+          {p.tag === "etf" ? "ETF" : p.tag === "treasury" ? "8-K" : p.tag === "news" ? "BERITA" : p.tag === "holder" ? "13G" : p.tag === "cot" ? "COT" : "WHALE"}
         </span>
       )}
       <span className={p.tag === "whale" ? "text-[#b388ff] font-bold" : p.tag ? "amber font-bold" : named ? "text-[var(--text)]" : "dim"}>{p.name ?? (p.address ? short(p.address) : "Tidak diketahui")}</span>
@@ -178,6 +178,8 @@ function noAddressReason(r: Row, p: Party): string {
   if (r.category === "tape" || r.category === "insider") return "Transaksi saham: tidak ada wallet.";
   if (p.tag === "etf") return "Arus ETF dilaporkan harian (Farside); alamat kustodian ETF tidak dipublikasikan per transaksi.";
   if (p.tag === "treasury" || p.tag === "news") return "Dilaporkan lewat 8-K/berita; perusahaan tidak menyebutkan alamat wallet-nya.";
+  if (p.tag === "holder") return "Kepemilikan saham dari laporan 13G/13D ke SEC: saham tercatat di kustodian, tidak ada wallet.";
+  if (p.tag === "cot") return "Posisi futures gabungan satu kelompok pelaku dari laporan mingguan CFTC: tidak ada wallet atau nama perusahaan.";
   if (p.name === "Pasar") return "Lawan transaksinya pasar (banyak pihak), bukan satu wallet.";
   return "Alamat tidak tersedia.";
 }
@@ -301,6 +303,7 @@ function useTape(symbol: string, currency: string | undefined): { rows: Row[]; s
     let pending: Row[] = [];
     let seq = 0;
     let ticker: string | null = null;
+    let unit = "saham";
     const flush = setInterval(() => {
       if (!pending.length) return;
       const batch = pending;
@@ -321,7 +324,7 @@ function useTape(symbol: string, currency: string | undefined): { rows: Row[]; s
             from: { name: t.side === "buy" ? "Pembeli" : "Penjual", address: null, role: t.extended ? "extended hours" : "agresif" },
             to: { name: ticker?.split(":")[0] ?? "Bursa", address: null, role: ticker?.split(":")[1] ?? symbol },
             amount: t.size,
-            unit: "saham",
+            unit,
             usd: t.size > 0 ? t.value : null,
             side: t.side,
             price: t.price,
@@ -332,6 +335,7 @@ function useTape(symbol: string, currency: string | undefined): { rows: Row[]; s
       },
       (st) => {
         ticker = st.ticker;
+        unit = st.unit;
         setState(st);
       }
     );
@@ -476,7 +480,7 @@ export default memo(function TransfersList({ symbol, currency }: { symbol: strin
               key={k}
               className={`term-btn ${only === k ? "active" : ""}`}
               onClick={() => setOnly(k)}
-              title={k === "tape" ? "Setiap transaksi saham ini saat terjadi (stream TradingView)" : k === "institution" ? "ETF spot (BlackRock, Fidelity, Grayscale …) dan perusahaan treasury (Strategy, MARA …)" : k === "whale" ? "Wallet Ethereum yang dipantau (Vitalik, Justin Sun, Binance …)" : undefined}
+              title={k === "tape" ? "Setiap transaksi saat terjadi (stream TradingView)" : k === "institution" ? "Kripto: ETF spot dan perusahaan treasury. Saham AS: pemegang ≥5% (13G/13D). Forex: asset manager, hedge fund dan bank (CFTC COT)" : k === "whale" ? "Wallet Ethereum yang dipantau (Vitalik, Justin Sun, Binance …)" : undefined}
             >
               {OWN_LABEL[k]} <span className="dim">{rows.filter((r) => r.category === k).length}</span>
             </button>
@@ -553,7 +557,7 @@ export default memo(function TransfersList({ symbol, currency }: { symbol: strin
       {data?.note && kind !== "none" && <div className="dim text-fs-10 leading-relaxed">{data.note}</div>}
       {kinds.includes("tape") && (
         <div className="dim text-fs-10 leading-relaxed">
-          Real-time: setiap transaksi saham ini dari stream kuotasi TradingView — tiap kenaikan volume harian dihitung satu transaksi pada harga terakhir (beberapa transaksi dalam satu detik bisa tergabung), beli/jual dibaca dari posisinya terhadap bid/ask. Saham AS real-time; bursa lain (mis. IDX) hanya tersedia tertunda 10 menit tanpa login. Di pra/pasca-pasar hanya harganya yang tersedia. Yang tebal: 2% transaksi terbesar.
+          Real-time: setiap transaksi dari stream kuotasi TradingView (forex: futures mata uang CME, tertunda 10 menit, dalam kontrak dan dinilai dalam dolar) — tiap kenaikan volume harian dihitung satu transaksi pada harga terakhir (beberapa transaksi dalam satu detik bisa tergabung), beli/jual dibaca dari posisinya terhadap bid/ask. Saham AS real-time; bursa lain (mis. IDX) hanya tersedia tertunda 10 menit tanpa login. Di pra/pasca-pasar hanya harganya yang tersedia. Yang tebal: 2% transaksi terbesar.
         </div>
       )}
       {kinds.includes("whale") && (

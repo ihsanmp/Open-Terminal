@@ -26,6 +26,7 @@ import * as moneyflow from "../providers/moneyflow.js";
 import * as transfers from "../providers/transfers.js";
 import * as newsArchive from "../news/archive.js";
 import * as tvquotes from "../live/tvquotes.js";
+import { asPairBars, asPairTrade, fxFutureOf } from "../providers/fxfutures.js";
 import { buildRecap, quotedTexts, withTranslations } from "../news/recap.js";
 import { toIndonesian } from "../news/translate.js";
 import { cryptoBase, cryptoTicker, isIndex, isTvPair, isYahooOnly } from "../symbols.js";
@@ -613,6 +614,14 @@ marketRouter.get("/watcher/posts/:id", async (req, res) => {
 
 // ---- money flow: what went into an asset and what came out, by period (providers/moneyflow.ts) ----
 
+/** A currency future's bars for each money-flow interval, and how many to cover its period. */
+const FX_RESOLUTION: Record<string, { tv: string; count: number }> = {
+  "15m": { tv: "15", count: 500 },
+  "1h": { tv: "60", count: 400 },
+  "1D": { tv: "1D", count: 200 },
+  "1W": { tv: "1W", count: 60 },
+};
+
 marketRouter.get("/moneyflow/:symbol", async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
   try {
@@ -621,6 +630,25 @@ marketRouter.get("/moneyflow/:symbol", async (req, res) => {
     const data = await cached(`moneyflow:${symbol}`, 10_000, async () => {
       const asOf = Date.now();
       const base = cryptoBase(symbol);
+      const fx = base ? null : fxFutureOf(symbol);
+      if (fx) {
+        // A currency pair: estimated from its CME future's bars, whose volume is real (spot FX's isn't).
+        const periods = await Promise.all(
+          moneyflow.FLOW_PERIODS.map(async (p) => {
+            try {
+              const res = FX_RESOLUTION[p.interval];
+              const raw = (await tvchart.bars([fx.tv], res.tv, res.count))[fx.tv] ?? [];
+              const candles = asPairBars(raw.map((b) => ({ ...b, volume: b.volume ?? 0 })), fx);
+              const shown = moneyflow.inPeriod(moneyflow.clvFlows(candles), p, true);
+              return { period: p.key, interval: p.interval, bars: shown, ...moneyflow.summarize(shown), error: null };
+            } catch (err) {
+              return { period: p.key, interval: p.interval, bars: [], ...moneyflow.summarize([]), error: err instanceof Error ? err.message : String(err) };
+            }
+          })
+        );
+        if (periods.every((p) => p.error)) throw new Error(periods[0].error ?? "no data");
+        return { symbol, method: "futures", unit: "USD", base: null, source: fx.tv, delaySeconds: 600, asOf, periods };
+      }
       // A coin on Binance: its buys and sells as traded. Anything else: estimated from its bars.
       const taker = base !== null && (await onBinance(base));
       const periods = await Promise.all(
@@ -652,6 +680,9 @@ marketRouter.get("/moneyflow/:symbol", async (req, res) => {
 // the page reads them straight from Binance.
 
 async function liveTicker(symbol: string): Promise<string | null> {
+  // A currency pair: its CME future's trades (spot FX publishes no volume), as the pair's.
+  const fx = fxFutureOf(symbol);
+  if (fx) return fx.tv;
   if (isTvPair(symbol)) return symbol;
   if (isIndex(symbol)) return INDEX_TV_TICKER.get(symbol) ?? null;
   if (cryptoBase(symbol)) return null;
@@ -672,10 +703,11 @@ marketRouter.get("/live/:symbol", async (req, res) => {
     return;
   }
   res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
-  res.write(`retry: 5000\nevent: listing\ndata: ${JSON.stringify({ ticker })}\n\n`);
+  const fx = fxFutureOf(symbol);
+  res.write(`retry: 5000\nevent: listing\ndata: ${JSON.stringify({ ticker, unit: fx ? "kontrak" : "saham" })}\n\n`);
   const stop = tvquotes.watch(
     ticker,
-    (t) => res.write(`data: ${JSON.stringify(t)}\n\n`),
+    (t) => res.write(`data: ${JSON.stringify(fx ? asPairTrade(t, fx) : t)}\n\n`),
     (s) => res.write(`event: status\ndata: ${JSON.stringify(s)}\n\n`)
   );
   // A comment now and then keeps proxies from closing a quiet stream (a market that's shut).

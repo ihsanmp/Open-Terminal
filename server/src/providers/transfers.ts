@@ -24,9 +24,13 @@ import { treasuryTrades, type TreasuryTrade } from "./treasuries.js";
 import { unfiledTrades, type NewsTrade } from "./treasurynews.js";
 import * as newsArchive from "../news/archive.js";
 import * as whales from "./whales.js";
+import { holderChanges, holderFilings, type HolderChange } from "./holders13g.js";
+import { cotReport, fxFutureOf, type CotRow, type FxFuture } from "./fxfutures.js";
+import * as tvchart from "./tvchart.js";
+import { listingOf } from "./tradingview.js";
 
 /** One side of a transaction; an institution is tagged an ETF or a treasury company. */
-export type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" | "whale" | "news" };
+export type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" | "whale" | "news" | "holder" | "cot" };
 export type TransferRow = {
   id: string;
   category: "onchain" | "exchange" | "insider" | "institution" | "whale";
@@ -233,13 +237,128 @@ export function insiderRow(t: secedgar.InsiderTransaction, symbol: string, i: nu
   };
 }
 
+// ---------------------------------------------------------------- daily closes of any TradingView symbol
+
+const tvCloses = new Map<string, { at: number; byDate: Map<string, number> }>();
+/** A symbol's daily close on a date (or the last trading day before it), from TradingView's bars. */
+async function tvCloseOn(ticker: string | null, days: number): Promise<(time: number) => number | null> {
+  if (!ticker) return () => null;
+  let c = tvCloses.get(ticker);
+  if (!c || Date.now() - c.at > 6 * 3_600_000) {
+    try {
+      const bars = (await tvchart.bars([ticker], "1D", days))[ticker] ?? [];
+      c = { at: Date.now(), byDate: new Map(bars.map((b) => [new Date(b.time * 1000).toISOString().slice(0, 10), b.close])) };
+      tvCloses.set(ticker, c);
+    } catch {
+      c ??= { at: 0, byDate: new Map() };
+    }
+  }
+  const byDate = c.byDate;
+  return (time) => {
+    for (let back = 0; back < 7; back++) {
+      const close = byDate.get(new Date((time - back * 86_400) * 1000).toISOString().slice(0, 10));
+      if (close !== undefined) return close;
+    }
+    return null;
+  };
+}
+
+// ---------------------------------------------------------------- a stock's big holders (13G / 13D)
+
+/** A holder's filing as a transaction: the shares it added or cut since its filing before. */
+export function holderRow(f: HolderChange, symbol: string, closeOn: (time: number) => number | null): TransferRow {
+  const holder: Party = { name: f.holder, address: null, role: f.percent !== null ? `${f.percent}%` : null, tag: "holder" };
+  const company: Party = { name: symbol, address: null };
+  const schedule = /13D/.test(f.form) ? "13D" : "13G";
+  const price = closeOn(f.time);
+  const base = { id: `13g-${f.accession}`, category: "institution" as const, time: f.time, unit: "saham", price, link: f.url };
+  // A reorganisation (Vanguard's 2026 split into entities), or a first filing here: what's held.
+  if (f.change === null || f.change === 0 || f.realignment) {
+    return {
+      ...base,
+      from: company,
+      to: holder,
+      amount: f.shares ?? 0,
+      usd: f.shares !== null && price !== null ? f.shares * price : null,
+      note: f.realignment ? `${schedule}: reorganisasi` : `${schedule}: memegang`,
+    };
+  }
+  const bought = f.change > 0;
+  return {
+    ...base,
+    from: bought ? MARKET : holder,
+    to: bought ? holder : MARKET,
+    amount: Math.abs(f.change),
+    usd: price !== null ? Math.abs(f.change) * price : null,
+    side: bought ? "buy" : "sell",
+    note: `${schedule}: ${bought ? "tambah" : "kurangi"}`,
+  };
+}
+
+async function holderRows(symbol: string): Promise<TransferRow[]> {
+  const [filings, ticker] = await Promise.all([holderFilings(symbol), listingOf(symbol).catch(() => null)]);
+  if (!filings.length) return [];
+  const closeOn = await tvCloseOn(ticker, 1500);
+  return holderChanges(filings).map((f) => holderRow(f, symbol, closeOn));
+}
+
 async function insiderTransfers(symbol: string): Promise<Transfers> {
-  const list = await secedgar.insiderTransactions(symbol);
+  const [list, holders] = await Promise.all([secedgar.insiderTransactions(symbol), holderRows(symbol).catch((err) => {
+    console.warn("13g:", err instanceof Error ? err.message : err);
+    return [] as TransferRow[];
+  })]);
   return {
     kind: "insider",
-    source: "SEC EDGAR (Form 4)",
-    rows: list.map((t, i) => insiderRow(t, symbol, i)).sort((a, b) => b.time - a.time),
-    note: "Transaksi orang dalam (direksi, komisaris, pemegang ≥10%) yang dilaporkan ke SEC lewat Form 4.",
+    source: holders.length ? "SEC EDGAR (Form 4) · institusi: 13G/13D" : "SEC EDGAR (Form 4)",
+    rows: [...list.map((t, i) => insiderRow(t, symbol, i)), ...holders].sort((a, b) => b.time - a.time),
+    note: "Insider: transaksi orang dalam (direksi, komisaris, pemegang ≥10%) yang dilaporkan ke SEC lewat Form 4. Institusi: pemegang ≥5% (BlackRock, Vanguard, State Street, Berkshire …) dari Schedule 13G/13D; perubahannya dihitung dari persentase kepemilikan antar laporan (aman dari stock split), dinilai pada harga penutupan hari itu.",
+  };
+}
+
+// ---------------------------------------------------------------- a currency pair's big players (CFTC)
+
+const COT_GROUPS: Array<{ key: "assetManagers" | "leveragedFunds" | "dealers"; net: "netAssetManagers" | "netLeveragedFunds" | "netDealers"; name: string }> = [
+  { key: "assetManagers", net: "netAssetManagers", name: "Asset manager" },
+  { key: "leveragedFunds", net: "netLeveragedFunds", name: "Leveraged funds" },
+  { key: "dealers", net: "netDealers", name: "Dealer / bank" },
+];
+
+/** A week of a group's positioning as the pair's transaction: net bought or sold, in contracts. */
+export function cotRow(w: CotRow, g: (typeof COT_GROUPS)[number], f: FxFuture, pair: string, futurePrice: number | null): TransferRow | null {
+  const change = w[g.key];
+  if (!change) return null;
+  // Long the future is long the foreign currency: the pair's buy, or its sale when quoted the other way.
+  const bought = f.invert ? change < 0 : change > 0;
+  const net = w[g.net];
+  const group: Party = { name: g.name, address: null, role: `net ${net > 0 ? "long" : "short"} ${Math.abs(net).toLocaleString("en-US")} kontrak ${f.currency}`, tag: "cot" };
+  return {
+    id: `cot-${f.cftc}-${w.date}-${g.key}`,
+    category: "institution",
+    time: Math.floor(Date.parse(`${w.date}T21:00:00Z`) / 1000),
+    from: bought ? MARKET : group,
+    to: bought ? group : MARKET,
+    amount: Math.abs(change),
+    unit: "kontrak",
+    usd: futurePrice !== null ? Math.abs(change) * f.size * futurePrice : null,
+    side: bought ? "buy" : "sell",
+    price: futurePrice !== null && futurePrice > 0 ? (f.invert ? 1 / futurePrice : futurePrice) : null,
+    note: `COT: net ${bought ? "beli" : "jual"} ${pair}`,
+    link: "https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm",
+  };
+}
+
+async function fxTransfers(symbol: string, f: FxFuture): Promise<Transfers> {
+  const pair = symbol.toUpperCase().replace(/=X$/, "").replace(/^([A-Z]{3})$/, "USD$1");
+  const [weeks, closeOn] = await Promise.all([cotReport(f), tvCloseOn(f.tv, 300)]);
+  const rows = weeks
+    .flatMap((w) => COT_GROUPS.map((g) => cotRow(w, g, f, pair, closeOn(Date.parse(`${w.date}T00:00:00Z`) / 1000))))
+    .filter((r): r is TransferRow => r !== null)
+    .sort((a, b) => b.time - a.time);
+  return {
+    kind: "insider",
+    source: `CFTC Commitments of Traders (futures ${f.tv.replace("CME:", "")})`,
+    rows,
+    note: `Institusi: perubahan posisi bersih (long − short) tiap minggu dari laporan CFTC Traders in Financial Futures untuk futures ${f.currency} di CME (${f.tv.replace("CME:", "")}, ${f.size.toLocaleString("en-US")} ${f.currency} per kontrak), dinilai pada harga futures hari laporan. Asset manager = dana pensiun, reksa dana, asuransi; leveraged funds = hedge fund, CTA; dealer = bank. ${f.invert ? `Futures ini dihitung dalam ${f.currency}, jadi menambah long ${f.currency} berarti menjual ${pair}.` : ""}`.trim(),
   };
 }
 
@@ -435,6 +554,8 @@ export async function transfersOf(symbol: string, base: string | null, onBinance
       return { kind: list?.kind ?? "exchange", source: sources, rows, note: list?.note, wallets: knownWallets(base) };
     }
   }
+  const fx = base ? null : fxFutureOf(symbol);
+  if (fx) return fxTransfers(symbol, fx);
   if (!base && isUsTicker(symbol)) return insiderTransfers(symbol);
   return {
     kind: "none",

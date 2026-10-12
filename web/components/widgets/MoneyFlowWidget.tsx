@@ -24,7 +24,7 @@ import TransfersList from "./TransfersList";
 
 type FlowBar = { time: number; inflow: number; outflow: number };
 type Period = { period: string; interval: string; bars: FlowBar[]; inflow: number; outflow: number; net: number; buyShare: number | null; error: string | null };
-type MoneyFlow = { symbol: string; method: "taker" | "clv"; unit: string | null; base: string | null; asOf: number; periods: Period[] };
+type MoneyFlow = { symbol: string; method: "taker" | "clv" | "futures"; unit: string | null; base: string | null; asOf: number; periods: Period[]; source?: string; delaySeconds?: number };
 
 const IN = "#26a69a";
 const OUT = "#ef5350";
@@ -109,7 +109,7 @@ export default function MoneyFlowWidget({ widget }: { widget: WidgetInstance }) 
       ? subscribeTrades(base, (batch) => pending.push(...batch), setLive)
       : subscribeTicks(
           tape!,
-          (ticks) => pending.push(...ticks.map((t) => ({ id: ++seq, time: t.time, price: t.price, qty: t.size, buyerMaker: t.side === "sell" }))),
+          (ticks) => pending.push(...ticks.map((t) => ({ id: ++seq, time: t.time, price: t.size > 0 ? t.value / t.size : t.price, qty: t.size, buyerMaker: t.side === "sell" }))),
           setStock
         );
     return () => {
@@ -124,7 +124,7 @@ export default function MoneyFlowWidget({ widget }: { widget: WidgetInstance }) 
   const stockLabel = stock && !stock.unavailable ? liveLabel(stock) : null;
 
   const q = quote.data;
-  const unit = data?.unit === "USDT" ? "$" : q?.currency === "USD" ? "$" : q?.currency ? `${q.currency} ` : "";
+  const unit = data?.unit === "USDT" || data?.unit === "USD" ? "$" : q?.currency === "USD" ? "$" : q?.currency ? `${q.currency} ` : "";
   const period = periods.find((p) => p.period === periodKey) ?? periods[0];
 
   // Inflow up, outflow down, and the running net across the period.
@@ -180,7 +180,11 @@ export default function MoneyFlowWidget({ widget }: { widget: WidgetInstance }) 
         )}
         {data && (
           <span className="dim text-fs-10" title={data.method === "taker" ? "Binance: beli yang mengambil order jual (taker buy) dihitung masuk, jual yang mengambil order beli dihitung keluar." : "Perkiraan dari candle: nilai transaksi tiap bar (harga tipikal × volume) dibagi menurut posisi close di rentang high–low."}>
-            {data.method === "taker" ? "● Taker buy / sell · Binance (USDT)" : "● Estimasi dari candle (Chaikin money flow)"}
+            {data.method === "taker"
+              ? "● Taker buy / sell · Binance (USDT)"
+              : data.method === "futures"
+                ? `● Futures ${data.source?.replace("CME:", "CME ") ?? "CME"} · volume nyata, dalam USD (tertunda 10 mnt)`
+                : "● Estimasi dari candle (Chaikin money flow)"}
           </span>
         )}
       </div>
@@ -277,7 +281,9 @@ export default function MoneyFlowWidget({ widget }: { widget: WidgetInstance }) 
           <div className="dim text-fs-10 leading-relaxed">
             {data!.method === "taker"
               ? "Inflow = nilai beli agresif (taker buy) di Binance, outflow = nilai jual agresif. Ini transaksi yang benar-benar terjadi, bukan perkiraan."
-              : "Inflow dan outflow diperkirakan dari candle (metode Chaikin): nilai transaksi tiap bar dihitung masuk bila close dekat high dan keluar bila dekat low. Data arus dana institusi per saham tidak tersedia gratis."}
+              : data!.method === "futures"
+                ? `Forex spot diperdagangkan antar bank tanpa volume publik, jadi arus dananya dibaca dari futures mata uangnya di CME (${data!.source?.replace("CME:", "")}): volume kontrak nyata × ukuran kontrak × harga = dolar. Arah tiap bar diperkirakan dari posisi close di rentang high–low (metode Chaikin); untuk pasangan yang dikutip terbalik (USDJPY, USDCAD, USDCHF) arahnya ikut dibalik. Data CME tanpa login tertunda 10 menit.`
+                : "Inflow dan outflow diperkirakan dari candle (metode Chaikin): nilai transaksi tiap bar dihitung masuk bila close dekat high dan keluar bila dekat low. Data arus dana institusi per saham tidak tersedia gratis."}
           </div>
         </>
       )}
