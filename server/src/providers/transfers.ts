@@ -21,10 +21,12 @@ import { etfFlows, type EtfFlow } from "./etfflows.js";
 import { watchedWallets, whaleTransfers, type EvmTransfer, type Watched } from "./evmwhales.js";
 import * as secedgar from "./secedgar.js";
 import { treasuryTrades, type TreasuryTrade } from "./treasuries.js";
+import { unfiledTrades, type NewsTrade } from "./treasurynews.js";
+import * as newsArchive from "../news/archive.js";
 import * as whales from "./whales.js";
 
 /** One side of a transaction; an institution is tagged an ETF or a treasury company. */
-export type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" | "whale" };
+export type Party = { name: string | null; address: string | null; role?: string | null; tag?: "etf" | "treasury" | "whale" | "news" };
 export type TransferRow = {
   id: string;
   category: "onchain" | "exchange" | "insider" | "institution" | "whale";
@@ -39,6 +41,8 @@ export type TransferRow = {
   /** What kind of transaction (an insider's "Open market sale"). */
   note?: string;
   link?: string;
+  /** Where it was read when that's a headline: "Investing.com: Strategy buys 250 bitcoin". */
+  source?: string;
 };
 /** A wallet the list can name, with its full address, for the institutions' directory. */
 export type KnownWallet = { name: string; address: string; chain: "BTC" | "ETH"; kind: string; link: string };
@@ -257,6 +261,40 @@ export function treasuryRow(t: TreasuryTrade): TransferRow {
   };
 }
 
+/** A treasury company's buy or sale as the news reported it, before its 8-K. */
+export function newsTreasuryRow(t: NewsTrade): TransferRow {
+  const company: Party = { name: t.company, address: null, role: t.ticker, tag: "news" };
+  const bought = t.amount > 0;
+  return {
+    id: `news-${t.ticker}-${t.asset}-${Math.abs(t.amount)}-${t.time}`,
+    category: "institution",
+    time: t.time,
+    from: bought ? MARKET : company,
+    to: bought ? company : MARKET,
+    amount: Math.abs(t.amount),
+    unit: t.asset,
+    usd: t.usd,
+    side: bought ? "buy" : "sell",
+    price: t.usd !== null ? t.usd / Math.abs(t.amount) : null,
+    note: bought ? "Berita: beli" : "Berita: jual",
+    link: t.link,
+    source: `${t.publisher}: ${t.title}`,
+  };
+}
+
+const NEWS_DAYS = 21;
+
+/** The treasury trades in the last weeks' news that no 8-K has reported yet. */
+function newsTreasuryTrades(filed: TreasuryTrade[], now: number): NewsTrade[] {
+  try {
+    // The feeds are read every half hour anyway; with transactions open, every five minutes.
+    void newsArchive.freshen(now - 86_400_000, now);
+    return unfiledTrades(newsArchive.between(now - NEWS_DAYS * 86_400_000, now + 60_000), filed);
+  } catch {
+    return [];
+  }
+}
+
 const dailyCloses = new Map<string, { at: number; byDate: Map<string, number> }>();
 async function closeOnFor(base: string): Promise<(date: string) => number | null> {
   let c = dailyCloses.get(base);
@@ -277,11 +315,10 @@ async function closeOnFor(base: string): Promise<(date: string) => number | null
 async function institutionRows(base: string, now = Date.now()): Promise<TransferRow[]> {
   const since = now / 1000 - INSTITUTION_DAYS * 86_400;
   const [flows, closeOn] = await Promise.all([etfFlows(base).catch(() => [] as EtfFlow[]), closeOnFor(base)]);
+  const filed = treasuryTrades();
   const rows = [
     ...flows.map((f) => etfRow(f, base, closeOn)),
-    ...treasuryTrades()
-      .filter((t) => t.asset === base)
-      .map(treasuryRow)
+    ...[...filed.filter((t) => t.asset === base).map(treasuryRow), ...newsTreasuryTrades(filed, now).filter((t) => t.asset === base).map(newsTreasuryRow)]
       // A filing that gives no dollar figure: valued at that day's close.
       .map((r) => {
         if (r.usd !== null) return r;
@@ -360,7 +397,7 @@ export async function transfersOf(symbol: string, base: string | null, onBinance
       const rows = [...(list?.rows ?? []), ...institutions, ...whales].sort((a, b) => b.time - a.time);
       const sources = [
         list?.source,
-        institutions.length ? "institusi: Farside (ETF), SEC 8-K" : null,
+        institutions.length ? "institusi: Farside (ETF), SEC 8-K, berita" : null,
         whales.length ? "whale: Blockscout (Ethereum)" : null,
       ]
         .filter(Boolean)

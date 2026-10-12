@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { consolidate, filingText, holdingChanges, parseHolding, parseTrades, type TreasuryTrade } from "./treasuries.js";
+import { consolidate, feedAccessions, filingText, holdingChanges, parseHolding, parseTrades, type TreasuryTrade } from "./treasuries.js";
 import { movedBtc } from "./whales.js";
 
 const base = { company: "Strategy", ticker: "MSTR", url: "x" };
@@ -95,5 +95,14 @@ describe("whale transfers", () => {
       ],
     };
     expect(movedBtc(tx)).toBe(1200);
+  });
+});
+
+describe("EDGAR's feed of a filer's latest 8-Ks", () => {
+  it("lists the accession numbers", () => {
+    const atom = `<feed><entry><content type="text/xml"><accession-number>0001193125-26-413164</accession-number><act>34</act></content></entry>
+<entry><content><accession-number>0001193125-26-409863</accession-number></content></entry></feed>`;
+    expect(feedAccessions(atom)).toEqual(["0001193125-26-413164", "0001193125-26-409863"]);
+    expect(feedAccessions("<feed></feed>")).toEqual([]);
   });
 });
