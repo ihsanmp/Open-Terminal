@@ -35,6 +35,8 @@ describe("transaction history", () => {
     const row = btcRow({ txid: "t1", time: 1000, height: 1, btc: 300, from: ["A", "B"], to: [{ address: "Y", btc: 300 }] }, labels, () => 83_000);
     expect(row).toMatchObject({ from: { name: "Coinbase Prime", address: "B" }, to: { name: "BlackRock IBIT", address: "Y" }, amount: 300, unit: "BTC", usd: 24_900_000 });
     expect(row.link).toBe("https://mempool.space/tx/t1");
+    expect(row.inputs).toEqual(["A", "B"]);
+    expect(row.outputs).toEqual([{ address: "Y", amount: 300 }]);
     const bare = btcRow({ txid: "t2", time: 1000, height: 1, btc: 150 }, labels, () => null);
     expect(bare).toMatchObject({ from: { name: null, address: null }, to: { name: null, address: null }, usd: null });
     // Off an exchange to a fund: held, an inflow; unnamed to unnamed: neither.

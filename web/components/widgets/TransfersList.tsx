@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { memo, useDeferredValue, useEffect, useState } from "react";
+import { memo, useCallback, useDeferredValue, useEffect, useState } from "react";
 import { bigTradeFloor } from "../../lib/binance-stream";
 import { ADAPTERS, subscribeExchanges, type ExchangeStatus } from "../../lib/exchange-streams";
 import { apiGet, fmt, fmtBig, fmtPrice } from "../../lib/api";
@@ -37,6 +37,9 @@ type Row = {
   source?: string;
   /** Among the biggest of those seen lately. */
   big?: boolean;
+  /** An on-chain transfer's every sending address, and where it went. */
+  inputs?: string[];
+  outputs?: Array<{ address: string; amount: number }>;
 };
 type Wallet = { name: string; address: string; chain: "BTC" | "ETH"; kind: string; link: string };
 type Transfers = { kind: "onchain" | "exchange" | "insider" | "none"; source: string; rows: Row[]; note?: string; wallets?: Wallet[] };
@@ -127,10 +130,115 @@ function PartyCell({ p }: { p: Party }) {
   );
 }
 
+/** Where an address is looked at: Etherscan for Ethereum, mempool.space for Bitcoin. */
+const explorerOf = (address: string) =>
+  /^0x[0-9a-fA-F]{40}$/.test(address) ? `https://etherscan.io/address/${address}` : `https://mempool.space/address/${address}`;
+
+function CopyButton({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      className="term-btn !px-1.5 !py-0 shrink-0"
+      title="Salin alamat"
+      onClick={(e) => {
+        e.stopPropagation();
+        void navigator.clipboard?.writeText(text).then(() => {
+          setDone(true);
+          setTimeout(() => setDone(false), 1500);
+        });
+      }}
+    >
+      {done ? "✓ disalin" : "salin"}
+    </button>
+  );
+}
+
+/** One address in full, to copy or open. */
+function AddressLine({ address, name, amount, unit }: { address: string; name?: string | null; amount?: number; unit?: string }) {
+  return (
+    <div className="flex items-baseline gap-2 py-0.5 min-w-0">
+      {name && <span className="text-[var(--text)] shrink-0">{name}</span>}
+      <span className="font-mono select-all break-all min-w-0 flex-1">{address}</span>
+      {amount !== undefined && (
+        <span className="dim tabular-nums shrink-0">
+          {fmt(amount, amount >= 100 ? 0 : 4)} {unit}
+        </span>
+      )}
+      <CopyButton text={address} />
+      <a href={explorerOf(address)} target="_blank" rel="noreferrer" className="term-btn !px-1.5 !py-0 shrink-0" title="Buka alamat di explorer" onClick={(e) => e.stopPropagation()}>
+        ↗
+      </a>
+    </div>
+  );
+}
+
+/** Why a side has no wallet address to show. */
+function noAddressReason(r: Row, p: Party): string {
+  if (r.category === "exchange") return `Transaksi di order book ${r.to.name ?? "exchange"}: terjadi di dalam exchange, tidak ada alamat wallet on-chain.`;
+  if (r.category === "tape" || r.category === "insider") return "Transaksi saham: tidak ada wallet.";
+  if (p.tag === "etf") return "Arus ETF dilaporkan harian (Farside); alamat kustodian ETF tidak dipublikasikan per transaksi.";
+  if (p.tag === "treasury" || p.tag === "news") return "Dilaporkan lewat 8-K/berita; perusahaan tidak menyebutkan alamat wallet-nya.";
+  if (p.name === "Pasar") return "Lawan transaksinya pasar (banyak pihak), bukan satu wallet.";
+  return "Alamat tidak tersedia.";
+}
+
+/** The named holder's wallets the app knows (its exchange's cold wallets, a watched whale). */
+function knownOf(p: Party, wallets: Wallet[] | undefined): Wallet[] {
+  if (!p.name || !wallets?.length) return [];
+  const base = p.name.replace(/\s*\(.*\)$/, "").toLowerCase();
+  return wallets.filter((w) => w.name.toLowerCase() === base || w.name.toLowerCase().startsWith(`${base} `));
+}
+
+function SideDetail({ label, r, p, addresses, known }: { label: string; r: Row; p: Party; addresses: Array<{ address: string; amount?: number }>; known: Wallet[] }) {
+  return (
+    <div className="min-w-0">
+      <div className="dim text-fs-10 uppercase tracking-wider mb-0.5">
+        {label}: <span className="normal-case text-[var(--text)]">{p.name ?? "Tidak diketahui"}</span>
+        {p.role && <span className="normal-case"> · {p.role}</span>}
+      </div>
+      {addresses.length > 0 ? (
+        addresses.map((a) => <AddressLine key={a.address} address={a.address} name={a.address === p.address ? p.name : null} amount={a.amount} unit={r.unit} />)
+      ) : (
+        <div className="dim">{noAddressReason(r, p)}</div>
+      )}
+      {addresses.length === 0 && known.length > 0 && (
+        <div className="mt-1">
+          <div className="dim text-fs-10">Wallet {p.name} yang dikenali (bukan alamat transaksi ini):</div>
+          {known.slice(0, 8).map((w) => (
+            <AddressLine key={w.address} address={w.address} name={w.name} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A transaction opened: both sides' wallet addresses in full, and where to look it up. */
+function TxDetail({ r, wallets }: { r: Row; wallets: Wallet[] | undefined }) {
+  const fromAddresses = r.inputs?.length ? r.inputs.map((address) => ({ address })) : r.from.address ? [{ address: r.from.address }] : [];
+  const toAddresses = r.outputs?.length ? r.outputs : r.to.address ? [{ address: r.to.address }] : [];
+  return (
+    <div className="px-3 py-2 bg-[#121212] border-b border-[var(--border)] grid gap-2 md:grid-cols-2 text-fs-11 cursor-default" onClick={(e) => e.stopPropagation()}>
+      <SideDetail label="Dari" r={r} p={r.from} addresses={fromAddresses} known={knownOf(r.from, wallets)} />
+      <SideDetail label="Ke" r={r} p={r.to} addresses={toAddresses} known={knownOf(r.to, wallets)} />
+      <div className="md:col-span-2 flex gap-3 flex-wrap dim text-fs-10">
+        <span>{FULL_TIME.format(r.time * 1000)}</span>
+        {r.source && <span>sumber: {r.source}</span>}
+        {r.link && (
+          <a href={r.link} target="_blank" rel="noreferrer" className="amber hover:underline">
+            {r.category === "onchain" ? "Buka transaksi di mempool.space ↗" : r.category === "whale" ? "Buka transaksi di Etherscan ↗" : "Buka sumbernya ↗"}
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const FULL_TIME = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "medium" });
 
-/** One transaction's row; drawn again only when it or the minute-ish clock changes. */
-const TxRow = memo(function TxRow({ r, now }: { r: Row; now: number }) {
+/** One transaction's row; drawn again only when it or the minute-ish clock changes. A click opens
+ *  it: both sides' wallet addresses in full. */
+const TxRow = memo(function TxRow({ r, now, open, onToggle, wallets }: { r: Row; now: number; open: boolean; onToggle: (id: string) => void; wallets?: Wallet[] }) {
   const color = r.side === "sell" ? "down" : r.side === "buy" ? "up" : "text-[var(--text)]";
   const value = r.usd === null ? "—" : r.currency ? `${r.currency} ${fmtBig(r.usd)}` : `$${fmtBig(r.usd)}`;
   const body = (
@@ -158,15 +266,20 @@ const TxRow = memo(function TxRow({ r, now }: { r: Row; now: number }) {
       <span className={`shrink-0 w-[84px] max-sm:w-auto text-right tabular-nums ${r.big ? "amber font-bold" : "text-[var(--text)]"}`}>{value}</span>
     </>
   );
-  const cls = "flex items-baseline gap-3 max-sm:flex-wrap max-sm:gap-y-0.5 px-2 py-1.5 border-b border-[#161616] hover:bg-[#161616]";
-  return r.link ? (
-    <a href={r.link} target="_blank" rel="noreferrer" className={cls} title={r.category === "onchain" ? "Buka transaksi di mempool.space" : r.category === "whale" ? "Buka transaksi di Etherscan" : r.source ? `Belum ada 8-K: dari berita — ${r.source}` : "Buka sumbernya"}>
-      {body}
-    </a>
-  ) : (
-    <div className={cls}>
-      {body}
-    </div>
+  const cls = `flex items-baseline gap-3 max-sm:flex-wrap max-sm:gap-y-0.5 px-2 py-1.5 border-b border-[#161616] cursor-pointer select-none ${open ? "bg-[#1f1a10]" : "hover:bg-[#161616]"}`;
+  return (
+    <>
+      <div
+        role="button"
+        aria-expanded={open}
+        className={cls}
+        title={open ? "Klik untuk menutup" : r.source ? `Belum ada 8-K: dari berita — ${r.source}. Klik untuk detail` : "Klik untuk melihat alamat wallet"}
+        onClick={() => onToggle(r.id)}
+      >
+        {body}
+      </div>
+      {open && <TxDetail r={r} wallets={wallets} />}
+    </>
   );
 });
 
@@ -250,6 +363,9 @@ export default memo(function TransfersList({ symbol, currency }: { symbol: strin
     return () => clearInterval(id);
   }, []);
   const [limit, setLimit] = useState(PAGE);
+  // The row opened (its wallet addresses shown); one at a time.
+  const [openId, setOpenId] = useState<string | null>(null);
+  const toggleRow = useCallback((id: string) => setOpenId((o) => (o === id ? null : id)), []);
   // The kind and exchange chosen are deferred too: their buttons light at once, the list after.
   const onlyShown = useDeferredValue(only);
   const venueShown = useDeferredValue(venue);
@@ -426,7 +542,7 @@ export default memo(function TransfersList({ symbol, currency }: { symbol: strin
       )}
       <div className="border border-[var(--border)]">
         {visible.map((r) => (
-          <TxRow key={r.id} r={r} now={now} />
+          <TxRow key={r.id} r={r} now={now} open={openId === r.id} onToggle={toggleRow} wallets={openId === r.id ? data?.wallets : undefined} />
         ))}
       </div>
       {shown.length > visible.length && (

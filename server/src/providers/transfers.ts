@@ -43,6 +43,9 @@ export type TransferRow = {
   link?: string;
   /** Where it was read when that's a headline: "Investing.com: Strategy buys 250 bitcoin". */
   source?: string;
+  /** An on-chain transfer's every sending address, and where it went (largest first). */
+  inputs?: string[];
+  outputs?: Array<{ address: string; amount: number }>;
 };
 /** A wallet the list can name, with its full address, for the institutions' directory. */
 export type KnownWallet = { name: string; address: string; chain: "BTC" | "ETH"; kind: string; link: string };
@@ -92,6 +95,8 @@ export function btcRow(w: whales.Whale, labels: Record<string, string>, priceAt:
     unit: "BTC",
     usd: price === null ? null : w.btc * price,
     link: `https://mempool.space/tx/${w.txid}`,
+    inputs: from.length ? from : undefined,
+    outputs: w.to?.length ? w.to.map((o) => ({ address: o.address, amount: o.btc })) : undefined,
   };
 }
 
