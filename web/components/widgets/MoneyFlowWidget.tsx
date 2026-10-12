@@ -1,10 +1,12 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 import { Bar, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { apiGet, fmt, fmtBig, fmtPrice, pctClass, type Quote } from "../../lib/api";
 import { fontPx } from "../../lib/font-scale";
 import { quoteRefreshMs, usePoll } from "../../lib/refresh";
+import { subscribeTrades, withTrades, type LiveTrade } from "../../lib/binance-stream";
 import { useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 import Flash from "../Flash";
 import TransfersList from "./TransfersList";
@@ -13,10 +15,14 @@ import TransfersList from "./TransfersList";
 // month, three months and a year (server: providers/moneyflow.ts). A coin on Binance shows its
 // trades as made, buyers' against sellers'; anything else an estimate from its bars. Its other
 // tab lists the asset's transactions, from whom to whom (TransfersList).
+//
+// Kept up to date: a coin on Binance takes every trade from Binance's stream as it happens (each
+// added to its bar on top of what the server read, asOf); anything else is read again every 15
+// seconds while its market trades.
 
 type FlowBar = { time: number; inflow: number; outflow: number };
 type Period = { period: string; interval: string; bars: FlowBar[]; inflow: number; outflow: number; net: number; buyShare: number | null; error: string | null };
-type MoneyFlow = { symbol: string; method: "taker" | "clv"; unit: string | null; periods: Period[] };
+type MoneyFlow = { symbol: string; method: "taker" | "clv"; unit: string | null; base: string | null; asOf: number; periods: Period[] };
 
 const IN = "#26a69a";
 const OUT = "#ef5350";
@@ -31,6 +37,16 @@ function timeLabel(t: number, period: string): string {
   if (period === "1W") return d.toLocaleString("id-ID", { weekday: "short", hour: "2-digit" });
   if (period === "1Y") return d.toLocaleDateString("id-ID", { month: "short", year: "2-digit" });
   return d.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
+}
+
+/** "12 dtk lalu", ticking on its own (the rest of the page isn't redrawn every second). */
+function SinceRead({ at }: { at: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <>{Math.max(0, Math.round((now - at) / 1000))} dtk lalu</>;
 }
 
 function Card({ label, value, cls, sub }: { label: string; value: string; cls?: string; sub?: string }) {
@@ -48,20 +64,52 @@ export default function MoneyFlowWidget({ widget }: { widget: WidgetInstance }) 
   const [periodKey, setPeriodKey] = useWidgetSetting<string>("flowPeriod", "1D");
   const [view, setView] = useWidgetSetting<"flow" | "tx">("flowView", "flow");
   const quotePoll = usePoll(() => quoteRefreshMs(symbol));
-  const flowPoll = usePoll(60_000);
+  // A coin on the stream needs the server only to check it now and then; anything else is read
+  // again every 15 seconds while its market trades.
+  const [streamed, setStreamed] = useState(false);
+  const flowPoll = usePoll(() => (streamed ? 60_000 : quoteRefreshMs(symbol) <= 20_000 ? 15_000 : 60_000));
   const quote = useQuery({
     queryKey: ["quote", symbol],
     queryFn: async () => (await apiGet<Quote[]>(`/api/quotes?symbols=${symbol}`))[0],
     refetchInterval: quotePoll,
   });
-  const { data, error, isLoading } = useQuery({
+  const { data, error, isLoading, dataUpdatedAt } = useQuery({
     queryKey: ["moneyflow", symbol],
     queryFn: () => apiGet<MoneyFlow>(`/api/moneyflow/${encodeURIComponent(symbol)}`),
     refetchInterval: flowPoll,
   });
+
+  // Every trade since the server's read, from Binance's stream, while this page is open.
+  const [trades, setTrades] = useState<LiveTrade[]>([]);
+  const [live, setLive] = useState(false);
+  const base = data?.base ?? null;
+  useEffect(() => {
+    setTrades([]);
+    setStreamed(Boolean(base));
+    if (!base) return;
+    // Taken in as they come, shown once a second (the chart isn't redrawn for every trade).
+    let pending: LiveTrade[] = [];
+    const flush = setInterval(() => {
+      if (!pending.length) return;
+      const batch = pending;
+      pending = [];
+      setTrades((list) => [...list, ...batch]);
+    }, 1000);
+    const stop = subscribeTrades(base, (batch) => pending.push(...batch), setLive);
+    return () => {
+      stop();
+      clearInterval(flush);
+    };
+  }, [base]);
+  // What the server has read is not added again.
+  const asOf = data?.asOf ?? 0;
+  useEffect(() => setTrades((list) => (list.some((t) => t.time <= asOf) ? list.filter((t) => t.time > asOf) : list)), [asOf]);
+  const periods = useMemo(() => (data ? withTrades(data.periods, trades, data.asOf) : []), [data, trades]);
+  const lastTrade = trades.length ? trades[trades.length - 1].time : null;
+
   const q = quote.data;
   const unit = data?.unit === "USDT" ? "$" : q?.currency === "USD" ? "$" : q?.currency ? `${q.currency} ` : "";
-  const period = data?.periods.find((p) => p.period === periodKey) ?? data?.periods[0];
+  const period = periods.find((p) => p.period === periodKey) ?? periods[0];
 
   // Inflow up, outflow down, and the running net across the period.
   let running = 0;
@@ -87,7 +135,21 @@ export default function MoneyFlowWidget({ widget }: { widget: WidgetInstance }) 
           </>
         )}
         {data && (
-          <span className="ml-auto dim text-fs-10" title={data.method === "taker" ? "Binance: beli yang mengambil order jual (taker buy) dihitung masuk, jual yang mengambil order beli dihitung keluar." : "Perkiraan dari candle: nilai transaksi tiap bar (harga tipikal × volume) dibagi menurut posisi close di rentang high–low."}>
+          <span className="ml-auto text-fs-10 tabular-nums" title={base ? "Setiap transaksi di Binance langsung ditambahkan" : "Dibaca ulang setiap 15 detik saat pasar buka"}>
+            {base ? (
+              <>
+                <span className={live ? "up" : "amber"}>●</span> {live ? "LIVE" : "menyambung…"}
+                {lastTrade && <span className="dim"> · transaksi terakhir {new Date(lastTrade).toLocaleTimeString("id-ID")}</span>}
+              </>
+            ) : (
+              <span className="dim">
+                diperbarui <SinceRead at={dataUpdatedAt} />
+              </span>
+            )}
+          </span>
+        )}
+        {data && (
+          <span className="dim text-fs-10" title={data.method === "taker" ? "Binance: beli yang mengambil order jual (taker buy) dihitung masuk, jual yang mengambil order beli dihitung keluar." : "Perkiraan dari candle: nilai transaksi tiap bar (harga tipikal × volume) dibagi menurut posisi close di rentang high–low."}>
             {data.method === "taker" ? "● Taker buy / sell · Binance (USDT)" : "● Estimasi dari candle (Chaikin money flow)"}
           </span>
         )}
@@ -107,7 +169,7 @@ export default function MoneyFlowWidget({ widget }: { widget: WidgetInstance }) 
       ) : (
         <>
       <div className="flex gap-1 items-center flex-wrap">
-        {(data?.periods ?? []).map((p) => (
+        {periods.map((p) => (
           <button key={p.period} className={`term-btn ${p.period === period?.period ? "active" : ""}`} onClick={() => setPeriodKey(p.period)}>
             {p.period}
           </button>
@@ -171,7 +233,7 @@ export default function MoneyFlowWidget({ widget }: { widget: WidgetInstance }) 
               </tr>
             </thead>
             <tbody>
-              {data!.periods.map((p) => (
+              {periods.map((p) => (
                 <tr key={p.period} className={`cursor-pointer ${p.period === period.period ? "bg-[#1f1a10]" : ""}`} onClick={() => setPeriodKey(p.period)}>
                   <td className="!text-left">{NAMES[p.period] ?? p.period}</td>
                   <td className="up">{p.error ? "—" : money(p.inflow, unit)}</td>
