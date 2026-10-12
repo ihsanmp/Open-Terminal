@@ -52,16 +52,41 @@ export type Transfers = { kind: "onchain" | "exchange" | "insider" | "none"; sou
 
 /** A transfer's sides: the first sending address the rich list names (else the first), and its
  *  biggest receiver. */
+/** What kind of holder a labelled Bitcoin wallet is: mostly exchanges, a few seized or hacked. */
+export function btcWalletKind(name: string): "exchange" | "fund" | "government" | "hack" | "individual" {
+  if (/confiscated|gov|fbi/i.test(name)) return "government";
+  if (/hack/i.test(name)) return "hack";
+  if (/^mr\./i.test(name)) return "individual";
+  if (/\bETF\b|IBIT|Grayscale|Fidelity|BlackRock|\bTrust\b|Strategy|Tether/i.test(name)) return "fund";
+  return "exchange";
+}
+
+/**
+ * A transfer's direction for the asset's money flow: coins taken off an exchange are held (inflow),
+ * coins sent to one are there to be sold (outflow); between exchanges, or wallets no one has
+ * named, it's neither.
+ */
+export function exchangeDirection(fromName: string | null, toName: string | null): { side?: "buy" | "sell"; note: string } {
+  const fromEx = fromName !== null && btcWalletKind(fromName) === "exchange";
+  const toEx = toName !== null && btcWalletKind(toName) === "exchange";
+  if (fromEx && !toEx) return { side: "buy", note: "tarik dari exchange" };
+  if (toEx && !fromEx) return { side: "sell", note: "setor ke exchange" };
+  return { note: fromEx && toEx ? "antar exchange" : "transfer" };
+}
+
 export function btcRow(w: whales.Whale, labels: Record<string, string>, priceAt: (t: number) => number | null): TransferRow {
   const from = w.from ?? [];
   const sender = from.find((a) => labels[a]) ?? from[0] ?? null;
   const receiver = w.to?.[0]?.address ?? null;
   const price = priceAt(w.time);
+  const fromName = sender ? labels[sender] ?? null : null;
+  const toName = receiver ? labels[receiver] ?? null : null;
   return {
+    ...exchangeDirection(fromName, toName),
     id: w.txid,
     time: w.time,
-    from: { name: sender ? labels[sender] ?? null : null, address: sender },
-    to: { name: receiver ? labels[receiver] ?? null : null, address: receiver },
+    from: { name: fromName, address: sender },
+    to: { name: toName, address: receiver },
     category: "onchain",
     amount: w.btc,
     unit: "BTC",
@@ -376,7 +401,7 @@ export function knownWallets(base: string): KnownWallet[] {
         name,
         address,
         chain: "BTC" as const,
-        kind: /confiscated|gov|fbi/i.test(name) ? "government" : /hack/i.test(name) ? "hack" : /^mr\./i.test(name) ? "individual" : "exchange",
+        kind: btcWalletKind(name),
         link: `https://mempool.space/address/${address}`,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));

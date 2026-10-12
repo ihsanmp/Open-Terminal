@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { nameOf, parseRichList } from "./addresslabels.js";
 import { amountOf, mergeFlows, parseFarside } from "./etfflows.js";
 import { toTransfers } from "./evmwhales.js";
-import { bigTrades, btcRow, etfRow, insiderRow, isUsTicker, treasuryRow, whaleRow } from "./transfers.js";
+import { bigTrades, btcRow, etfRow, exchangeDirection, insiderRow, isUsTicker, treasuryRow, whaleRow } from "./transfers.js";
 import { partiesOf } from "./whales.js";
 
 describe("transaction history", () => {
@@ -37,6 +37,18 @@ describe("transaction history", () => {
     expect(row.link).toBe("https://mempool.space/tx/t1");
     const bare = btcRow({ txid: "t2", time: 1000, height: 1, btc: 150 }, labels, () => null);
     expect(bare).toMatchObject({ from: { name: null, address: null }, to: { name: null, address: null }, usd: null });
+    // Off an exchange to a fund: held, an inflow; unnamed to unnamed: neither.
+    expect(row).toMatchObject({ side: "buy", note: "tarik dari exchange" });
+    expect(bare.side).toBeUndefined();
+    expect(bare.note).toBe("transfer");
+  });
+
+  it("reads an on-chain transfer's direction from the exchanges at its ends", () => {
+    expect(exchangeDirection("Binance (cold wallet)", null)).toEqual({ side: "buy", note: "tarik dari exchange" });
+    expect(exchangeDirection(null, "OKX")).toEqual({ side: "sell", note: "setor ke exchange" });
+    expect(exchangeDirection("Binance", "Bitfinex (cold wallet)")).toEqual({ note: "antar exchange" });
+    expect(exchangeDirection("UK Gov Confiscated", "Binance")).toEqual({ side: "sell", note: "setor ke exchange" });
+    expect(exchangeDirection(null, null)).toEqual({ note: "transfer" });
   });
 
   it("keeps a batch's biggest trades", () => {

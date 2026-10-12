@@ -187,6 +187,7 @@ function useTape(symbol: string, currency: string | undefined): { rows: Row[]; s
 export default function TransfersList({ symbol, currency }: { symbol: string; currency?: string }) {
   const poll = usePoll(15_000);
   const [only, setOnly] = useWidgetSetting<"all" | Category>("txFilter", "all");
+  const [flow, setFlow] = useWidgetSetting<"both" | "in" | "out">("txFlow", "both");
   const { data, error, isLoading } = useQuery({
     queryKey: ["transfers", symbol],
     queryFn: () => apiGet<Transfers>(`/api/transfers/${encodeURIComponent(symbol)}`),
@@ -197,7 +198,7 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
   const tapeOn = tape.state !== null && !tape.state.unavailable;
 
   // A coin traded on Binance: its big trades from the stream, as they happen.
-  const base = data?.kind === "exchange" ? /^([A-Z0-9]{1,20})-USDT?$/.exec(symbol.toUpperCase())?.[1] ?? null : null;
+  const base = data?.kind === "exchange" || data?.kind === "onchain" ? /^([A-Z0-9]{1,20})-USDT?$/.exec(symbol.toUpperCase())?.[1] ?? null : null;
   const [liveRows, setLiveRows] = useState<Row[]>([]);
   const [live, setLive] = useState(false);
   useEffect(() => {
@@ -259,7 +260,17 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
     (k) => rows.some((r) => r.category === k) || (k === "institution" && (data?.wallets?.length ?? 0) > 0) || (k === "tape" && tapeOn)
   );
   const tapeLabel = tape.state && tapeOn ? liveLabel(tape.state) : null;
-  const shown = only === "all" || !kinds.includes(only) ? rows : rows.filter((r) => r.category === only);
+  const ofKind = only === "all" || !kinds.includes(only) ? rows : rows.filter((r) => r.category === only);
+  // Inflow (bought, taken into holding) and outflow (sold, sent to be sold), each on its own or both.
+  const inflows = ofKind.filter((r) => r.side === "buy");
+  const outflows = ofKind.filter((r) => r.side === "sell");
+  const shown = flow === "in" ? inflows : flow === "out" ? outflows : ofKind;
+  // The totals in dollars; a stock's rupiah can't be added to them, so a list in one currency sums in it.
+  const currencyOf = ofKind.find((r) => r.currency)?.currency;
+  const sum = (list: Row[]) => list.reduce((a, r) => a + (r.usd ?? 0), 0);
+  const total = (v: number) => (currencyOf ? `${currencyOf} ${fmtBig(v)}` : `$${fmtBig(v)}`);
+  const inTotal = sum(inflows);
+  const outTotal = sum(outflows);
 
   return (
     <div className="flex flex-col gap-1">
@@ -280,6 +291,24 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
           ))}
         </div>
       )}
+      <div className="flex gap-1 flex-wrap items-center">
+        <span className="dim text-fs-10 mr-1">ARAH</span>
+        <button className={`term-btn ${flow === "both" ? "active" : ""}`} onClick={() => setFlow("both")} title="Inflow dan outflow">
+          IN + OUT
+        </button>
+        <button className={`term-btn ${flow === "in" ? "active" : ""}`} onClick={() => setFlow("in")} title="Uang masuk: beli, ETF inflow, koin ditarik dari exchange untuk disimpan">
+          <span className="up">▲ INFLOW</span> <span className="dim">{inflows.length}</span>
+        </button>
+        <button className={`term-btn ${flow === "out" ? "active" : ""}`} onClick={() => setFlow("out")} title="Uang keluar: jual, ETF outflow, koin disetor ke exchange untuk dijual">
+          <span className="down">▼ OUTFLOW</span> <span className="dim">{outflows.length}</span>
+        </button>
+        {inTotal + outTotal > 0 && (
+          <span className="text-fs-10 ml-2 tabular-nums">
+            <span className="up">masuk {total(inTotal)}</span> <span className="dim">·</span> <span className="down">keluar {total(outTotal)}</span>{" "}
+            <span className="dim">·</span> <span className={inTotal >= outTotal ? "up" : "down"}>net {inTotal >= outTotal ? "+" : "-"}{total(Math.abs(inTotal - outTotal))}</span>
+          </span>
+        )}
+      </div>
       {(only === "institution" || only === "whale") && kinds.includes(only) && data?.wallets && data.wallets.length > 0 && <WalletDirectory wallets={data.wallets} />}
       <div className="dim text-fs-10">
         {shown.length} transaksi{data && kind !== "none" ? ` · sumber: ${data.source}` : ""}
@@ -294,12 +323,13 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
           </span>
         )}
       </div>
+      {rows.length > 0 && shown.length === 0 && <div className="dim">Tidak ada {flow === "in" ? "inflow" : "outflow"} di daftar ini.</div>}
       {rows.length === 0 && (
         <div className="dim">{kind === "exchange" ? "Belum ada transaksi besar yang terekam; daftar ini terisi selama halaman terbuka." : "Belum ada transaksi."}</div>
       )}
       <div className="border border-[var(--border)]">
         {shown.map((r) => {
-          const color = r.side === "sell" ? "down" : r.side === "buy" ? "up" : "up";
+          const color = r.side === "sell" ? "down" : r.side === "buy" ? "up" : "text-[var(--text)]";
           const value = r.usd === null ? "—" : r.currency ? `${r.currency} ${fmtBig(r.usd)}` : `$${fmtBig(r.usd)}`;
           const body = (
             <>
@@ -311,7 +341,13 @@ export default function TransfersList({ symbol, currency }: { symbol: string; cu
                 <span className="dim">→</span>
                 <PartyCell p={r.to} />
               </span>
-              {r.note && <span className="dim text-fs-10 shrink-0 w-[96px] max-sm:w-auto truncate">{r.note}</span>}
+              <span
+                className={`text-fs-9 shrink-0 w-[34px] text-center border ${r.side === "buy" ? "up border-[var(--up)]" : r.side === "sell" ? "down border-[var(--down)]" : "dim border-[#333]"}`}
+                title={r.side === "buy" ? "Inflow: uang masuk ke aset ini" : r.side === "sell" ? "Outflow: uang keluar dari aset ini" : "Transfer antar wallet: bukan beli atau jual"}
+              >
+                {r.side === "buy" ? "IN" : r.side === "sell" ? "OUT" : "—"}
+              </span>
+              {r.note && <span className="dim text-fs-10 shrink-0 w-[110px] max-sm:w-auto truncate" title={r.note}>{r.note}</span>}
               {r.side && !r.note && <span className={`${color} text-fs-10 shrink-0 w-[40px] max-sm:w-auto uppercase`}>{r.side === "buy" ? "beli" : "jual"}</span>}
               <span className={`${color} shrink-0 w-[110px] max-sm:w-auto max-sm:ml-auto text-right tabular-nums ${r.big ? "font-bold" : ""}`}>
                 {r.category === "tape" && r.amount === 0 ? "—" : r.amount >= 1000 ? fmtBig(r.amount) : fmt(r.amount, r.amount >= 100 || r.category === "tape" ? 0 : 2)} <span className="dim">{r.unit}</span>
