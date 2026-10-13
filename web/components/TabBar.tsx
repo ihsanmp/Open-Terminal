@@ -110,15 +110,16 @@ function Tab({ tab, active, only }: { tab: TabData; active: boolean; only: boole
 
 /**
  * Tabs like a browser's: each has its own symbol, page, workspace and chart settings, and each
- * window has its own tabs; ⧉ moves a tab into a window of its own, so several can be watched side
- * by side. Shown once the window has more than one tab: a single tab would only repeat the symbol
- * and page the top bar already shows (its "+ Tab" and "⧉ Window" open more).
+ * window has its own tabs. "+" at the end opens a new tab next to them (Alt+T; Alt+Shift+T copies
+ * the current one instead); ⧉ moves a tab into a window of its own, so several can be watched
+ * side by side.
  */
 export default function TabBar() {
   const allTabs = useTerminal((s) => s.tabs);
   const windowTabs = useTerminal((s) => s.windowTabs);
   const tabs = windowTabs.map((id) => allTabs.find((t) => t.id === id)).filter((t): t is TabData => Boolean(t));
   const activeTab = useTerminal((s) => s.activeTab);
+  const newTab = useTerminal((s) => s.newTab);
   const active = tabs.find((t) => t.id === activeTab);
 
   // The window's title names its tab, to tell windows apart on the taskbar. Next.js writes its
@@ -135,12 +136,19 @@ export default function TabBar() {
     return () => observer.disconnect();
   }, [active]);
 
-  if (tabs.length < 2) return null;
   return (
     <nav role="tablist" className="flex items-stretch h-7 bg-[var(--panel-2)] border-b border-[var(--border)] text-fs-11 shrink-0 overflow-hidden">
       {tabs.map((t) => (
-        <Tab key={t.id} tab={t} active={t.id === activeTab} only={false} />
+        <Tab key={t.id} tab={t} active={t.id === activeTab} only={tabs.length < 2} />
       ))}
+      <button
+        className="px-2.5 shrink-0 text-fs-15 leading-none dim hover:text-[var(--amber)] hover:bg-[var(--panel)]"
+        title="New tab (Alt+T) — Alt+Shift+T copies this one"
+        aria-label="New tab"
+        onClick={() => newTab()}
+      >
+        +
+      </button>
     </nav>
   );
 }

@@ -72,11 +72,17 @@ export default function Terminal() {
       if (!e.altKey || e.ctrlKey || e.metaKey) return;
       const st = useTerminal.getState();
       const key = e.key.toLowerCase();
-      // Tabs: Alt+T copies the tab, Alt+W closes it, Alt+N copies it into a new window,
-      // Alt+[ and Alt+] step through the tabs. (The browser keeps Ctrl+T / Ctrl+W for itself.)
+      // Tabs: Alt+T opens a new tab, Alt+Shift+T copies this one, Alt+W closes it, Alt+N copies it
+      // into a new window, Alt+[ and Alt+] step through the tabs. (The browser keeps Ctrl+T /
+      // Ctrl+W for itself.)
+      if (e.shiftKey && key === "t") {
+        e.preventDefault();
+        st.duplicateTab();
+        return;
+      }
       if (!e.shiftKey && (key === "t" || key === "w" || key === "n" || key === "[" || key === "]")) {
         e.preventDefault();
-        if (key === "t") st.duplicateTab();
+        if (key === "t") st.newTab();
         else if (key === "w") st.closeTab(st.activeTab);
         else if (key === "n") openTabWindow(st.duplicateTab(true));
         else {
@@ -100,8 +106,9 @@ export default function Terminal() {
 
   return (
     <div className="flex flex-col h-screen">
-      <TopBar />
+      {/* The tabs on top, as a browser's: "+" at their end opens another. */}
       <TabBar />
+      <TopBar />
       {/* Upright (portrait), the menu runs across the top instead of down the side. */}
       <div className="flex flex-1 overflow-hidden portrait:flex-col">
         <Sidebar />
