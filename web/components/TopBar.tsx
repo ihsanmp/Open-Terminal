@@ -45,8 +45,6 @@ function marketStateNY(): { label: string; open: boolean } {
 }
 
 export default function TopBar() {
-  const setCommandOpen = useTerminal((s) => s.setCommandOpen);
-  const activeSymbol = useTerminal((s) => s.activeSymbol);
   const duplicateTab = useTerminal((s) => s.duplicateTab);
   const { data: status } = useStatus();
 
@@ -58,13 +56,8 @@ export default function TopBar() {
       <span className="amber font-bold tracking-widest shrink-0">OPENTERMINAL</span>
       <span className={`shrink-0 ${market.open ? "up" : "down"}`}>● {market.label}</span>
       <Clocks />
-      <button
-        className="term-btn w-[22rem] max-w-[30vw] shrink text-left dim min-w-[10rem] truncate"
-        onClick={() => setCommandOpen(true)}
-      >
-        {activeSymbol} — search symbol… <span className="float-right">⌘K</span>
-      </button>
-      {/* The tabs, then "+" for another, right of the search and left of "⧉ Window". */}
+      {/* The tabs, then "+" for another, left of "⧉ Window". A click on the tab in view changes its
+          symbol (as ⌘K or typing on a chart does). */}
       <TabBar />
       <span className="flex gap-1 shrink-0">
         <button className="term-btn dim hover:text-[var(--amber)]" title="New window: a copy of this tab (Alt+N)" aria-label="New window" onClick={() => openTabWindow(duplicateTab(true))}>

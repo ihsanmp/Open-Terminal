@@ -3,7 +3,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { apiGet, type Quote } from "../lib/api";
-import { addRecent, clearRecent, kindOf, removeRecent, useRecentSymbols } from "../lib/recent-symbols";
+import { kindOf } from "../lib/recent-symbols";
 import { useTerminal } from "../store/terminal";
 
 // The symbol search, as TradingView's: typed on a chart it opens with what was typed; the
@@ -78,7 +78,10 @@ export default function CommandPalette() {
     placeholderData: keepPreviousData,
   });
   // The recent symbols, in the chosen category; names looked up for those opened other ways.
-  const recent = useRecentSymbols();
+  const recent = useTerminal((s) => s.recentSymbols) ?? [];
+  const addRecent = useTerminal((s) => s.addRecentSymbol);
+  const removeRecent = useTerminal((s) => s.removeRecentSymbol);
+  const clearRecent = useTerminal((s) => s.clearRecentSymbols);
   const recentShown = recent.filter((r) => !category || (CATEGORY_KINDS[category] ?? [category]).includes(r.type ?? kindOf(r.symbol)));
   const unnamed = open && !q ? recentShown.filter((r) => !r.name).map((r) => r.symbol) : [];
   const { data: named = [] } = useQuery({
@@ -237,7 +240,11 @@ export default function CommandPalette() {
             </div>
           ))}
           {q && !isFetching && shown.length === 0 && <div className="px-4 py-10 text-center dim">No symbols match your criteria</div>}
-          {!q && recentRows.length === 0 && <div className="px-4 py-10 text-center dim">Type a ticker, a company, a currency pair or an index</div>}
+          {!q && recentRows.length === 0 && (
+            <div className="px-4 py-10 text-center dim">
+              {recent.length > 0 ? `Belum ada ${CATEGORIES.find(([, t]) => t === category)?.[0] ?? ""} di riwayat. Ketik ticker, nama perusahaan, pair mata uang atau indeks.` : "Type a ticker, a company, a currency pair or an index"}
+            </div>
+          )}
         </div>
         <div className="px-4 py-1.5 dim text-fs-10 border-t border-[var(--border)]">Enter: load · Shift+Enter: load and add to the watchlist · ↑↓: pick</div>
       </div>

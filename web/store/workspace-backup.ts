@@ -72,7 +72,7 @@ export function startWorkspaceBackup(): () => void {
   void restoreIfNewer().then((settled) => {
     if (stopped) return;
     unsubscribe = useTerminal.subscribe((st, prev) => {
-      if (st.tabs === prev.tabs && st.watchlist === prev.watchlist && st.favoriteIntervals === prev.favoriteIntervals) return;
+      if (st.tabs === prev.tabs && st.watchlist === prev.watchlist && st.favoriteIntervals === prev.favoriteIntervals && st.recentSymbols === prev.recentSymbols) return;
       dirty = true;
       clearTimeout(timer);
       timer = setTimeout(() => flush(false), DELAY_MS);
