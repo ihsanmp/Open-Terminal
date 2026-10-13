@@ -1,56 +1,30 @@
-"use client";
-
-import { useSyncExternalStore } from "react";
-
 // The symbols opened last, newest first, as TradingView's symbol search lists them before
-// anything is typed. Kept in this browser (all tabs and windows share it), whichever way a symbol
-// was opened: the search, the watchlist, a link. A symbol picked in the search keeps its name,
-// kind and exchange; one opened another way is known by its ticker until it's searched.
+// anything is typed: whichever way a symbol was opened (the search, the watchlist, a tab). Kept in
+// the workspace (store/terminal.ts: recentSymbols), so it's saved with the tabs and the watchlist,
+// shared by every window, and backed up to the API's disk with them: clearing the browser's
+// storage or a new profile doesn't lose it. A symbol picked in the search keeps its name, kind and
+// exchange; one opened another way is known by its ticker until it's searched.
 
 export type RecentSymbol = { symbol: string; name?: string; exchange?: string; type?: string };
 
-const KEY = "openterminal-recent-symbols";
-const MAX = 20;
-const listeners = new Set<() => void>();
-let cache: RecentSymbol[] | null = null;
+export const MAX_RECENT = 50;
 
-function read(): RecentSymbol[] {
-  if (cache) return cache;
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(KEY) ?? "[]");
-    cache = Array.isArray(parsed) ? parsed.filter((r) => typeof r?.symbol === "string") : [];
-  } catch {
-    cache = [];
-  }
-  return cache;
-}
-
-function write(list: RecentSymbol[]) {
-  cache = list;
-  try {
-    window.localStorage.setItem(KEY, JSON.stringify(list));
-  } catch {
-    // remembered until the page closes
-  }
-  for (const l of listeners) l();
-}
-
-/** Puts a symbol first, keeping what was known of it (a name from an earlier search). */
-export function addRecent(entry: RecentSymbol, list: RecentSymbol[] = read()): RecentSymbol[] {
+/** The list with a symbol put first, keeping what was known of it (a name from an earlier search). */
+export function withRecent(list: readonly RecentSymbol[], entry: RecentSymbol): RecentSymbol[] {
   const symbol = entry.symbol.toUpperCase();
   const known = list.find((r) => r.symbol === symbol);
   const merged: RecentSymbol = { ...known, ...Object.fromEntries(Object.entries(entry).filter(([, v]) => v)), symbol };
-  const next = [merged, ...list.filter((r) => r.symbol !== symbol)].slice(0, MAX);
-  if (typeof window !== "undefined") write(next);
-  return next;
+  return [merged, ...list.filter((r) => r.symbol !== symbol)].slice(0, MAX_RECENT);
 }
 
-export function removeRecent(symbol: string) {
-  write(read().filter((r) => r.symbol !== symbol));
-}
-
-export function clearRecent() {
-  write([]);
+/** The list before it was kept in the workspace (this browser's own), read once to carry it over. */
+export function legacyRecent(): RecentSymbol[] {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem("openterminal-recent-symbols") ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((r) => typeof r?.symbol === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 const FX_EXCHANGES = /^(OANDA|FX|FX_IDC|FXCM|PEPPERSTONE|SAXO|ICMARKETS|CAPITALCOM|EIGHTCAP|FOREXCOM):/;
@@ -66,27 +40,4 @@ export function kindOf(symbol: string): string {
   if (symbol.startsWith("^")) return "index";
   if (/=F$/.test(symbol)) return "futures";
   return "stock";
-}
-
-const EMPTY: RecentSymbol[] = [];
-
-export function useRecentSymbols(): RecentSymbol[] {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l);
-      // Another window's opens show here too.
-      const onStorage = (e: StorageEvent) => {
-        if (e.key !== KEY) return;
-        cache = null;
-        l();
-      };
-      window.addEventListener("storage", onStorage);
-      return () => {
-        listeners.delete(l);
-        window.removeEventListener("storage", onStorage);
-      };
-    },
-    read,
-    () => EMPTY
-  );
 }

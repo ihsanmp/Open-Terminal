@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext } from "react";
 import { create } from "zustand";
 import { persist, type PersistStorage } from "zustand/middleware";
 import { createWorkspaceStorage, WORKSPACE_KEY } from "./workspace-storage";
-import { addRecent } from "../lib/recent-symbols";
+import { legacyRecent, withRecent, type RecentSymbol } from "../lib/recent-symbols";
 import { forgetWindowOnClose, holdWindowLock, saveWindowTabs, sessionTabs, tabsOfClosedWindows, tabsOfOtherWindows } from "./window-tabs";
 import type { IndicatorInstance } from "../lib/ta/types";
 import type { ChartStyle } from "../lib/chart-style";
@@ -89,6 +89,11 @@ type TerminalState = {
   watchlist: string[];
   /** Starred chart intervals, shown on every chart's toolbar (TradingView's favorites). */
   favoriteIntervals: string[];
+  /** The symbols opened last, newest first (the symbol search's history; lib/recent-symbols.ts). */
+  recentSymbols: RecentSymbol[];
+  addRecentSymbol: (entry: RecentSymbol) => void;
+  removeRecentSymbol: (symbol: string) => void;
+  clearRecentSymbols: () => void;
   commandOpen: boolean;
   /** What the symbol search opens with (the letters typed on a chart). */
   commandQuery: string;
@@ -282,6 +287,10 @@ export const useTerminal = create<TerminalState>()(
       ...pickTab(DEFAULT_TAB),
       watchlist: ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL", "META", "SPY"],
       favoriteIntervals: [],
+      recentSymbols: [],
+      addRecentSymbol: (entry) => set((st) => ({ recentSymbols: withRecent(st.recentSymbols ?? [], entry) })),
+      removeRecentSymbol: (symbol) => set((st) => ({ recentSymbols: (st.recentSymbols ?? []).filter((r) => r.symbol !== symbol) })),
+      clearRecentSymbols: () => set({ recentSymbols: [] }),
       commandOpen: false,
       commandQuery: "",
       typedInterval: null,
@@ -399,7 +408,7 @@ export const useTerminal = create<TerminalState>()(
       // v1: tabs; v2: the Options page became US Bonds; v3: Macro became Watcher Guru; v4: Quote
       // became Money Flow. The window's own tab and the transient UI aren't saved.
       version: 4,
-      partialize: (st) => ({ tabs: st.tabs, watchlist: st.watchlist, favoriteIntervals: st.favoriteIntervals }),
+      partialize: (st) => ({ tabs: st.tabs, watchlist: st.watchlist, favoriteIntervals: st.favoriteIntervals, recentSymbols: st.recentSymbols }),
       migrate: (saved, version) => {
         if (version >= 1) return upgrade(saved, version) as TerminalState;
         // v0 kept one workspace at the top level: it becomes the first tab.
@@ -424,7 +433,7 @@ export const useTerminal = create<TerminalState>()(
         let windowTabs = current.windowTabs.filter((id) => ids.has(id));
         if (!windowTabs.length) windowTabs = unclaimed(tabs);
         const tab = tabs.find((t) => t.id === current.activeTab && windowTabs.includes(t.id)) ?? tabs.find((t) => t.id === windowTabs[0]) ?? tabs[0];
-        return { ...current, ...s, tabs, windowTabs, activeTab: tab.id, ...pickTab(tab) };
+        return { ...current, ...s, recentSymbols: s.recentSymbols ?? current.recentSymbols ?? [], tabs, windowTabs, activeTab: tab.id, ...pickTab(tab) };
       },
     }
   )
@@ -434,8 +443,26 @@ export const useTerminal = create<TerminalState>()(
 // Switching tabs shows another tab's symbol; that isn't opening one.
 if (typeof window !== "undefined")
   useTerminal.subscribe((st, prev) => {
-    if (st.activeSymbol !== prev.activeSymbol && st.activeTab === prev.activeTab && st.activeSymbol) addRecent({ symbol: st.activeSymbol });
+    if (st.activeSymbol !== prev.activeSymbol && st.activeTab === prev.activeTab && st.activeSymbol) st.addRecentSymbol({ symbol: st.activeSymbol });
   });
+
+/**
+ * A history to start from, once the saved workspace is loaded: the list this browser kept before
+ * the workspace did, else every symbol the tabs show (each tab's, and its pages' and widgets' own).
+ */
+export function seedRecentSymbols() {
+  const st = useTerminal.getState();
+  if (st.recentSymbols?.length) return;
+  let list: RecentSymbol[] = [];
+  for (const r of legacyRecent().reverse()) list = withRecent(list, r);
+  if (!list.length) {
+    const symbols = st.tabs.flatMap((t) => [t.activeSymbol, ...t.pages.map((p) => p.symbol), ...t.widgets.map((w) => w.symbol)]);
+    for (const s of [...new Set(symbols.filter((x): x is string => Boolean(x)))].reverse()) list = withRecent(list, { symbol: s });
+    // The tab in view first.
+    if (st.activeSymbol) list = withRecent(list, { symbol: st.activeSymbol });
+  }
+  if (list.length) useTerminal.setState({ recentSymbols: list });
+}
 
 // The live fields above are the active tab's; every change to them is saved into its entry.
 useTerminal.subscribe((st, prev) => {
@@ -472,6 +499,7 @@ function startOnCopyOfLastTab() {
  * or a copy of the tab used last when other windows show them all.
  */
 function initWindow() {
+  seedRecentSymbols();
   const st = useTerminal.getState();
   const exists = (id: string) => st.tabs.some((t) => t.id === id);
   let mine: string[] = [];

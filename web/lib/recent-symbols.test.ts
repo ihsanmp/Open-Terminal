@@ -1,19 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { addRecent, kindOf, type RecentSymbol } from "./recent-symbols";
+import { kindOf, withRecent, type RecentSymbol } from "./recent-symbols";
 
 describe("the symbols opened last", () => {
   it("puts the latest first, once, keeping what was known of it", () => {
     let list: RecentSymbol[] = [];
-    list = addRecent({ symbol: "btc-usd", name: "Bitcoin", exchange: "CRYPTO", type: "crypto" }, list);
-    list = addRecent({ symbol: "AAPL" }, list);
-    list = addRecent({ symbol: "BTC-USD" }, list); // opened again from the watchlist
+    list = withRecent(list, { symbol: "btc-usd", name: "Bitcoin", exchange: "CRYPTO", type: "crypto" });
+    list = withRecent(list, { symbol: "AAPL" });
+    list = withRecent(list, { symbol: "BTC-USD" }); // opened again from the watchlist
     expect(list).toEqual([
       { symbol: "BTC-USD", name: "Bitcoin", exchange: "CRYPTO", type: "crypto" },
       { symbol: "AAPL" },
     ]);
-    for (let i = 0; i < 30; i++) list = addRecent({ symbol: `S${i}` }, list);
-    expect(list).toHaveLength(20);
-    expect(list[0].symbol).toBe("S29");
+    for (let i = 0; i < 30; i++) list = withRecent(list, { symbol: `S${i}` });
+    for (let i = 30; i < 80; i++) list = withRecent(list, { symbol: `S${i}` });
+    expect(list).toHaveLength(50);
+    expect(list[0].symbol).toBe("S79");
   });
 
   it("tells a symbol's kind from how it's written", () => {

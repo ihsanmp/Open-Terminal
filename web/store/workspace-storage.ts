@@ -19,11 +19,11 @@ const TAB_PREFIX = `${WORKSPACE_KEY}:tab:`;
 
 /** The saved part of the store (see the persist options in terminal.ts). */
 export type SavedTab = { id: string } & Record<string, unknown>;
-export type SavedWorkspace = { tabs: SavedTab[]; watchlist?: string[]; favoriteIntervals?: string[] };
+export type SavedWorkspace = { tabs: SavedTab[]; watchlist?: string[]; favoriteIntervals?: string[]; recentSymbols?: unknown[] };
 
 /** `savedAt`: when it last changed, to tell whether the copy on disk is newer. */
-type Index = { order: string[]; watchlist?: string[]; favoriteIntervals?: string[]; savedAt?: number };
-type Known = { order: string[]; tabs: Map<string, string>; watchlist: string; favoriteIntervals: string };
+type Index = { order: string[]; watchlist?: string[]; favoriteIntervals?: string[]; recentSymbols?: unknown[]; savedAt?: number };
+type Known = { order: string[]; tabs: Map<string, string>; watchlist: string; favoriteIntervals: string; recentSymbols: string };
 
 const json = (v: unknown) => JSON.stringify(v ?? null);
 
@@ -57,6 +57,7 @@ export function createWorkspaceStorage(store: Storage | undefined = typeof windo
       tabs: new Map(ws.tabs.map((t) => [t.id, json(t)])),
       watchlist: json(ws.watchlist),
       favoriteIntervals: json(ws.favoriteIntervals),
+      recentSymbols: json(ws.recentSymbols),
     };
   };
 
@@ -74,7 +75,7 @@ export function createWorkspaceStorage(store: Storage | undefined = typeof windo
           const raw = store.getItem(TAB_PREFIX + id);
           if (raw) tabs.push(JSON.parse(raw) as SavedTab);
         }
-        const ws: SavedWorkspace = { tabs, watchlist: index.watchlist, favoriteIntervals: index.favoriteIntervals };
+        const ws: SavedWorkspace = { tabs, watchlist: index.watchlist, favoriteIntervals: index.favoriteIntervals, recentSymbols: index.recentSymbols };
         remember(ws);
         return { state: ws, version, savedAt: index.savedAt } as StorageValue<SavedWorkspace>;
       } catch {
@@ -106,6 +107,7 @@ export function createWorkspaceStorage(store: Storage | undefined = typeof windo
         savedAt: saved?.savedAt,
         watchlist: !k || json(mine.watchlist) !== k.watchlist ? mine.watchlist : saved?.watchlist ?? mine.watchlist,
         favoriteIntervals: !k || json(mine.favoriteIntervals) !== k.favoriteIntervals ? mine.favoriteIntervals : saved?.favoriteIntervals ?? mine.favoriteIntervals,
+        recentSymbols: !k || json(mine.recentSymbols) !== k.recentSymbols ? mine.recentSymbols : saved?.recentSymbols ?? mine.recentSymbols,
       };
       const unchanged = JSON.stringify({ state: index, version: value.version });
       if (changed || store.getItem(WORKSPACE_KEY) !== unchanged) {
@@ -118,7 +120,7 @@ export function createWorkspaceStorage(store: Storage | undefined = typeof windo
       const tabs = order
         .map((id) => mine.tabs.find((t) => t.id === id) ?? (store.getItem(TAB_PREFIX + id) ? (JSON.parse(store.getItem(TAB_PREFIX + id)!) as SavedTab) : null))
         .filter((t): t is SavedTab => t !== null);
-      remember({ tabs, watchlist: index.watchlist, favoriteIntervals: index.favoriteIntervals });
+      remember({ tabs, watchlist: index.watchlist, favoriteIntervals: index.favoriteIntervals, recentSymbols: index.recentSymbols });
     },
 
     removeItem: () => {

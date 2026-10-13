@@ -99,7 +99,9 @@ describe("saved workspace", () => {
     const b = st().duplicateTab();
     st().setActiveSymbol("SOL-USD");
     const saved = options.partialize!(st()) as Record<string, unknown>;
-    expect(Object.keys(saved).sort()).toEqual(["favoriteIntervals", "tabs", "watchlist"]);
+    expect(Object.keys(saved).sort()).toEqual(["favoriteIntervals", "recentSymbols", "tabs", "watchlist"]);
+    // The symbol search's history is saved with them, newest first.
+    expect((saved.recentSymbols as Array<{ symbol: string }>)[0].symbol).toBe("SOL-USD");
     // Another window changed this tab's symbol; this window stays on it and shows the change.
     const tabs = (saved.tabs as Array<{ id: string; activeSymbol: string }>).map((t) => (t.id === b ? { ...t, activeSymbol: "XRP-USD" } : t));
     const merged = options.merge!({ ...saved, tabs }, st());
