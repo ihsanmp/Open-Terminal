@@ -114,6 +114,7 @@ function Tab({ tab, active, only }: { tab: TabData; active: boolean; only: boole
  * the current one instead); ⧉ moves a tab into a window of its own, so several can be watched
  * side by side.
  */
+/** The tabs, inside the top bar (left of its "⧉ Window"); `+` adds one beside them. */
 export default function TabBar() {
   const allTabs = useTerminal((s) => s.tabs);
   const windowTabs = useTerminal((s) => s.windowTabs);
@@ -137,7 +138,7 @@ export default function TabBar() {
   }, [active]);
 
   return (
-    <nav role="tablist" className="flex items-stretch h-7 bg-[var(--panel-2)] border-b border-[var(--border)] text-fs-11 shrink-0 overflow-hidden">
+    <nav role="tablist" className="flex items-stretch self-stretch min-w-0 shrink overflow-x-auto overflow-y-hidden [scrollbar-width:none] border-l border-[var(--border)] text-fs-11">
       {tabs.map((t) => (
         <Tab key={t.id} tab={t} active={t.id === activeTab} only={tabs.length < 2} />
       ))}

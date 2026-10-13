@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useStatus } from "../lib/status";
 import { useTerminal } from "../store/terminal";
-import { openTabWindow } from "./TabBar";
+import TabBar, { openTabWindow } from "./TabBar";
 
 const CLOCKS = [
   { tz: "America/New_York", label: "NY" },
@@ -28,7 +28,7 @@ function Clocks() {
   return (
     <>
       {CLOCKS.map((c) => (
-        <span key={c.label} className={`dim ${c.label === "NY" ? "" : "max-sm:hidden"}`}>
+        <span key={c.label} className={`dim shrink-0 ${c.label === "NY" ? "" : "max-sm:hidden"}`}>
           {c.label} <span className="text-[var(--text)]">{c.format.format(now)}</span>
         </span>
       ))}
@@ -54,23 +54,24 @@ export default function TopBar() {
   const healthy = status?.providers.filter((p) => p.ok > 0) ?? [];
 
   return (
-    <header className="flex items-center gap-4 px-3 h-8 bg-[var(--panel-2)] border-b border-[var(--border)] text-fs-11 shrink-0 portrait:flex-wrap portrait:h-auto portrait:min-h-8 portrait:py-1 portrait:gap-x-3 portrait:gap-y-1">
-      <span className="amber font-bold tracking-widest">OPENTERMINAL</span>
-      <span className={market.open ? "up" : "down"}>● {market.label}</span>
+    <header className="flex items-center gap-4 px-3 h-8 whitespace-nowrap bg-[var(--panel-2)] border-b border-[var(--border)] text-fs-11 shrink-0 portrait:flex-wrap portrait:h-auto portrait:min-h-8 portrait:py-1 portrait:gap-x-3 portrait:gap-y-1">
+      <span className="amber font-bold tracking-widest shrink-0">OPENTERMINAL</span>
+      <span className={`shrink-0 ${market.open ? "up" : "down"}`}>● {market.label}</span>
       <Clocks />
       <button
-        className="term-btn flex-1 max-w-md text-left dim min-w-[10rem] truncate"
+        className="term-btn w-[22rem] max-w-[30vw] shrink text-left dim min-w-[10rem] truncate"
         onClick={() => setCommandOpen(true)}
       >
         {activeSymbol} — search symbol… <span className="float-right">⌘K</span>
       </button>
-      {/* New tabs open from the tab bar's "+" below. */}
+      {/* The tabs, then "+" for another, right of the search and left of "⧉ Window". */}
+      <TabBar />
       <span className="flex gap-1 shrink-0">
         <button className="term-btn dim hover:text-[var(--amber)]" title="New window: a copy of this tab (Alt+N)" aria-label="New window" onClick={() => openTabWindow(duplicateTab(true))}>
           ⧉ Window
         </button>
       </span>
-      <span className="dim ml-auto max-sm:hidden">
+      <span className="dim ml-auto max-sm:hidden truncate min-w-0 shrink">
         feeds:{" "}
         {healthy.length > 0
           ? healthy.map((p) => `${p.name} ${p.lastLatencyMs ?? "—"}ms`).join(" · ")
