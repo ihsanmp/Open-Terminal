@@ -72,17 +72,17 @@ export default function Terminal() {
       if (!e.altKey || e.ctrlKey || e.metaKey) return;
       const st = useTerminal.getState();
       const key = e.key.toLowerCase();
-      // Tabs: Alt+T opens a new tab, Alt+Shift+T copies this one, Alt+W closes it, Alt+N copies it
-      // into a new window, Alt+[ and Alt+] step through the tabs. (The browser keeps Ctrl+T /
-      // Ctrl+W for itself.)
+      // Tabs: Alt+T opens a copy of this tab beside it (as "+"), Alt+Shift+T an empty one, Alt+W
+      // closes it, Alt+N copies it into a new window, Alt+[ and Alt+] step through the tabs. (The
+      // browser keeps Ctrl+T / Ctrl+W for itself.)
       if (e.shiftKey && key === "t") {
         e.preventDefault();
-        st.duplicateTab();
+        st.newTab();
         return;
       }
       if (!e.shiftKey && (key === "t" || key === "w" || key === "n" || key === "[" || key === "]")) {
         e.preventDefault();
-        if (key === "t") st.newTab();
+        if (key === "t") st.duplicateTab();
         else if (key === "w") st.closeTab(st.activeTab);
         else if (key === "n") openTabWindow(st.duplicateTab(true));
         else {
