@@ -30,7 +30,7 @@ export function shownMenu(aiAvailable: boolean) {
   return MENU.filter((item) => item.type !== "ai" || aiAvailable);
 }
 
-function Item({ view, current, label, hint, onAdd }: { view: View; current: View; label: string; hint: string; onAdd?: () => void }) {
+function Item({ view, current, label, hint }: { view: View; current: View; label: string; hint: string }) {
   const setView = useTerminal((s) => s.setView);
   const active = view === current;
   return (
@@ -42,28 +42,13 @@ function Item({ view, current, label, hint, onAdd }: { view: View; current: View
       }`}
     >
       <span>{label}</span>
-      <span className="flex items-center gap-1">
-        {onAdd && (
-          <button
-            title="Add to the workspace"
-            className="hidden group-hover:inline dim hover:text-[var(--amber)] px-0.5"
-            onClick={(e) => {
-              e.stopPropagation();
-              onAdd();
-            }}
-          >
-            +
-          </button>
-        )}
-        <span className="dim text-fs-9 portrait:hidden">{hint}</span>
-      </span>
+      <span className="dim text-fs-9 portrait:hidden">{hint}</span>
     </div>
   );
 }
 
 export default function Sidebar() {
   const view = useTerminal((s) => s.view);
-  const setView = useTerminal((s) => s.setView);
   const addWidget = useTerminal((s) => s.addWidget);
   const resetWorkspace = useTerminal((s) => s.resetWorkspace);
   const menu = shownMenu(useAiAvailable());
@@ -77,14 +62,28 @@ export default function Sidebar() {
           current={view}
           label={item.label}
           hint={i < 9 ? `⌥${i + 1}` : ""}
-          onAdd={() => {
-            addWidget(item.type);
-            setView("workspace");
-          }}
         />
       ))}
       <div className="mt-auto border-t border-[var(--border)] portrait:mt-0 portrait:ml-auto portrait:border-t-0 portrait:border-l portrait:flex portrait:shrink-0">
         <Item view="workspace" current={view} label="WORKSPACE" hint="⌥0" />
+        {/* On the workspace: a page to add to it as a widget, then its layout's reset. */}
+        {view === "workspace" && (
+          <select
+            aria-label="Add a widget to the workspace"
+            className="w-full !bg-transparent !border-0 px-2 py-1.5 text-fs-11 dim hover:text-[var(--amber)] cursor-pointer portrait:w-auto"
+            value=""
+            onChange={(e) => {
+              if (e.target.value) addWidget(e.target.value as WidgetType);
+            }}
+          >
+            <option value="">+ ADD WIDGET</option>
+            {menu.map((item) => (
+              <option key={item.type} value={item.type}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        )}
         {view === "workspace" && (
           <button onClick={resetWorkspace} className="w-full text-left px-2 py-1.5 text-fs-11 dim hover:text-[var(--down)] portrait:w-auto portrait:whitespace-nowrap">
             RESET LAYOUT
