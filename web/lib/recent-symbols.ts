@@ -53,8 +53,14 @@ export function clearRecent() {
   write([]);
 }
 
-/** The kind of a symbol not looked up: as the app spells them (BTC-USD, EURUSD=X, ^GSPC, GC=F). */
+const FX_EXCHANGES = /^(OANDA|FX|FX_IDC|FXCM|PEPPERSTONE|SAXO|ICMARKETS|CAPITALCOM|EIGHTCAP|FOREXCOM):/;
+const CRYPTO_EXCHANGES = /^(BINANCE|BYBIT|COINBASE|OKX|KRAKEN|BITGET|GATEIO|MEXC|KUCOIN|BITSTAMP|CRYPTO|CRYPTOCAP|PANCAKESWAP|UNISWAP\w*):/;
+
+/** The kind of a symbol not looked up: as the app spells them (BTC-USD, EURUSD=X, ^GSPC, GC=F,
+ *  or TradingView's OANDA:EURUSD and BINANCE:BTCUSDT). */
 export function kindOf(symbol: string): string {
+  if (FX_EXCHANGES.test(symbol)) return "forex";
+  if (CRYPTO_EXCHANGES.test(symbol)) return "crypto";
   if (/-USDT?$/.test(symbol)) return "crypto";
   if (/=X$/.test(symbol)) return "forex";
   if (symbol.startsWith("^")) return "index";
