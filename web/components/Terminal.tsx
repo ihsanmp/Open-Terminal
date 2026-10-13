@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import TopBar from "./TopBar";
-import TabBar, { openTabWindow } from "./TabBar";
+import { openTabWindow } from "./TabBar";
 import Sidebar, { shownMenu } from "./Sidebar";
 import { useAiAvailable, useStatus } from "../lib/status";
 import PageView from "./PageView";
@@ -106,8 +106,6 @@ export default function Terminal() {
 
   return (
     <div className="flex flex-col h-screen">
-      {/* The tabs on top, as a browser's: "+" at their end opens another. */}
-      <TabBar />
       <TopBar />
       {/* Upright (portrait), the menu runs across the top instead of down the side. */}
       <div className="flex flex-1 overflow-hidden portrait:flex-col">
