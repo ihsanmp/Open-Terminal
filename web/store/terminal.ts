@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext } from "react";
 import { create } from "zustand";
 import { persist, type PersistStorage } from "zustand/middleware";
 import { createWorkspaceStorage, WORKSPACE_KEY } from "./workspace-storage";
+import { addRecent } from "../lib/recent-symbols";
 import { forgetWindowOnClose, holdWindowLock, saveWindowTabs, sessionTabs, tabsOfClosedWindows, tabsOfOtherWindows } from "./window-tabs";
 import type { IndicatorInstance } from "../lib/ta/types";
 import type { ChartStyle } from "../lib/chart-style";
@@ -428,6 +429,13 @@ export const useTerminal = create<TerminalState>()(
     }
   )
 );
+
+// Every symbol opened in a tab (however it was opened) goes first on the search's recent list.
+// Switching tabs shows another tab's symbol; that isn't opening one.
+if (typeof window !== "undefined")
+  useTerminal.subscribe((st, prev) => {
+    if (st.activeSymbol !== prev.activeSymbol && st.activeTab === prev.activeTab && st.activeSymbol) addRecent({ symbol: st.activeSymbol });
+  });
 
 // The live fields above are the active tab's; every change to them is saved into its entry.
 useTerminal.subscribe((st, prev) => {
