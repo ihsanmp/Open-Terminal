@@ -110,6 +110,8 @@ type ChartNav = {
   last: () => void;
   reset: () => void;
   auto: () => void;
+  /** TradingView's "A": auto-scale on, or off with the price range held where it is. */
+  toggleAuto: () => void;
   overPriceAxis: (clientX: number, clientY: number) => boolean;
   /** A date-range button's span in view, up to the latest bar. */
   showSpan: (span: number | "ytd" | "all") => void;
@@ -931,6 +933,14 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         ts.setVisibleLogicalRange(latestBarsView(candles.length, el.clientWidth * 0.94));
       },
       auto: autoOn,
+      toggleAuto: () => {
+        if (!priceScale.options().autoScale) return autoOn();
+        // Off: the range in view stays put, and dragging or wheeling the axis moves it from there.
+        const vr = priceScale.getVisibleRange();
+        priceScale.setAutoScale(false);
+        if (vr) priceScale.setVisibleRange(vr);
+        setAutoScale(false);
+      },
       overPriceAxis,
       showSpan: (span: number | "ytd" | "all") => {
         autoOn();
@@ -1181,6 +1191,14 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     }
     // Alt+H horizontal line, Alt+V vertical line, Alt+J horizontal ray, Alt+C cross line (at the
     // pointer), Alt+T trend line, Alt+F Fib retracement, Alt+Shift+R rectangle.
+    // Alt+L the log scale and Alt+R the chart reset (auto-scale on, the latest bars), as TradingView.
+    if (e.altKey && !ctrlKey && !e.shiftKey && (k === "l" || k === "r")) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (k === "l") setScaleMode(scaleMode === "log" ? "normal" : "log");
+      else navRef.current?.reset();
+      return;
+    }
     if (e.altKey && !ctrlKey) {
       const hot = e.shiftKey ? (k === "r" ? { tool: "rect" as ToolId } : undefined) : DRAW_KEYS[k];
       if (hot) {
@@ -1466,32 +1484,29 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           </button>
         )}
         {candle && (
-          // TradingView's price scale buttons, in the corner under the price axis.
-          <div className="absolute right-0 bottom-0 z-10 flex items-center justify-center gap-0.5 text-fs-10" style={{ width: axes.right, height: axes.bottom }}>
-            <button
-              title="Auto (fits data to screen)"
-              onMouseDown={keepChartFocus}
-              className={`px-1 leading-4 ${autoScale ? "amber" : "dim hover:text-[var(--text)]"}`}
-              onClick={() => navRef.current?.auto()}
-            >
-              A
-            </button>
-            <button
-              title="Logarithmic scale"
-              onMouseDown={keepChartFocus}
-              className={`px-1 leading-4 ${scaleMode === "log" ? "amber" : "dim hover:text-[var(--text)]"}`}
-              onClick={() => setScaleMode(scaleMode === "log" ? "normal" : "log")}
-            >
-              L
-            </button>
-            <button
-              title="Percentage scale"
-              onMouseDown={keepChartFocus}
-              className={`px-1 leading-4 ${scaleMode === "percent" ? "amber" : "dim hover:text-[var(--text)]"}`}
-              onClick={() => setScaleMode(scaleMode === "percent" ? "normal" : "percent")}
-            >
-              %
-            </button>
+          // TradingView's two buttons in the corner under the price axis: A toggles auto-scale (the
+          // price range fitting the bars in view; off, it stays where it is), L the logarithmic
+          // scale. Each lights up while on. (Percent and the other modes are on the axis's menu.)
+          <div className="absolute right-0 bottom-0 z-10 flex items-center justify-center gap-1 text-fs-10 font-bold" style={{ width: axes.right, height: axes.bottom }}>
+            {(
+              [
+                ["A", autoScale, autoScale ? "Auto (fits data to screen) — on: click to turn off" : "Auto (fits data to screen)", () => navRef.current?.toggleAuto()],
+                ["L", scaleMode === "log", scaleMode === "log" ? "Log scale — on: click for the regular scale" : "Log scale", () => setScaleMode(scaleMode === "log" ? "normal" : "log")],
+              ] as const
+            ).map(([label, on, title, act]) => (
+              <button
+                key={label}
+                title={title}
+                aria-pressed={on}
+                onMouseDown={keepChartFocus}
+                onClick={act}
+                className={`w-[18px] h-[18px] leading-none rounded-[3px] border flex items-center justify-center ${
+                  on ? "border-[var(--amber)] text-[var(--amber)] bg-[#1f1a10]" : "border-[#434651] text-[var(--text)] bg-[#131313] hover:border-[#6a6d78]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         )}
         {selected && !drawingsHidden && (
