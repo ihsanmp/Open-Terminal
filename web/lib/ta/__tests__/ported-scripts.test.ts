@@ -5,7 +5,7 @@ import { INDICATOR_BY_ID, candlesToBars, defaultParams, type Bars, type Params }
 import { colorNew } from "../pine";
 import { chaosSeries, kmeans, smtDivergences } from "../indicators/luxalgo2";
 import { gaussian, normalize, rationalQuadratic } from "../indicators/lorentzian";
-import { exchangeTimestamp } from "../indicators/community2";
+import { cosineWeighted, exchangeTimestamp } from "../indicators/community2";
 
 const DAY = 86_400;
 const START = Date.UTC(2026, 0, 5) / 1000;
@@ -394,5 +394,35 @@ describe("Whale & Institution Alerts", () => {
       [10, "🏦 BERKSHIRE HATHAWA… +$5.0M", "up"],
       [10, "👤 Cook Timothy −$2.0M", "down"],
     ]);
+  });
+});
+
+describe("Cosine-Weighted MA ATR (InvestorUnknown)", () => {
+  it("weighs the last bars by a shifted cosine, the newest most and the oldest not at all", () => {
+    const x = [1, 2, 3, 4, 5, 6];
+    const out = cosineWeighted(x, 4);
+    // cos(π/4)+1, cos(π/2)+1, cos(3π/4)+1, cos(π)+1 = 1.7071, 1, 0.2929, 0 → sum 3.
+    const w = [1 + Math.SQRT1_2, 1, 1 - Math.SQRT1_2, 0].map((v) => v / 3);
+    expect(out.slice(0, 4).every(Number.isNaN)).toBe(true);
+    expect(out[4]).toBeCloseTo(w[0] * 5 + w[1] * 4 + w[2] * 3 + w[3] * 2, 10);
+    expect(out[5]).toBeCloseTo(w[0] * 6 + w[1] * 5 + w[2] * 4 + w[3] * 3, 10);
+  });
+
+  it("goes long above the upper band and short below the lower, the circles on the other side", () => {
+    const rows: C[] = [...Array.from({ length: 30 }, () => flat(100)), ...Array.from({ length: 15 }, (_, i) => flat(100 + 3 * (i + 1))), ...Array.from({ length: 20 }, (_, i) => flat(145 - 4 * (i + 1)))];
+    const bars = barsOf(rows);
+    const r = run("cosine-weighted-ma-atr", bars);
+    const up = 44; // the top of the rally
+    expect(r.barColors![up]).toBe("#24D013");
+    expect(r.plots.band[up]).toBeLessThan(r.plots.cwma[up]); // long: the lower band
+    const last = rows.length - 1;
+    expect(r.barColors![last]).toBe("#E32222");
+    expect(r.plots.band[last]).toBeGreaterThan(r.plots.cwma[last]);
+    // A bar late without intra-day updating.
+    const late = run("cosine-weighted-ma-atr", bars, { intraday: false });
+    expect(late.plots.cwma[up]).toBe(r.plots.cwma[up - 1]);
+    expect(late.barColors![up]).toBe(r.barColors![up - 1]);
+    // The cosine-weighted ATR is a choice too.
+    expect(run("cosine-weighted-ma-atr", bars, { atrType: "Sine-Weighted ATR" }).plots.band[last]).not.toBe(r.plots.band[last]);
   });
 });

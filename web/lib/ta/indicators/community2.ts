@@ -9,6 +9,7 @@
 // - Volume Profile / Fixed Range              (© LonesomeTheBlue, MPL-2.0, Pine v5)
 // - Bollinger Bands Percentile + Stdev Channels (BBPct) (© Algoalpha X © Sushiboi77, MPL-2.0, Pine v5)
 // - Caspers Mastermind Supertrend v2           (© Caspers_Mastermind, MPL-2.0, Pine v6)
+// - Cosine-Weighted MA ATR                     (© InvestorUnknown, MPL-2.0, Pine v6)
 
 import * as ta from "../core";
 import { type Bars, type Series } from "../core";
@@ -22,6 +23,7 @@ import {
   n,
   src,
   s,
+  select,
   type ChartContext,
   type Color,
   type IndicatorDef,
@@ -569,4 +571,117 @@ export function caspersSupertrend(bars: Bars, p: Params): IndicatorResult {
     }
   }
   return { plots: { trend: value }, colors: { trend: direction.map((d) => (d === 1 ? V6_RED : V6_GREEN)) }, markers };
+}
+
+// Cosine-Weighted MA ATR [InvestorUnknown] — © InvestorUnknown, MPL-2.0, Pine v6. A moving
+// average whose weights follow a shifted cosine (cos(π·(i+1)/len) + 1 for the bar i back,
+// normalized): the latest bars weigh the most, the oldest nothing. Bands at ± ATR × multiplier
+// (Wilder's ATR, or the same cosine weighting over true ranges); the source crossing above the
+// upper band turns it long, the short source crossing below the lower one short. The script's
+// Overlay mode: the line and bars colored by side, the band on the other side drawn as circles
+// with a fill to the line. (Its Backtest mode and custom-timeframe options aren't ported.)
+const CW_SOURCES = ["open", "high", "low", "close", "oc2", "hl2", "occ3", "hlc3", "ohlc4", "hlcc4"] as const;
+const CW_LONG = "#24D013"; // color.rgb(54, 208, 19)
+const CW_SHORT = "#E32222"; // color.rgb(227, 34, 34)
+
+/** The script's bar.calc_src(), with its oc2 and occ3 besides Pine's own sources. */
+function cwSource(bars: Bars, key: string): Series {
+  if (key === "oc2") return bars.close.map((c, i) => (bars.open[i] + c) / 2);
+  if (key === "occ3") return bars.close.map((c, i) => (bars.open[i] + c + c) / 3);
+  return ta.source(bars, key);
+}
+
+/** f_Cosine_Weighted_MA / f_Cosine_Weighted_ATR: the cosine-weighted sum of the last `len` values. */
+export function cosineWeighted(x: Series, len: number): Series {
+  const raw = Array.from({ length: len }, (_, i) => Math.cos((Math.PI * (i + 1)) / len) + 1);
+  const total = raw.reduce((a, w) => a + w, 0);
+  const weights = raw.map((w) => w / total);
+  return x.map((_, bar) => {
+    // The script returns 0 before `len` bars; nothing is drawn there instead.
+    if (bar < len) return NaN;
+    let sum = 0;
+    for (let i = 0; i < len; i++) sum += weights[i] * x[bar - i];
+    return sum;
+  });
+}
+
+community2.push({
+  id: "cosine-weighted-ma-atr",
+  name: "Cosine-Weighted MA ATR [InvestorUnknown]",
+  short: "Cosine-Weighted MA ATR",
+  category: "Community",
+  overlay: true,
+  description: "Cosine-weighted moving average with ATR bands: long when the source closes above the upper band, short below the lower one.",
+  aliases: ["CWMA", "Cosine Weighted Moving Average", "InvestorUnknown"],
+  inputs: [
+    bool("intraday", "Allow Intra-day Updating", true),
+    bool("plotSrc", "Plot Calculation Source", false),
+    bool("colorBars", "Color Bars?", true),
+    int("maLength", "CWMA Length", 14),
+    select("cwmaSrc", "Source", CW_SOURCES, "close"),
+    bool("plotCwma", "Plot CWMA?", true),
+    select("atrType", "ATR Type", ["Normal ATR", "Sine-Weighted ATR"], "Normal ATR"),
+    int("atrLen", "ATR Length", 14),
+    float("atrMult", "ATR Multiplier", 1.2, 0.1),
+    bool("plotCircles", "Plot ATR Circles", true),
+    select("srcLong", "Source for Long Signal", CW_SOURCES, "close"),
+    select("srcShort", "Source for Short Signal", CW_SOURCES, "close"),
+  ],
+  plots: [
+    { key: "src", title: "Calculation Source (Price)", color: "rgba(255,235,59,0.7)", width: 2 },
+    { key: "cwma", title: "Cosine-Weighted Moving Average", color: CW_SHORT, width: 2 },
+    { key: "band", title: "ATR Band", color: CW_SHORT, style: "circles", width: 3 },
+    { key: "cwmaFill", title: "CWMA (fill)", color: CW_SHORT, display: "none" },
+    { key: "bandFill", title: "ATR Band (fill)", color: CW_SHORT, display: "none" },
+  ],
+  compute: (bars, p) => cosineWeightedMaAtr(bars, p),
+});
+
+export function cosineWeightedMaAtr(bars: Bars, p: Params): IndicatorResult {
+  const len = bars.close.length;
+  const source = cwSource(bars, s(p, "cwmaSrc"));
+  const cwma = cosineWeighted(source, n(p, "maLength"));
+  const atrLen = n(p, "atrLen");
+  const atr = s(p, "atrType") === "Normal ATR" ? ta.atr(bars, atrLen) : cosineWeighted(ta.tr(bars, true), atrLen);
+  const mult = n(p, "atrMult");
+  const up = cwma.map((m, i) => m + atr[i] * mult);
+  const dn = cwma.map((m, i) => m - atr[i] * mult);
+  const srcL = cwSource(bars, s(p, "srcLong"));
+  const srcS = cwSource(bars, s(p, "srcShort"));
+
+  // `var int signal`: 1 after a cross above the upper band, -1 after one below the lower band.
+  const signal = new Array<number>(len).fill(0);
+  for (let i = 0; i < len; i++) {
+    let sig = i > 0 ? signal[i - 1] : 0;
+    if (ta.crossover(srcL, up, i)) sig = 1;
+    if (ta.crossunder(srcS, dn, i)) sig = -1;
+    signal[i] = sig;
+  }
+  const side = signal.map((sg) => (sg > 0 ? CW_LONG : CW_SHORT));
+  // The circles: the band on the other side of the line (below it while long).
+  const band = cwma.map((_, i) => (signal[i] > 0 ? dn[i] : up[i]));
+
+  // "Allow Intra-day Updating" off: everything a bar late, as confirmed at the close.
+  const intraday = b(p, "intraday");
+  const lag = (x: Series): Series => (intraday ? x : x.map((_, i) => (i > 0 ? x[i - 1] : NaN)));
+  const cwmaShown = lag(cwma);
+  const bandShown = lag(band);
+
+  // The fill between the circles and the line: red above it (short), green below (long), fading
+  // toward the line as the script's gradient does.
+  const fillColor: Color[] = cwma.map((_, i) => (bandShown[i] > cwmaShown[i] ? colorNew(CW_SHORT, 80) : colorNew(CW_LONG, 80)));
+
+  // Plots switched off are left out, as Pine's na plots.
+  return {
+    plots: {
+      ...(b(p, "plotSrc") ? { src: lag(source) } : {}),
+      ...(b(p, "plotCwma") ? { cwma: cwmaShown } : {}),
+      ...(b(p, "plotCircles") ? { band: bandShown } : {}),
+      cwmaFill: cwmaShown,
+      bandFill: bandShown,
+    },
+    colors: { cwma: side, band: side },
+    fills: b(p, "plotCircles") ? [{ a: "bandFill", b: "cwmaFill", color: fillColor }] : [],
+    barColors: b(p, "colorBars") ? (intraday ? side : side.map((_, i) => (i > 0 ? side[i - 1] : CW_SHORT))) : undefined,
+  };
 }
