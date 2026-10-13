@@ -77,7 +77,7 @@ function Tab({ tab, active, only }: { tab: TabData; active: boolean; only: boole
         pending.current = null;
         setEditing(true);
       }}
-      className={`group flex items-center gap-1 h-full pl-2.5 pr-1 max-w-[220px] min-w-[90px] border-r border-[var(--border)] cursor-pointer select-none shrink ${
+      className={`group flex items-center gap-1 h-full pl-2.5 pr-1 max-w-[240px] ${active ? "min-w-[150px] shrink-0" : "min-w-[90px] shrink"} border-r border-[var(--border)] cursor-pointer select-none ${
         active ? "bg-[var(--bg)] text-[var(--text)] border-t-2 border-t-[var(--amber)]" : "dim hover:text-[var(--text)] hover:bg-[var(--panel)]"
       }`}
     >
@@ -97,14 +97,29 @@ function Tab({ tab, active, only }: { tab: TabData; active: boolean; only: boole
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
-        <span className="truncate flex-1">
+        <>
+          {/* The tab in view: its symbol is a button that opens the search at once (not a drag). */}
           {active && (
-            <span className="dim mr-1" aria-hidden>
-              ⌕
-            </span>
+            <button
+              draggable={false}
+              onMouseDown={(e) => e.stopPropagation()}
+              onDragStart={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (pending.current) clearTimeout(pending.current);
+                pending.current = null;
+                setCommandOpen(true);
+              }}
+              title="Ganti pair tab ini (Ctrl+K)"
+              aria-label="Change this tab's symbol"
+              className="flex items-center gap-1 shrink-0 max-w-[60%] px-1 -ml-1 rounded hover:bg-[#1f1a10] hover:text-[var(--amber)] font-bold"
+            >
+              <span aria-hidden>⌕</span>
+              <span className="truncate">{tab.title ? tab.title : tab.activeSymbol}</span>
+            </button>
           )}
-          {label}
-        </span>
+          <span className="truncate flex-1">{active ? (tab.title ? "" : label.slice(tab.activeSymbol.length).replace(/^ · /, "· ")) : label}</span>
+        </>
       )}
       <button
         className="opacity-0 group-hover:opacity-100 px-1 hover:text-[var(--amber)]"
