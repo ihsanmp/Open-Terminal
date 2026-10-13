@@ -6,6 +6,7 @@ import { apiGet } from "../../lib/api";
 import { useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 import { usePoll } from "../../lib/refresh";
 import { CATEGORY_COLOR, NEWS_CATEGORIES } from "../../lib/news-categories";
+import { MARKET_LABEL, newsImpact, type Market, type NewsImpact } from "../../lib/news-impact";
 
 type NewsItem = { title: string; link: string; publisher: string; publishedAt: string | null };
 
@@ -35,10 +36,32 @@ function age(iso: string, now: number): string {
   return `${Math.floor(s / 86_400)}d`;
 }
 
+/** A headline's mark when it moves markets: ⚡ and the markets for a big one, a quieter one for a
+ *  notable one (lib/news-impact.ts). */
+function ImpactMark({ impact }: { impact: NewsImpact }) {
+  if (!impact) return null;
+  const high = impact.level === "high";
+  return (
+    <span className="inline-flex items-center gap-1 mr-1.5 align-middle" title={`${high ? "Dampak besar" : "Dampak sedang"}: ${impact.reasons.join(", ")}`}>
+      <span className={`text-fs-9 font-bold px-1 rounded-sm ${high ? "bg-[#ef5350] text-black" : "border border-[var(--amber)] amber"}`}>{high ? "⚡ DAMPAK BESAR" : "DAMPAK"}</span>
+      {impact.markets.map((m) => (
+        <span key={m} className={`text-fs-9 px-1 rounded-sm border ${high ? "border-[#ef5350] text-[#ef9a9a]" : "border-[#444] dim"}`}>
+          {MARKET_LABEL[m]}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+type ImpactFilter = "all" | "high" | "notable";
+
 function LiveWire() {
   const [category, setCategory] = useWidgetSetting<(typeof CATEGORIES)[number]>("category", "ALL");
   const [region, setRegion] = useWidgetSetting<(typeof REGIONS)[number]>("region", "ALL");
   const [search, setSearch] = useWidgetSetting("search", "");
+  // Only the headlines that move markets (big ones, or big and notable), and which market.
+  const [impactOnly, setImpactOnly] = useWidgetSetting<ImpactFilter>("impact", "all");
+  const [impactMarket, setImpactMarket] = useWidgetSetting<Market | "all">("impactMarket", "all");
   const [q, setQ] = useState("");
   useEffect(() => {
     const id = setTimeout(() => setQ(search.trim()), 300);
@@ -74,9 +97,41 @@ function LiveWire() {
     for (const [id, at] of arrived.current) if (now - at > NEW_MS) arrived.current.delete(id);
   }
 
+  const impacts = new Map((data?.items ?? []).map((n) => [n.id, newsImpact(n.title)]));
+  const counts = { high: 0, notable: 0 };
+  for (const imp of impacts.values()) if (imp) imp.level === "high" ? (counts.high++, counts.notable++) : counts.notable++;
+  const shown = (data?.items ?? []).filter((n) => {
+    const imp = impacts.get(n.id);
+    if (impactOnly === "all") return true;
+    if (!imp || (impactOnly === "high" && imp.level !== "high")) return false;
+    return impactMarket === "all" || imp.markets.includes(impactMarket);
+  });
+
   return (
     <div className="flex flex-col min-h-0">
       <div className="flex flex-wrap gap-1 px-1 pb-1 items-center">
+        <button
+          className={`term-btn ${impactOnly === "high" ? "active" : ""}`}
+          style={impactOnly !== "high" ? { color: "#ef5350" } : undefined}
+          title="Hanya berita yang diperkirakan berdampak besar ke pasar crypto, saham atau forex"
+          onClick={() => setImpactOnly(impactOnly === "high" ? "all" : "high")}
+        >
+          ⚡ DAMPAK BESAR <span className="dim">{counts.high}</span>
+        </button>
+        <button
+          className={`term-btn ${impactOnly === "notable" ? "active" : ""}`}
+          title="Berita berdampak besar dan sedang"
+          onClick={() => setImpactOnly(impactOnly === "notable" ? "all" : "notable")}
+        >
+          + SEDANG <span className="dim">{counts.notable}</span>
+        </button>
+        {impactOnly !== "all" &&
+          (["all", "crypto", "stocks", "forex"] as const).map((m) => (
+            <button key={m} className={`term-btn ${impactMarket === m ? "active" : ""}`} onClick={() => setImpactMarket(m)}>
+              {m === "all" ? "SEMUA PASAR" : MARKET_LABEL[m]}
+            </button>
+          ))}
+        <span className="w-px h-4 bg-[var(--border)] mx-0.5" />
         {CATEGORIES.map((c) => (
           <button
             key={c}
@@ -112,9 +167,11 @@ function LiveWire() {
         )}
       </div>
       {isLoading && <div className="p-2 dim">Connecting to the news wire…</div>}
-      {data?.items.length === 0 && <div className="p-2 dim">No headlines match.</div>}
-      {data?.items.map((n) => {
+      {data && shown.length === 0 && <div className="p-2 dim">{impactOnly === "all" ? "No headlines match." : "Belum ada berita berdampak di daftar ini."}</div>}
+      {shown.map((n) => {
         const fresh = arrived.current.has(n.id);
+        const impact = impacts.get(n.id) ?? null;
+        const big = impact?.level === "high";
         return (
           <a
             key={n.id}
@@ -122,12 +179,15 @@ function LiveWire() {
             target="_blank"
             rel="noreferrer"
             title={n.summary || n.title}
-            className={`flex gap-2 px-2 py-1 border-b border-[#161616] hover:bg-[#161616] ${fresh ? "bg-[#1f1a0a]" : ""}`}
-            style={fresh ? { boxShadow: "inset 2px 0 0 var(--amber)" } : undefined}
+            className={`flex gap-2 px-2 py-1 border-b border-[#161616] hover:bg-[#161616] ${fresh ? "bg-[#1f1a0a]" : big ? "bg-[#1f1212]" : ""}`}
+            style={fresh ? { boxShadow: "inset 2px 0 0 var(--amber)" } : big ? { boxShadow: "inset 3px 0 0 #ef5350" } : undefined}
           >
             <span className="dim w-7 shrink-0 text-right tabular-nums text-fs-10 pt-[2px]">{age(n.publishedAt, now)}</span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate">{n.title}</span>
+              <span className={`block truncate ${big ? "font-bold text-[var(--text)]" : ""}`}>
+                <ImpactMark impact={impact} />
+                {n.title}
+              </span>
               <span className="dim text-fs-10">
                 <span style={{ color: CATEGORY_COLOR[n.category] }}>{n.category}</span> · {n.publisher}
                 {n.region !== "GLOBAL" ? ` · ${n.region}` : ""} · {new Date(n.publishedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -152,7 +212,10 @@ function SymbolNews({ symbol }: { symbol: string }) {
       {isLoading && <div className="p-2 dim">Loading news…</div>}
       {data.map((n, i) => (
         <a key={i} href={n.link} target="_blank" rel="noreferrer" className="block px-2 py-1 border-b border-[#161616] hover:bg-[#161616]">
-          <div className="truncate">{n.title}</div>
+          <div className={`truncate ${newsImpact(n.title)?.level === "high" ? "font-bold text-[var(--text)]" : ""}`}>
+            <ImpactMark impact={newsImpact(n.title)} />
+            {n.title}
+          </div>
           <div className="dim text-fs-10">
             {n.publisher}
             {n.publishedAt ? " · " + new Date(n.publishedAt).toLocaleString() : ""}
