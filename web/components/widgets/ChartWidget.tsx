@@ -835,6 +835,9 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
 
     const panes = chart.panes();
     panes.forEach((p, i) => p.setStretchFactor(i === 0 ? Math.max(2, panes.length - 1) * 1.5 : 1));
+    // The log, percent and inverted scales are the price chart's alone, as on TradingView: an
+    // indicator pane (Stochastic's 0–100, an oscillator around zero) keeps a regular scale.
+    for (let i = 1; i < panes.length; i++) chart.priceScale("right", i).applyOptions({ mode: PriceScaleMode.Normal, invertScale: false });
     // The panes (not the axes) take the cursor's pointer (globals.css: .chart-cursor); marked
     // now and again when they're measured, as a pane can be added later.
     const markPanes = () => {
@@ -915,6 +918,17 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       const g = geometry();
       return x >= g.rect.right - g.axisWidth && x <= g.rect.right && y >= g.paneTop && y <= g.paneBottom;
     };
+    /** An indicator pane whose price axis is under the pointer (its index and top), else null. */
+    const indicatorAxisAt = (x: number, y: number): { index: number; top: number } | null => {
+      const g = geometry();
+      if (x < g.rect.right - g.axisWidth || x > g.rect.right) return null;
+      const panes = chart.panes();
+      for (let i = 1; i < panes.length; i++) {
+        const r = panes[i].getHTMLElement()?.getBoundingClientRect();
+        if (r && y >= r.top && y <= r.bottom) return { index: i, top: r.top };
+      }
+      return null;
+    };
     navRef.current = {
       zoomBy,
       scrollBy,
@@ -960,6 +974,19 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       const dyPx = wheelPixels(e.deltaY, e.deltaMode, g.rect.height);
       e.preventDefault();
       e.stopPropagation();
+      // Over an indicator pane's price axis: that pane's scale alone stretches around the cursor
+      // (and stops fitting its values), as TradingView's; the price chart and time stay put.
+      const sub = indicatorAxisAt(e.clientX, e.clientY);
+      if (sub) {
+        const scale = chart.priceScale("right", sub.index);
+        const vr = scale.getVisibleRange();
+        const series = chart.panes()[sub.index]?.getSeries()[0];
+        const at = series?.coordinateToPrice(e.clientY - sub.top) ?? null;
+        if (!vr || at === null || dyPx === 0) return;
+        scale.setAutoScale(false);
+        scale.setVisibleRange(scalePrice(vr, zoomFactor(dyPx), at, false));
+        return;
+      }
       if (overPriceAxis(e.clientX, e.clientY)) {
         const vr = priceScale.getVisibleRange();
         const at = main.coordinateToPrice(e.clientY - g.paneTop);
