@@ -41,6 +41,27 @@ describe("tabs", () => {
     expect(st().windowTabs).toEqual([first, between, fresh]);
   });
 
+  it("gives a new tab (\"+\") the chart's drawings, indicators and style, then lets each go its own way", () => {
+    st().setActiveSymbol("BTC-USD");
+    st().ensurePage("chart");
+    const page = st().pages.find((p) => p.type === "chart")!.id;
+    st().setWidgetSetting(page, "drawings", { "BTC-USD": [{ id: "d1", tool: "trendline" }] });
+    st().setWidgetSetting(page, "indicators", [{ uid: "i1", id: "ema" }]);
+    st().setWidgetChart(page, { chartInterval: "4h" });
+    const first = st().activeTab;
+    st().duplicateTab();
+    const copy = st().pages.find((p) => p.id === page)!;
+    expect(copy.settings?.drawings).toEqual({ "BTC-USD": [{ id: "d1", tool: "trendline" }] });
+    expect(copy.settings?.indicators).toEqual([{ uid: "i1", id: "ema" }]);
+    expect(copy.chartInterval).toBe("4h");
+    // The copy changes symbol and drawings; the original keeps its own.
+    st().setActiveSymbol("ETH-USD");
+    st().setWidgetSetting(page, "drawings", {});
+    st().switchTab(first);
+    expect(st().activeSymbol).toBe("BTC-USD");
+    expect(st().pages.find((p) => p.id === page)!.settings?.drawings).toEqual({ "BTC-USD": [{ id: "d1", tool: "trendline" }] });
+  });
+
   it("keeps a copy's chart settings apart from the original's", () => {
     st().addWidget("chart", "AAPL");
     const id = st().widgets.at(-1)!.id;

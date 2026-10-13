@@ -151,9 +151,10 @@ function Tab({ tab, active, only }: { tab: TabData; active: boolean; only: boole
 
 /**
  * Tabs like a browser's: each has its own symbol, page, workspace and chart settings, and each
- * window has its own tabs. "+" at the end opens a new tab next to them (Alt+T; Alt+Shift+T copies
- * the current one instead); ⧉ moves a tab into a window of its own, so several can be watched
- * side by side.
+ * window has its own tabs. "+" at the end opens a copy of the tab in view next to it (Alt+T) —
+ * its chart style, indicators, drawings, pages and workspace, as "⧉ Window" does in a window of
+ * its own — which then goes its own way (another symbol, other settings); Alt+Shift+T opens an
+ * empty one. ⧉ on a tab moves it into a window of its own, so several can be watched side by side.
  */
 /** The tabs, inside the top bar (left of its "⧉ Window"); `+` adds one beside them. */
 export default function TabBar() {
@@ -161,7 +162,7 @@ export default function TabBar() {
   const windowTabs = useTerminal((s) => s.windowTabs);
   const tabs = windowTabs.map((id) => allTabs.find((t) => t.id === id)).filter((t): t is TabData => Boolean(t));
   const activeTab = useTerminal((s) => s.activeTab);
-  const newTab = useTerminal((s) => s.newTab);
+  const duplicateTab = useTerminal((s) => s.duplicateTab);
   const active = tabs.find((t) => t.id === activeTab);
 
   // The window's title names its tab, to tell windows apart on the taskbar. Next.js writes its
@@ -185,9 +186,9 @@ export default function TabBar() {
       ))}
       <button
         className="px-2.5 shrink-0 text-fs-15 leading-none dim hover:text-[var(--amber)] hover:bg-[var(--panel)]"
-        title="New tab (Alt+T) — Alt+Shift+T copies this one"
+        title="Tab baru: salinan tab ini — style chart, indikator, drawing, halaman (Alt+T). Alt+Shift+T: tab kosong"
         aria-label="New tab"
-        onClick={() => newTab()}
+        onClick={() => duplicateTab()}
       >
         +
       </button>
