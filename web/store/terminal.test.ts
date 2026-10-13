@@ -25,6 +25,22 @@ describe("tabs", () => {
     expect(st().tabs.map(tabLabel)).toEqual(["BTC-USD · Chart", "ETH-USD · News"]);
   });
 
+  it("opens a new tab of its own beside the current one: the chart, nothing carried over", () => {
+    st().setActiveSymbol("SOL-USD");
+    st().setView("news");
+    st().addWidget("heatmap");
+    const first = st().activeTab;
+    const fresh = st().newTab();
+    expect(st().activeTab).toBe(fresh);
+    expect(st().windowTabs).toEqual([first, fresh]);
+    expect([st().activeSymbol, st().view, st().pages]).toEqual(["SOL-USD", "chart", []]);
+    expect(st().widgets.some((w) => w.type === "heatmap")).toBe(false);
+    // A tab opened from the first goes right after it, before the ones already there.
+    st().switchTab(first);
+    const between = st().newTab();
+    expect(st().windowTabs).toEqual([first, between, fresh]);
+  });
+
   it("keeps a copy's chart settings apart from the original's", () => {
     st().addWidget("chart", "AAPL");
     const id = st().widgets.at(-1)!.id;

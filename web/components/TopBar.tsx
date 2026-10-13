@@ -64,11 +64,8 @@ export default function TopBar() {
       >
         {activeSymbol} — search symbol… <span className="float-right">⌘K</span>
       </button>
-      {/* More tabs show on the tab bar below; a window shows it only with two or more. */}
+      {/* New tabs open from the tab bar's "+" below. */}
       <span className="flex gap-1 shrink-0">
-        <button className="term-btn dim hover:text-[var(--amber)]" title="New tab: a copy of this one (Alt+T)" aria-label="Duplicate tab" onClick={() => duplicateTab()}>
-          + Tab
-        </button>
         <button className="term-btn dim hover:text-[var(--amber)]" title="New window: a copy of this tab (Alt+N)" aria-label="New window" onClick={() => openTabWindow(duplicateTab(true))}>
           ⧉ Window
         </button>

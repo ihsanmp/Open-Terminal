@@ -112,6 +112,9 @@ type TerminalState = {
   resetWorkspace: () => void;
   /** Opens a copy of the current tab next to it (switching to it unless `stay`); returns its id. */
   duplicateTab: (stay?: boolean) => string;
+  /** Opens a new tab of its own next to the current one, as a browser's "+" does: the chart of
+   *  the symbol in view, with the default workspace and nothing else carried over; returns its id. */
+  newTab: () => string;
   switchTab: (id: string) => void;
   closeTab: (id: string) => void;
   /** Takes a tab out of this window (to open it in another); the tab itself stays. */
@@ -177,6 +180,8 @@ const pickTab = (st: Pick<TabData, (typeof TAB_KEYS)[number]>) => ({
   widgets: st.widgets,
   layout: st.layout,
 });
+
+const newTabId = () => `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 
 const DEFAULT_TAB: TabData = { id: "t1", activeSymbol: "AAPL", view: "chart", pages: [], widgets: DEFAULT_WIDGETS, layout: DEFAULT_LAYOUT };
 
@@ -317,9 +322,21 @@ export const useTerminal = create<TerminalState>()(
             : [...st.favoriteIntervals, interval],
         })),
       resetWorkspace: () => set({ widgets: DEFAULT_WIDGETS, layout: DEFAULT_LAYOUT }),
+      newTab: () => {
+        const st = get();
+        const id = newTabId();
+        const fresh: TabData = { id, activeSymbol: st.activeSymbol, view: "chart", pages: [], widgets: structuredClone(DEFAULT_WIDGETS), layout: structuredClone(DEFAULT_LAYOUT) };
+        const tabs = [...st.tabs];
+        tabs.splice(tabs.findIndex((tab) => tab.id === st.activeTab) + 1, 0, fresh);
+        const windowTabs = [...st.windowTabs];
+        windowTabs.splice(windowTabs.indexOf(st.activeTab) + 1, 0, id);
+        set({ tabs, windowTabs, activeTab: id, ...pickTab(fresh) });
+        rememberWindowTab(id);
+        return id;
+      },
       duplicateTab: (stay = false) => {
         const st = get();
-        const id = `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+        const id = newTabId();
         const current = st.tabs.find((tab) => tab.id === st.activeTab);
         const copy: TabData = { ...structuredClone(pickTab(st)), id, title: current?.title ? `${current.title} (2)` : undefined };
         const at = st.tabs.findIndex((tab) => tab.id === st.activeTab);
