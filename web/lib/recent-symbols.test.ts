@@ -18,5 +18,6 @@ describe("the symbols opened last", () => {
 
   it("tells a symbol's kind from how it's written", () => {
     expect(["BTC-USD", "EURUSD=X", "^GSPC", "GC=F", "NVDA", "BBCA.JK"].map(kindOf)).toEqual(["crypto", "forex", "index", "futures", "stock", "stock"]);
+    expect(["OANDA:EURUSD", "BINANCE:BTCUSDT", "PANCAKESWAP:SBCUSDT_4C0D3D", "NASDAQ:AAPL"].map(kindOf)).toEqual(["forex", "crypto", "crypto", "stock"]);
   });
 });

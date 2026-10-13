@@ -29,7 +29,14 @@ function Tab({ tab, active, only }: { tab: TabData; active: boolean; only: boole
   const renameTab = useTerminal((s) => s.renameTab);
   const moveTab = useTerminal((s) => s.moveTab);
   const windowTabs = useTerminal((s) => s.windowTabs);
+  const setCommandOpen = useTerminal((s) => s.setCommandOpen);
   const [editing, setEditing] = useState(false);
+  // A click on the tab in view changes its symbol (the search opens), unless it's the first of a
+  // double-click, which renames the tab: the search waits a moment to tell them apart.
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (pending.current) clearTimeout(pending.current);
+  }, []);
   const input = useRef<HTMLInputElement>(null);
   const label = tabLabel(tab);
 
@@ -41,7 +48,7 @@ function Tab({ tab, active, only }: { tab: TabData; active: boolean; only: boole
     <div
       role="tab"
       aria-selected={active}
-      title={`${label} — double-click to rename, drag to reorder`}
+      title={active ? `${label} — click to change the symbol, double-click to rename, drag to reorder` : `${label} — double-click to rename, drag to reorder`}
       draggable={!editing}
       onDragStart={(e) => e.dataTransfer.setData("text/openterminal-tab", tab.id)}
       onDragOver={(e) => e.preventDefault()}
@@ -56,8 +63,20 @@ function Tab({ tab, active, only }: { tab: TabData; active: boolean; only: boole
           closeTab(tab.id);
         }
       }}
-      onClick={() => !active && switchTab(tab.id)}
-      onDoubleClick={() => setEditing(true)}
+      onClick={() => {
+        if (editing) return;
+        if (!active) return switchTab(tab.id);
+        if (pending.current) clearTimeout(pending.current);
+        pending.current = setTimeout(() => {
+          pending.current = null;
+          setCommandOpen(true);
+        }, 220);
+      }}
+      onDoubleClick={() => {
+        if (pending.current) clearTimeout(pending.current);
+        pending.current = null;
+        setEditing(true);
+      }}
       className={`group flex items-center gap-1 h-full pl-2.5 pr-1 max-w-[220px] min-w-[90px] border-r border-[var(--border)] cursor-pointer select-none shrink ${
         active ? "bg-[var(--bg)] text-[var(--text)] border-t-2 border-t-[var(--amber)]" : "dim hover:text-[var(--text)] hover:bg-[var(--panel)]"
       }`}
@@ -78,7 +97,14 @@ function Tab({ tab, active, only }: { tab: TabData; active: boolean; only: boole
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
-        <span className="truncate flex-1">{label}</span>
+        <span className="truncate flex-1">
+          {active && (
+            <span className="dim mr-1" aria-hidden>
+              ⌕
+            </span>
+          )}
+          {label}
+        </span>
       )}
       <button
         className="opacity-0 group-hover:opacity-100 px-1 hover:text-[var(--amber)]"
