@@ -26,15 +26,16 @@ type Recap = {
 };
 
 export default function RecapWidget() {
-  const [tab, setTab] = useWidgetSetting<"market" | "news">("tab", "market");
+  // The news recap first: the page is News Recap; the market's day is the other tab.
+  const [tab, setTab] = useWidgetSetting<"market" | "news">("tab", "news");
   return (
     <div>
       <div className="flex gap-1 p-1">
-        <button className={`term-btn ${tab === "market" ? "active" : ""}`} onClick={() => setTab("market")}>
-          MARKET
-        </button>
         <button className={`term-btn ${tab === "news" ? "active" : ""}`} onClick={() => setTab("news")} title="Recap berita per sektor, harian dan mingguan">
-          NEWS RECAP
+          NEWS
+        </button>
+        <button className={`term-btn ${tab === "market" ? "active" : ""}`} onClick={() => setTab("market")} title="Rangkuman pasar hari ini: indeks, sektor, top gainer/loser">
+          MARKET
         </button>
       </div>
       {tab === "news" ? <NewsRecap /> : <MarketRecap />}

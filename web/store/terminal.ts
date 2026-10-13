@@ -511,9 +511,12 @@ export function followOtherWindows(): () => void {
 }
 
 /** What a tab is called on the tab bar: its name, or its symbol and page. */
+/** Pages whose name isn't their id capitalized. */
+const PAGE_LABELS: Record<string, string> = { workspace: "Workspace", astrocal: "Astro Calendar", moneyflow: "Money Flow", recap: "News Recap" };
+
 export function tabLabel(tab: TabData): string {
   if (tab.title) return tab.title;
-  const page = tab.view === "workspace" ? "Workspace" : tab.view === "astrocal" ? "Astro Calendar" : tab.view.charAt(0).toUpperCase() + tab.view.slice(1);
+  const page = PAGE_LABELS[tab.view] ?? tab.view.charAt(0).toUpperCase() + tab.view.slice(1);
   return `${tab.activeSymbol} · ${page}`;
 }
 
