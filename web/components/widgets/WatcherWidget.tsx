@@ -54,7 +54,7 @@ function Reader({ post }: { post: Post }) {
     staleTime: 3_600_000,
   });
   return (
-    <article className="p-3 max-w-[820px]">
+    <article className="px-5 py-3 w-full">
       <div className="flex flex-wrap gap-1 mb-1">
         {post.categories.map((c) => (
           <span key={c} className="text-fs-10 amber uppercase tracking-wider">
@@ -73,7 +73,7 @@ function Reader({ post }: { post: Post }) {
       {error && <div className="down">Artikel gagal dimuat: {(error as Error).message}</div>}
       {isLoading && (
         <>
-          {post.image && <img src={post.image} alt="" className="w-full max-h-[320px] object-cover mb-3 opacity-60" />}
+          {post.image && <img src={post.image} alt="" className="w-full max-h-[60vh] object-cover mb-3 opacity-60" />}
           <p className="dim">{post.excerpt}</p>
         </>
       )}
