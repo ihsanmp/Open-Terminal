@@ -28,6 +28,7 @@ import * as newsArchive from "../news/archive.js";
 import * as tvquotes from "../live/tvquotes.js";
 import * as fedwatch from "../providers/fedwatch.js";
 import * as fedlive from "../providers/fedlive.js";
+import * as fedtranscript from "../providers/fedtranscript.js";
 import * as nowcast from "../providers/nowcast.js";
 import * as fundingrates from "../providers/fundingrates.js";
 import { asPairBars, asPairTrade, fxFutureOf } from "../providers/fxfutures.js";
@@ -598,6 +599,15 @@ marketRouter.get("/fed/live", async (req, res) => {
   } catch (err) {
     fail(req, res, err);
   }
+});
+
+// A Fed broadcast's live transcript (YouTube's captions) and how hawkish or dovish it sounds,
+// from line `since` on. Polling it keeps the broadcast being followed.
+marketRouter.get("/fed/transcript/:videoId", (req, res) => {
+  const videoId = req.params.videoId;
+  if (!/^[\w-]{11}$/.test(videoId)) return res.status(400).json({ error: "bad video id" });
+  const since = Number(req.query.since ?? 0);
+  res.json(fedtranscript.transcript(videoId, Number.isFinite(since) ? since : 0));
 });
 
 // ---- macro: FedWatch odds, funding rates, an indicator's history ----
