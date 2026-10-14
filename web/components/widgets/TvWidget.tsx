@@ -207,7 +207,8 @@ function FedPanel() {
   const fedPlaying = live.find((l) => l.videoId === picked) ?? (picked ? data?.upcoming.find((u) => u.videoId === picked) : undefined) ?? live[0];
   const next = data?.upcoming[0];
   const schedule = (data?.schedule ?? []).filter((e) => showStats || e.type !== "Stat");
-  const transcript = useFedTranscript(custom ?? fedPlaying?.videoId ?? null);
+  const [faces, setFaces] = useWidgetSetting("fedFaces", true);
+  const transcript = useFedTranscript(custom ?? fedPlaying?.videoId ?? null, faces);
   const playing: FedStream | undefined = custom
     ? { videoId: custom, title: transcript.reply?.title || "Siaran YouTube", channel: "link tempelan", status: transcript.reply?.status === "offline" ? "ended" : "live", start: null }
     : fedPlaying;
@@ -252,7 +253,7 @@ function FedPanel() {
               allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
               allowFullScreen
             />
-            <SentimentBar state={transcript} />
+            <SentimentBar state={transcript} faces={faces} setFaces={setFaces} />
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gap-2 p-4 text-center">

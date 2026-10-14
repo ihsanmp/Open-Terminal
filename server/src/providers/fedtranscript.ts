@@ -11,14 +11,12 @@
 // an hour back on first open, and kept on disk so it can be read again after the broadcast.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { Agent, request } from "node:https";
 import { join } from "node:path";
 import { dataDir } from "../db.js";
 import { findHits, indexOf, normalize, stanceOf, type Side, type Stance } from "./fedsentiment.js";
+import { liveTracks, segment, type LiveTracks } from "./youtubelive.js";
+import { MediaAnalyzer, type MediaReport } from "./fedmedia.js";
 
-const IOS = { clientName: "IOS", clientVersion: "20.10.4", deviceMake: "Apple", deviceModel: "iPhone16,2", osName: "iPhone", osVersion: "18.3.2.22D82", hl: "en" };
-const IOS_UA = `com.google.ios.youtube/${IOS.clientVersion} (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)`;
-const CAPTION_ITAG = 386;
 /** On first open, read back this many 5-second segments (an hour). */
 const BACKFILL = 720;
 const IDLE_MS = 90_000;
@@ -82,7 +80,19 @@ export function appendSegment(tr: Transcript, seg: CaptionSegment, seq: number):
 
 // ---------------------------------------------------------------- scoring
 
-export type ScoredLine = Line & { score: number; phrases: Array<{ phrase: string; side: Side }>; question: boolean };
+export type ScoredLine = Line & {
+  score: number;
+  phrases: Array<{ phrase: string; side: Side }>;
+  question: boolean;
+  /** The voice it was said in (layer 2), and whether that's the main speaker; null when not heard. */
+  speaker: number | null;
+  main: boolean | null;
+  /** Left out of the index: a question from the floor, or another voice than the main speaker's. */
+  excluded: boolean;
+};
+
+/** Who said what, from the voices (fedmedia.ts): left out of the index when it isn't the main speaker. */
+export type Voices = { speakerAt(at: number): { id: number; main: boolean } | null; diarized: boolean };
 export type Sentiment = {
   index: number;
   stance: Stance;
@@ -95,6 +105,8 @@ export type Sentiment = {
   top: Array<{ phrase: string; side: Side; count: number }>;
   /** Speaker turns read as questions (from the floor) and left out of the index. */
   questionTurns: number[];
+  /** Lines in another voice than the main speaker's, left out of the index. */
+  othersLeftOut: number;
 };
 
 /**
@@ -102,7 +114,7 @@ export type Sentiment = {
  * turns, a turn that ends on a question is someone asking (a reporter, a moderator), not the Fed
  * speaker, and counts for nothing; the turn still being spoken isn't judged yet.
  */
-export function scoreTranscript(lines: Line[]): { lines: ScoredLine[]; sentiment: Sentiment } {
+export function scoreTranscript(lines: Line[], voices?: Voices): { lines: ScoredLine[]; sentiment: Sentiment } {
   const turnText = new Map<number, string>();
   for (const l of lines) turnText.set(l.turn, `${turnText.get(l.turn) ?? ""} ${l.text}`);
   const lastTurn = lines.at(-1)?.turn ?? 0;
@@ -116,7 +128,12 @@ export function scoreTranscript(lines: Line[]): { lines: ScoredLine[]; sentiment
     offsets.push(text.length);
     text += `${normalize(l.text)} `;
   }
-  const scored: ScoredLine[] = lines.map((l) => ({ ...l, score: 0, phrases: [], question: questions.has(l.turn) }));
+  const scored: ScoredLine[] = lines.map((l) => {
+    const who = voices?.speakerAt(l.at) ?? null;
+    return { ...l, score: 0, phrases: [], question: questions.has(l.turn), speaker: who?.id ?? null, main: who?.main ?? null, excluded: false };
+  });
+  const other = (l: ScoredLine) => !!voices?.diarized && l.main === false;
+  for (const l of scored) l.excluded = l.question || other(l);
   const counts = new Map<string, { phrase: string; side: Side; count: number }>();
   const kept: Array<{ at: number; side: Side }> = [];
   for (const h of findHits(text)) {
@@ -128,7 +145,7 @@ export function scoreTranscript(lines: Line[]): { lines: ScoredLine[]; sentiment
       else hi = mid - 1;
     }
     const line = scored[lo];
-    if (!line || line.question) continue;
+    if (!line || line.question || other(line)) continue;
     line.score += h.side;
     line.phrases.push({ phrase: h.phrase, side: h.side });
     kept.push({ at: line.at, side: h.side });
@@ -161,6 +178,7 @@ export function scoreTranscript(lines: Line[]): { lines: ScoredLine[]; sentiment
       timeline: timeline.slice(-240),
       top: [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 12),
       questionTurns: [...questions],
+      othersLeftOut: scored.filter(other).length,
     },
   };
 }
@@ -185,70 +203,26 @@ type Session = {
   running: boolean;
   /** Segments YouTube kept refusing, skipped. */
   missed: number;
+  /** Layers 2 and 3: the voices and faces. */
+  media: MediaAnalyzer;
   /** When following last stopped (an ended or upcoming broadcast is asked about again a minute on). */
   stoppedAt: number;
   dirty: boolean;
   savedAt: number;
-  scored: { count: number; result: ReturnType<typeof scoreTranscript> } | null;
+  scored: { key: string; result: ReturnType<typeof scoreTranscript> } | null;
 };
 
 const sessions = new Map<string, Session>();
 
-/** Connections kept open between segments: a fresh TLS handshake for each 1 kB segment is most of its time. */
-const agent = new Agent({ keepAlive: true, maxSockets: 4 });
-
-type Reply = { status: number; headers: Record<string, string | string[] | undefined>; body: Buffer };
-
-/**
- * An HTTPS request over IPv4, following redirects. The media URLs YouTube hands out are bound to
- * the address that asked for them (its `ip=`), and on a network with both IPv6 and IPv4 a request
- * can leave by either: one family for both keeps them matching. googlevideo.com sometimes sends a
- * segment request on to another server with a 302.
- */
-function get4(url: string, opts: { method?: string; headers?: Record<string, string>; body?: string } = {}, hops = 0): Promise<Reply> {
-  return new Promise((resolve, reject) => {
-    const req = request(url, { method: opts.method ?? "GET", headers: { "User-Agent": IOS_UA, ...opts.headers }, family: 4, agent, timeout: 15_000 }, (res) => {
-      const location = res.headers.location;
-      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && location && hops < 3) {
-        res.resume();
-        resolve(get4(new URL(location, url).toString(), opts, hops + 1));
-        return;
-      }
-      const chunks: Buffer[] = [];
-      res.on("data", (c: Buffer) => chunks.push(c));
-      res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }));
-      res.on("error", reject);
-    });
-    req.on("timeout", () => req.destroy(new Error("timeout")));
-    req.on("error", reject);
-    if (opts.body) req.write(opts.body);
-    req.end();
-  });
-}
-
-async function captionTrack(videoId: string): Promise<{ title: string; live: boolean; url: string | null }> {
-  const res = await get4("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ videoId, context: { client: IOS }, contentCheckOk: true, racyCheckOk: true }),
-  });
-  if (res.status !== 200) throw new Error(`youtube player ${res.status}`);
-  const j = JSON.parse(res.body.toString("utf8")) as {
-    videoDetails?: { title?: string; isLive?: boolean };
-    playabilityStatus?: { status?: string; reason?: string };
-    streamingData?: { adaptiveFormats?: Array<{ itag?: number; url?: string }> };
-  };
-  if (j.playabilityStatus?.status && j.playabilityStatus.status !== "OK") throw new Error(j.playabilityStatus.reason ?? j.playabilityStatus.status);
-  const track = j.streamingData?.adaptiveFormats?.find((f) => f.itag === CAPTION_ITAG);
-  return { title: j.videoDetails?.title ?? "", live: !!j.videoDetails?.isLive, url: track?.url ?? null };
+async function captionTrack(videoId: string): Promise<{ title: string; live: boolean; url: string | null; tracks: LiveTracks }> {
+  const tracks = await liveTracks(videoId);
+  return { title: tracks.title, live: tracks.live, url: tracks.captions, tracks };
 }
 
 /** A caption segment (the newest when `seq` is left out), and YouTube's newest segment number. */
 async function fetchSegment(url: string, seq?: number): Promise<{ head: number | null; seg: CaptionSegment }> {
-  const res = await get4(seq === undefined ? url : `${url}&sq=${seq}`);
-  if (res.status !== 200) throw Object.assign(new Error(`caption segment ${res.status}`), { status: res.status });
-  const head = Number(res.headers["x-head-seqnum"]);
-  return { head: Number.isFinite(head) && head > 0 ? head : null, seg: parseCaptionSegment(res.body.toString("utf8")) };
+  const r = await segment(url, seq);
+  return { head: r.head, seg: parseCaptionSegment(r.body.toString("utf8")) };
 }
 
 const fileOf = (videoId: string) => join(dir, `${videoId}.json`);
@@ -296,6 +270,7 @@ async function readSegment(s: Session, q: number): Promise<CaptionSegment | null
         const track = await captionTrack(s.videoId);
         if (!track.url) throw err;
         s.url = track.url;
+        s.media.setTracks(track.tracks.audio, track.tracks.video);
       }
     }
   }
@@ -330,6 +305,7 @@ async function step(s: Session): Promise<void> {
       return;
     }
     s.url = track.url;
+    s.media.setTracks(track.tracks.audio, track.tracks.video);
   }
   const newest = await fetchSegment(s.url);
   const head = newest.head ?? newest.seg.seq;
@@ -393,13 +369,21 @@ export type TranscriptReply = {
   /** 5-second segments YouTube refused and that were skipped. */
   missed: number;
   sentiment: Sentiment;
+  /** Layers 2 and 3: the voices, how the main speaker sounds and looks. */
+  media: MediaReport;
+  /**
+   * The Fed Sentiment Index with all three layers: the words' index (90%) made firmer or softer by
+   * the delivery's confidence (10%): index × (0.9 + 0.1 × (2 × confidence − 1)). Null until layer 2
+   * has heard enough of the main speaker.
+   */
+  combined: { index: number; stance: Stance } | null;
 };
 
 /**
  * The transcript of a broadcast from line `since`, and its sentiment. Asking keeps it being
  * followed; the first ask starts it (from disk, then from YouTube).
  */
-export function transcript(videoId: string, since = 0): TranscriptReply {
+export function transcript(videoId: string, since = 0, faces = true): TranscriptReply {
   let s = sessions.get(videoId);
   if (!s) {
     const saved = load(videoId);
@@ -416,6 +400,7 @@ export function transcript(videoId: string, since = 0): TranscriptReply {
       lastAsked: Date.now(),
       running: false,
       missed: 0,
+      media: new MediaAnalyzer(videoId, faces),
       stoppedAt: 0,
       dirty: false,
       savedAt: Date.now(),
@@ -432,8 +417,19 @@ export function transcript(videoId: string, since = 0): TranscriptReply {
   s.lastAsked = Date.now();
   const resting = (s.status === "offline" || s.status === "no-captions") && Date.now() - s.stoppedAt < 60_000;
   if (!s.running && !resting) void follow(s);
-  if (s.scored?.count !== s.tr.lines.length) s.scored = { count: s.tr.lines.length, result: scoreTranscript(s.tr.lines) };
+  s.media.faces = faces;
+  // Layers 2 and 3 follow the newest segment only (an hour of audio and video read back would be
+  // heavy), on their own loop beside the captions'.
+  s.media.start(() => Date.now() - s!.lastAsked < IDLE_MS);
+  const key = `${s.tr.lines.length}:${s.media.version}`;
+  if (s.scored?.key !== key) s.scored = { key, result: scoreTranscript(s.tr.lines, { speakerAt: (at) => s!.media.speakerAt(at), diarized: s.media.diarized() }) };
   const { lines, sentiment } = s.scored.result;
+  const media = s.media.report(s.tr.lines.slice(-400));
+  const combined =
+    media.confidence === null ? null : (() => {
+      const index = Math.round(sentiment.index * (0.9 + 0.1 * (2 * media.confidence - 1)) * 1000) / 1000;
+      return { index, stance: stanceOf(index) };
+    })();
   const start = Math.max(0, Math.min(since, lines.length));
   return {
     videoId,
@@ -445,5 +441,7 @@ export function transcript(videoId: string, since = 0): TranscriptReply {
     catchUp: s.catchUp ? { done: s.catchUp.from - s.catchUp.start, of: s.catchUp.to - s.catchUp.start } : null,
     missed: s.missed,
     sentiment,
+    media,
+    combined,
   };
 }
