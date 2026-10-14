@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../../lib/api";
 import { useWidgetSetting } from "../../store/terminal";
 import NowcastPanel from "./NowcastPanel";
+import EnginePanel from "./EnginePanel";
 import { SentimentBar, TranscriptPanel, useFedTranscript } from "./FedTranscript";
 import { FedWatchCard, FedWatchStrip } from "./FedWatchCard";
 import { youtubeId } from "../../lib/youtube";
@@ -208,7 +209,8 @@ function FedPanel() {
   const next = data?.upcoming[0];
   const schedule = (data?.schedule ?? []).filter((e) => showStats || e.type !== "Stat");
   const [faces, setFaces] = useWidgetSetting("fedFaces", true);
-  const transcript = useFedTranscript(custom ?? fedPlaying?.videoId ?? null, faces);
+  // A pasted link's reading isn't the Fed's: it's kept out of the macro engine.
+  const transcript = useFedTranscript(custom ?? fedPlaying?.videoId ?? null, faces, !custom);
   const playing: FedStream | undefined = custom
     ? { videoId: custom, title: transcript.reply?.title || "Siaran YouTube", channel: "link tempelan", status: transcript.reply?.status === "offline" ? "ended" : "live", start: null }
     : fedPlaying;
@@ -303,7 +305,7 @@ function FedPanel() {
           <button className={side === "schedule" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("schedule")}>
             Jadwal The Fed
           </button>
-          <button className={side === "nowcast" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("nowcast")} title="Nowcast CPI/PCE dan GDP dibandingkan konsensus">
+          <button className={side === "nowcast" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("nowcast")} title="Engine kuantil P10/P50/P90 (CPI, Core CPI, PPI, NFP) dan nowcast Cleveland Fed / GDPNow dibandingkan konsensus">
             Nowcast
           </button>
           <button className={side === "transcript" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("transcript")} title="Transkrip live siaran dan Fed Sentiment Index">
@@ -326,6 +328,7 @@ function FedPanel() {
           <TranscriptPanel state={transcript} live={playing?.status === "live"} />
         ) : side === "nowcast" ? (
           <div className="overflow-auto flex-1 min-h-0">
+            <EnginePanel />
             <NowcastPanel />
           </div>
         ) : (

@@ -29,6 +29,7 @@ import * as tvquotes from "../live/tvquotes.js";
 import * as fedwatch from "../providers/fedwatch.js";
 import * as fedlive from "../providers/fedlive.js";
 import * as fedtranscript from "../providers/fedtranscript.js";
+import * as macroengine from "../providers/macroengine.js";
 import * as nowcast from "../providers/nowcast.js";
 import * as fundingrates from "../providers/fundingrates.js";
 import { asPairBars, asPairTrade, fxFutureOf } from "../providers/fxfutures.js";
@@ -609,7 +610,8 @@ marketRouter.get("/fed/transcript/:videoId", (req, res) => {
   if (!/^[\w-]{11}$/.test(videoId)) return res.status(400).json({ error: "bad video id" });
   const since = Number(req.query.since ?? 0);
   // faces=0 turns the video analysis (layer 3, the heaviest) off.
-  res.json(fedtranscript.transcript(videoId, Number.isFinite(since) ? since : 0, req.query.faces !== "0"));
+  // src=link: a broadcast pasted in by link, not the Fed's own (its reading isn't the engine's input).
+  res.json(fedtranscript.transcript(videoId, Number.isFinite(since) ? since : 0, req.query.faces !== "0", req.query.src !== "link"));
 });
 
 // ---- macro: FedWatch odds, funding rates, an indicator's history ----
@@ -630,6 +632,17 @@ marketRouter.get("/macro/funding/:kind", async (req, res) => {
   }
   try {
     res.json(await cached(`macro:funding:${kind}`, 60 * 60_000, () => fundingrates.fundingSeries(kind)));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// The macro engine (providers/macroengine.ts): our own P10/P50/P90 for the next CPI, core CPI, PPI
+// and payrolls, with the latest Fed Sentiment Index. Short cache: it keeps the band from 30 minutes
+// before each release, which needs a look inside that half hour.
+marketRouter.get("/macro/engine", async (req, res) => {
+  try {
+    res.json(await cached("macro:engine", 2 * 60_000, () => macroengine.engine(fedtranscript.latestFedSentiment())));
   } catch (err) {
     fail(req, res, err);
   }

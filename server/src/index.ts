@@ -9,6 +9,8 @@ import { allStats } from "./providers/registry.js";
 import { requireApiKey } from "./auth.js";
 import { rateLimit } from "./rateLimit.js";
 import { startArchive } from "./news/archive.js";
+import { startEngineWatch } from "./providers/macroengine.js";
+import { latestFedSentiment } from "./providers/fedtranscript.js";
 
 // One failed request must not take the API down for every open window: Express 4 doesn't catch
 // errors thrown by async handlers, and Node ends the process on an unhandled rejection by
@@ -72,6 +74,8 @@ const server = app.listen(PORT, HOST, () => {
 });
 // Headlines are kept for the news recap while the app runs.
 startArchive();
+// The macro engine keeps its band from 30 minutes before each release, to be scored after.
+startEngineWatch(latestFedSentiment);
 // Not being able to listen (the port is taken) is fatal, though other errors aren't.
 server.on("error", (err) => {
   console.error("[listen]", err.message);
