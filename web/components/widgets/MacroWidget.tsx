@@ -273,22 +273,39 @@ function ago(iso: string): string {
 
 function Flash() {
   const poll = usePoll(30_000);
+  const [source, setSource] = useWidgetSetting("macroFlashSource", "all");
+  // The economy, the markets and the central banks, from every source on the wire (FinancialJuice,
+  // InvestingLive, Investing.com, Bloomberg, CNBC, FT, Reuters, the BEA, the BIS …), newest first.
   const { data } = useQuery({
     queryKey: ["macro-flash"],
     queryFn: async () => {
-      const [eco, mkt] = await Promise.all([
-        apiGet<{ items: WireItem[] }>("/api/news/wire?category=ECONOMIC&limit=60"),
-        apiGet<{ items: WireItem[] }>("/api/news/wire?category=MARKETS&limit=60"),
-      ]);
-      return [...eco.items, ...mkt.items].sort((a, b) => b.publishedAt.localeCompare(a.publishedAt)).slice(0, 60);
+      const lists = await Promise.all(
+        ["ECONOMIC", "MARKETS", "REGULATORY"].map((c) => apiGet<{ items: WireItem[] }>(`/api/news/wire?category=${c}&limit=200`))
+      );
+      return lists.flatMap((l) => l.items).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
     },
     refetchInterval: poll,
   });
+  // The sources, busiest first: each a filter.
+  const counts = new Map<string, number>();
+  for (const n of data ?? []) counts.set(n.publisher, (counts.get(n.publisher) ?? 0) + 1);
+  const sources = [...counts].sort((a, b) => b[1] - a[1]);
+  const shown = (data ?? []).filter((n) => source === "all" || n.publisher === source).slice(0, 120);
   return (
     <Section className="flex flex-col">
-      <div className="px-3 py-2 text-[#ef5350] font-bold text-fs-12 border-b border-[var(--border)]">Flash</div>
+      <div className="px-3 py-2 border-b border-[var(--border)] flex items-center gap-2">
+        <span className="text-[#ef5350] font-bold text-fs-12">Flash</span>
+        <select className="ml-auto max-w-[60%] text-fs-11" value={source} onChange={(e) => setSource(e.target.value)} aria-label="Sumber berita">
+          <option value="all">Semua sumber ({data?.length ?? 0})</option>
+          {sources.map(([name, n]) => (
+            <option key={name} value={name}>
+              {name} ({n})
+            </option>
+          ))}
+        </select>
+      </div>
       <div className="overflow-auto flex-1 min-h-0 max-h-[60vh]">
-        {(data ?? []).map((n) => {
+        {shown.map((n) => {
           const impact = newsImpact(n.title);
           return (
             <a key={n.id} href={n.link} target="_blank" rel="noreferrer" className="block px-3 py-2 border-b border-[#1c1c1c] hover:bg-[#161616]">

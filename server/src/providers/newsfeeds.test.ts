@@ -31,6 +31,12 @@ describe("news wire parsing", () => {
     expect(parseFeed(xml, fj, NOW)[0]).toMatchObject({ title: "UKMTO: Container ship struck by projectile on October 13th", publisher: "FinancialJuice", category: "ECONOMIC" });
   });
 
+  it("reads a date with no time zone (Investing.com's) as UTC", () => {
+    const xml = `<rss><channel><item><title>Euro steadies</title><link>https://www.investing.com/news/a</link>
+      <pubDate>2026-09-24 10:24:59</pubDate></item></channel></rss>`;
+    expect(parseFeed(xml, feed, NOW)[0].publishedAt).toBe("2026-09-24T10:24:59.000Z");
+  });
+
   it("reads Atom entries and RSS 1.0 (RDF) items", () => {
     const atom = `<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Atom story</title>
       <link rel="alternate" href="https://example.com/atom"/><updated>2026-09-24T10:00:00Z</updated>
