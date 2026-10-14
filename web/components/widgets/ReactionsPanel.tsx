@@ -10,7 +10,7 @@ import { useWidgetSetting } from "../../store/terminal";
 // over the day, against the surprise's side, the engine's call before it, and the Fed Sentiment Index.
 
 type Bias = "hawkish" | "dovish" | "neutral";
-type Key = "xau" | "btc" | "es" | "dxy" | "us2y";
+type Key = string;
 type Moves = Partial<Record<Key, number | null>>;
 type Tally = Record<Key, { n: number; agree: number }>;
 type Reactions = {
@@ -18,13 +18,12 @@ type Reactions = {
   releases: Array<{ key: string; label: string; date: string; surprise: number; side: Bias; call: Bias | null; m30: Moves; day: Moves }>;
   summary: Array<{ key: string; label: string; surprise30: Tally; surpriseDay: Tally; call30: Tally; callDay: Tally; releases: number }>;
   broadcasts: Array<{ videoId: string; title: string; start: number; end: number; index: number; side: Bias; moves: Moves }>;
-  instruments: Array<{ key: Key; label: string; unit: string }>;
+  instruments: Array<{ key: Key; label: string; unit: string; hawk: number }>;
 };
 
 /** A hawkish side sends gold, bitcoin and stocks down, the dollar and the 2-year yield up. */
-const HAWK: Record<Key, 1 | -1> = { xau: -1, btc: -1, es: -1, dxy: 1, us2y: 1 };
-const agrees = (side: Bias | null, key: Key, v: number | null | undefined) =>
-  !side || side === "neutral" || v === null || v === undefined || v === 0 ? null : Math.sign(v) === (side === "hawkish" ? HAWK[key] : -HAWK[key]);
+const agrees = (side: Bias | null, hawk: number, v: number | null | undefined) =>
+  !side || side === "neutral" || v === null || v === undefined || v === 0 ? null : Math.sign(v) === (side === "hawkish" ? hawk : -hawk);
 
 const SIDE: Record<Bias, { label: string; cls: string }> = {
   hawkish: { label: "🦅", cls: "down" },
@@ -134,7 +133,7 @@ export default function ReactionsPanel() {
                   </td>
                   {inst.map((i) => (
                     <td key={i.key} className="tabular-nums">
-                      <Move v={b.moves[i.key]} unit={i.unit} ok={agrees(b.side, i.key, b.moves[i.key])} />
+                      <Move v={b.moves[i.key]} unit={i.unit} ok={agrees(b.side, i.hawk, b.moves[i.key])} />
                     </td>
                   ))}
                 </tr>
@@ -172,7 +171,7 @@ export default function ReactionsPanel() {
                   <td className={r.call ? SIDE[r.call].cls : "dim"}>{r.call ? SIDE[r.call].label : "-"}</td>
                   {inst.map((i) => (
                     <td key={i.key} className="tabular-nums">
-                      <Move v={moves[i.key]} unit={i.unit} ok={agrees(r.side, i.key, moves[i.key])} />
+                      <Move v={moves[i.key]} unit={i.unit} ok={agrees(r.side, i.hawk, moves[i.key])} />
                     </td>
                   ))}
                 </tr>
