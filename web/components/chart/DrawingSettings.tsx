@@ -510,6 +510,10 @@ export function DrawingSettings({ drawing, template, onApply, onSaveTemplate, on
               <span className={`${LABEL} dim`}>Down volume</span>
               <ColorPicker color={o.downColor ?? "rgba(251,192,45,0.45)"} onColor={(downColor) => setOpt({ downColor })} />
             </Row>
+            <Row>
+              <span className={`${LABEL} dim`}>Value area %</span>
+              <NumberField value={o.valueArea} step="1" onValue={(v) => setOpt({ valueArea: Math.min(100, Math.max(0, Math.round(v))) })} />
+            </Row>
             <Check label="Point of control" checked={o.pocLine} onChange={(v) => setOpt({ pocLine: v })} />
           </>
         );

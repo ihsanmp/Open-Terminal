@@ -26,6 +26,8 @@ export type LayerData = {
   formatTime?: (t: number) => string;
   /** The chart's bars, by index (for the tools that read them: regression, VWAP, volume profile). */
   bars?: ReadonlyArray<Bar>;
+  /** Finer bars with their times, for the volume profile on a weekly or monthly chart. */
+  detailBars?: ReadonlyArray<Bar & { time: number }>;
   /** The chart's kind of interval, for each drawing's Visibility. */
   intervalKind: TimeframeKind;
   /** The indicator whose pane this is (its uid); the price pane when unset. */
@@ -186,6 +188,7 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
       timeOf: (l) => timeOfLogical(times, interval, l),
       formatTime: this.data.formatTime,
       bars: this.data.bars,
+      detailBars: this.data.detailBars,
       anchors,
       width,
       height,

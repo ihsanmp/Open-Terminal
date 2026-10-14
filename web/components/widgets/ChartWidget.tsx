@@ -478,6 +478,23 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
 
   const bars = useMemo(() => (liveCandles && liveCandles.length > 0 ? candlesToBars(liveCandles) : null), [liveCandles]);
 
+  // A volume profile on a chart of more than a day a bar reads daily bars, as TradingView reads
+  // intrabar data: a few weekly or monthly bars, each spread over its whole range, smear it.
+  const needsDetail = INTERVAL_SECONDS[interval] > 86_400 && !rangeChart && drawings.some((d) => d.tool === "volumeProfile");
+  const { data: detail } = useQuery({
+    queryKey: ["history", symbol, "MAX", "1D"],
+    queryFn: () => apiGetWithStale<Candle[]>(`/api/history/${symbol}?range=MAX&interval=1D`),
+    enabled: needsDetail,
+    staleTime: 600_000,
+  });
+  const detailBars = needsDetail ? detail?.data : undefined;
+  const detailRef = useRef(detailBars);
+  detailRef.current = detailBars;
+  // Once they're in, to the price pane's layer (without rebuilding the chart).
+  useEffect(() => {
+    layersRef.current[0]?.set({ detailBars });
+  }, [detailBars]);
+
   // On-chain series (Bitcoin Thermocap) are fetched only while an indicator that reads them is shown.
   const needsBtcDaily = instances.some((i) => !i.hidden && INDICATOR_BY_ID.get(i.id)?.needs?.includes("btcDaily"));
   const btcDailyPoll = usePoll(600_000);
@@ -1053,6 +1070,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         formatTime: (t) => formatChartTime(t, intraday, timezone),
         // The tools that read the bars (regression, VWAP, volume profile) read the candles.
         bars: pane === undefined ? candles : undefined,
+        detailBars: pane === undefined ? detailRef.current : undefined,
         intervalKind: timeframeKindOf(intervalSeconds),
         pane,
       });

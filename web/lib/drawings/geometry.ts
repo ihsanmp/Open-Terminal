@@ -51,6 +51,11 @@ export type GeometryContext = {
   formatTime?: (time: number) => string;
   /** The chart's bars by index (regression trend, anchored VWAP, volume profile). */
   bars?: ReadonlyArray<Bar>;
+  /**
+   * Finer bars with their times (daily ones under a weekly or monthly chart): the volume profile
+   * reads these between its two times, as TradingView does, so a few wide bars don't smear it.
+   */
+  detailBars?: ReadonlyArray<Bar & { time: number }>;
 };
 
 export type Bar = { open: number; high: number; low: number; close: number; volume?: number };
@@ -199,7 +204,32 @@ export function optionsOf(tool: ToolId, o: DrawingOptions | undefined): Resolved
     upColor: o?.upColor,
     downColor: o?.downColor,
     pocLine: o?.pocLine ?? true,
+    valueArea: o?.valueArea ?? 70,
   };
+}
+
+/** A color's opacity (1 for hex or rgb). */
+export function alphaOf(color: string): number {
+  const m = /^rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\s*\)/.exec(color);
+  return m ? Number(m[1]) : 1;
+}
+
+/**
+ * The rows holding `share` of the volume around the busiest (the value area): from the point of
+ * control, each step takes in whichever side's next row traded more, as TradingView does.
+ */
+export function valueAreaRows(totals: number[], share: number): [number, number] {
+  const sum = totals.reduce((a, b) => a + b, 0);
+  let lo = totals.indexOf(Math.max(...totals));
+  let hi = lo;
+  let inside = totals[lo] ?? 0;
+  while (inside < sum * share && (lo > 0 || hi < totals.length - 1)) {
+    const below = lo > 0 ? totals[lo - 1] : -1;
+    const above = hi < totals.length - 1 ? totals[hi + 1] : -1;
+    if (above >= below) inside += totals[++hi];
+    else inside += totals[--lo];
+  }
+  return [lo, hi];
 }
 
 /** A color with an opacity (hex or rgb(a)). */
@@ -962,26 +992,34 @@ export function shapesFor(tool: ToolId, ctx: GeometryContext): Shape[] {
     case "volumeProfile": {
       // The volume traded in each row of price between the two times, each bar's spread evenly
       // over its range; up volume, then down, from the left edge; the busiest row's price.
-      const bars = ctx.bars ?? [];
+      const chartBars = ctx.bars ?? [];
       const i0 = Math.max(0, Math.ceil(Math.min(A.logical, B.logical)));
-      const i1 = Math.min(bars.length - 1, Math.floor(Math.max(A.logical, B.logical)));
+      const i1 = Math.min(chartBars.length - 1, Math.floor(Math.max(A.logical, B.logical)));
       const xl = Math.min(A.x, B.x);
       const xr = Math.max(A.x, B.x);
       seg(xl, -FAR, xl, FAR, withAlpha(color, 0.35), 1, [4, 4]);
       seg(xr, -FAR, xr, FAR, withAlpha(color, 0.35), 1, [4, 4]);
       if (i1 < i0) break;
+      // The finer bars inside the range when there are some (from the first bar's open to the
+      // last bar's close), else the chart's own.
+      let bars: ReadonlyArray<Bar> = chartBars.slice(i0, i1 + 1);
+      if (ctx.detailBars?.length && ctx.timeOf) {
+        const t0 = ctx.timeOf(i0);
+        const t1 = ctx.timeOf(i1 + 1);
+        const fine = ctx.detailBars.filter((b) => b.time >= t0 && b.time < t1);
+        if (fine.length > bars.length) bars = fine;
+      }
       let lo = Infinity;
       let hi = -Infinity;
-      for (let i = i0; i <= i1; i++) {
-        lo = Math.min(lo, bars[i].low);
-        hi = Math.max(hi, bars[i].high);
+      for (const b of bars) {
+        lo = Math.min(lo, b.low);
+        hi = Math.max(hi, b.high);
       }
       const rows = Math.max(1, Math.round(o.rows));
       const step = (hi - lo) / rows || 1;
       const up = new Array(rows).fill(0);
       const down = new Array(rows).fill(0);
-      for (let i = i0; i <= i1; i++) {
-        const b = bars[i];
+      for (const b of bars) {
         const v = b.volume ?? 0;
         const r0 = Math.min(rows - 1, Math.floor((b.low - lo) / step));
         const r1 = Math.min(rows - 1, Math.floor((b.high - lo) / step));
@@ -991,6 +1029,12 @@ export function shapesFor(tool: ToolId, ctx: GeometryContext): Shape[] {
       const totals = up.map((u, r) => u + down[r]);
       const max = Math.max(...totals) || 1;
       const width = (xr - xl) * 0.3;
+      // The value area (70% of the volume by default) in its colors; the rows outside it faded,
+      // so the candles behind show through.
+      const [va0, va1] = o.valueArea > 0 && o.valueArea < 100 ? valueAreaRows(totals, o.valueArea / 100) : [0, rows - 1];
+      const upC = o.upColor ?? "rgba(41,98,255,0.45)";
+      const downC = o.downColor ?? "rgba(251,192,45,0.45)";
+      const faded = (c: string) => withAlpha(c, alphaOf(c) * 0.35);
       for (let r = 0; r < rows; r++) {
         const yb = yOf(lo + step * r);
         const yt = yOf(lo + step * (r + 1));
@@ -998,8 +1042,9 @@ export function shapesFor(tool: ToolId, ctx: GeometryContext): Shape[] {
         const [t1, b1] = [Math.min(yt, yb) + 0.5, Math.max(yt, yb) - 0.5];
         const wu = (up[r] / max) * width;
         const wd = (down[r] / max) * width;
-        out.push({ t: "poly", pts: [[xl, t1], [xl + wu, t1], [xl + wu, b1], [xl, b1]], fill: o.upColor ?? "rgba(41,98,255,0.45)", closed: true });
-        out.push({ t: "poly", pts: [[xl + wu, t1], [xl + wu + wd, t1], [xl + wu + wd, b1], [xl + wu, b1]], fill: o.downColor ?? "rgba(251,192,45,0.45)", closed: true });
+        const inside = r >= va0 && r <= va1;
+        out.push({ t: "poly", pts: [[xl, t1], [xl + wu, t1], [xl + wu, b1], [xl, b1]], fill: inside ? upC : faded(upC), closed: true });
+        out.push({ t: "poly", pts: [[xl + wu, t1], [xl + wu + wd, t1], [xl + wu + wd, b1], [xl + wu, b1]], fill: inside ? downC : faded(downC), closed: true });
       }
       if (o.pocLine) {
         const poc = totals.indexOf(Math.max(...totals));
