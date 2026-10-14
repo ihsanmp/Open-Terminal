@@ -5,6 +5,7 @@ import Hls from "hls.js";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../../lib/api";
 import { useWidgetSetting } from "../../store/terminal";
+import NowcastPanel from "./NowcastPanel";
 
 // Live business-news channels as HLS straight from each broadcaster's own CDN (no YouTube, so
 // no embed or consent walls). Each was checked live — the playlist advancing and its segment
@@ -74,6 +75,7 @@ function FedPanel() {
   const now = useNow();
   const [picked, setPicked] = useState<string | null>(null);
   const [showStats, setShowStats] = useWidgetSetting("fedShowStats", false);
+  const [side, setSide] = useWidgetSetting<"schedule" | "nowcast">("fedSide", "schedule");
   const live = data?.live ?? [];
   const playing = live.find((l) => l.videoId === picked) ?? (picked ? data?.upcoming.find((u) => u.videoId === picked) : undefined) ?? live[0];
   const next = data?.upcoming[0];
@@ -127,13 +129,25 @@ function FedPanel() {
           </div>
         )}
       </div>
-      <div className="lg:w-[380px] shrink-0 border-l border-[var(--border)] flex flex-col min-h-0 max-h-[50vh] lg:max-h-none">
-        <div className="flex items-center gap-2 px-2 py-1.5 border-b border-[var(--border)] text-fs-11">
-          <span className="font-bold text-[var(--text)]">Jadwal The Fed</span>
-          <label className="ml-auto flex items-center gap-1 dim cursor-pointer">
-            <input type="checkbox" checked={showStats} onChange={(e) => setShowStats(e.target.checked)} /> rilis data
-          </label>
+      <div className="lg:w-[440px] shrink-0 border-l border-[var(--border)] flex flex-col min-h-0 max-h-[50vh] lg:max-h-none">
+        <div className="flex items-center gap-3 px-2 py-1.5 border-b border-[var(--border)] text-fs-11">
+          <button className={side === "schedule" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("schedule")}>
+            Jadwal The Fed
+          </button>
+          <button className={side === "nowcast" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("nowcast")} title="Nowcast CPI/PCE dan GDP dibandingkan konsensus">
+            Nowcast
+          </button>
+          {side === "schedule" && (
+            <label className="ml-auto flex items-center gap-1 dim cursor-pointer">
+              <input type="checkbox" checked={showStats} onChange={(e) => setShowStats(e.target.checked)} /> rilis data
+            </label>
+          )}
         </div>
+        {side === "nowcast" ? (
+          <div className="overflow-auto flex-1 min-h-0">
+            <NowcastPanel />
+          </div>
+        ) : (
         <div className="overflow-auto flex-1 min-h-0">
           {live.length > 1 && (
             <div className="p-2 border-b border-[var(--border)] flex flex-col gap-1">
@@ -178,6 +192,7 @@ function FedPanel() {
           })}
           {data && schedule.length === 0 && <div className="dim p-2">Tidak ada acara terjadwal.</div>}
         </div>
+        )}
       </div>
     </div>
   );

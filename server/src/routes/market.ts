@@ -28,6 +28,7 @@ import * as newsArchive from "../news/archive.js";
 import * as tvquotes from "../live/tvquotes.js";
 import * as fedwatch from "../providers/fedwatch.js";
 import * as fedlive from "../providers/fedlive.js";
+import * as nowcast from "../providers/nowcast.js";
 import * as fundingrates from "../providers/fundingrates.js";
 import { asPairBars, asPairTrade, fxFutureOf } from "../providers/fxfutures.js";
 import { buildRecap, quotedTexts, withTranslations } from "../news/recap.js";
@@ -617,6 +618,16 @@ marketRouter.get("/macro/funding/:kind", async (req, res) => {
   }
   try {
     res.json(await cached(`macro:funding:${kind}`, 60 * 60_000, () => fundingrates.fundingSeries(kind)));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// Nowcasts of the next inflation and GDP prints against the consensus (providers/nowcast.ts).
+marketRouter.get("/macro/nowcast", async (req, res) => {
+  try {
+    const events = await cached("macro:history:US", 6 * 3_600_000, () => econcalendar.countryHistory("US"));
+    res.json(await cached("macro:nowcast", 30 * 60_000, () => nowcast.nowcast(events)));
   } catch (err) {
     fail(req, res, err);
   }
