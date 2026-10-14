@@ -222,6 +222,8 @@ export type DrawingOptions = {
   upColor?: string;
   downColor?: string;
   pocLine?: boolean;
+  /** Its value area: the share of the volume, around the point of control, shown in full color (%). */
+  valueArea?: number;
 };
 
 export type TimeframeKind = "minutes" | "hours" | "days" | "weeks" | "months";

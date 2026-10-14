@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { distanceTo, shapesFor, type Anchor, type GeometryContext, type Shape } from "./geometry";
+import { distanceTo, shapesFor, valueAreaRows, type Anchor, type GeometryContext, type Shape } from "./geometry";
 import { TOOLS, logicalOfTime, timeOfLogical, type ToolId } from "./tools";
 
 // A 1000 × 600 pane: 10 px per bar from bar 0 at x = 0; price 100 at the bottom, 200 at the top.
@@ -253,6 +253,31 @@ describe("TradingView's other tools", () => {
     expect(vwap.pts[0][1]).toBeCloseTo(yOf((172 + 168 + 171) / 3), 6);
     const vp = draw("volumeProfile", [at(0, 0), at(59, 0)], { bars }, { rows: 10 });
     expect(vp.filter((g) => g.t === "poly" && g.fill)).toHaveLength(20); // up and down in each row
+  });
+
+  it("a volume profile's value area: 70% of the volume around the busiest row, taken side by side", () => {
+    // Rows' volume 1, 2, 10, 4, 3: from row 2 (10), the busier neighbour, row 3 (4), makes 14 of
+    // 20: 70%. A share more takes in row 4 (3), busier than row 1 (2).
+    expect(valueAreaRows([1, 2, 10, 4, 3], 0.7)).toEqual([2, 3]);
+    expect(valueAreaRows([1, 2, 10, 4, 3], 0.8)).toEqual([2, 4]);
+    expect(valueAreaRows([5, 5, 5, 5], 0.5)).toEqual([0, 1]);
+  });
+
+  it("a volume profile on a coarse chart reads the finer bars inside its range, fading rows outside the value area", () => {
+    // Two weekly bars spanning 100–140 each, while the daily bars inside traded almost all at 100–104.
+    const weekly = [0, 1].map(() => ({ open: 100, high: 140, low: 100, close: 139, volume: 1000 }));
+    const week = 604_800;
+    const daily = Array.from({ length: 10 }, (_, i) => ({ time: i * 86_400, open: 101, high: 103, low: 101, close: 102, volume: 200 }));
+    daily[9] = { time: 9 * 86_400, open: 130, high: 140, low: 130, close: 139, volume: 1 };
+    const fill = (shapes: Shape[]) => shapes.filter((g): g is Extract<Shape, { t: "poly" }> => g.t === "poly" && !!g.fill);
+    const ctx = { bars: weekly, detailBars: daily, timeOf: (l: number) => l * week };
+    const vp = fill(draw("volumeProfile", [at(0, 0), at(1, 0)], ctx, { rows: 4 }));
+    // Widest bar: the lowest row (100–110), from the daily bars; the weekly bars alone would spread evenly.
+    const widths = [0, 1, 2, 3].map((r) => vp[r * 2].pts[1][0] - vp[r * 2].pts[0][0]);
+    expect(widths[0]).toBeGreaterThan(widths[3] * 50);
+    // The bottom row is the value area (full color); the top one is faded.
+    expect(vp[0].fill).toBe("rgba(41,98,255,0.45)");
+    expect(vp[6].fill).toBe("rgba(41,98,255,0.1575)");
   });
 
   it("shapes: a circle around its center, an arc through its middle point, a closed polyline", () => {
