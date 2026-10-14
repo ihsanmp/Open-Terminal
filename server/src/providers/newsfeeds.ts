@@ -31,6 +31,16 @@ export const FEEDS: FeedDef[] = [
   // headlines) as it's said; read once a minute and never sooner, as its feed rate-limits
   // bursts (a minute apart it answers every time).
   { id: "financialjuice", name: "FinancialJuice", url: "https://www.financialjuice.com/feed.ashx?xy=rss", category: "ECONOMIC", region: "GLOBAL", tier: 1, minIntervalMs: 60_000 },
+  // Macro: releases, central bankers and the squawk desks (the Macro page's Flash).
+  { id: "investinglive", name: "InvestingLive", url: "https://investinglive.com/feed/news", category: "ECONOMIC", region: "GLOBAL", tier: 2 },
+  { id: "investing-economy", name: "Investing.com Economy", url: "https://www.investing.com/rss/news_14.rss", category: "ECONOMIC", region: "GLOBAL", tier: 2 },
+  { id: "investing-forex", name: "Investing.com Forex", url: "https://www.investing.com/rss/news_1.rss", category: "ECONOMIC", region: "GLOBAL", tier: 2 },
+  { id: "investing-indicators", name: "Investing.com Indicators", url: "https://www.investing.com/rss/news_95.rss", category: "ECONOMIC", region: "GLOBAL", tier: 2 },
+  { id: "bloomberg-economics", name: "Bloomberg Economics", url: "https://feeds.bloomberg.com/economics/news.rss", category: "ECONOMIC", region: "GLOBAL", tier: 2 },
+  { id: "cnbc-economy", name: "CNBC Economy", url: "https://www.cnbc.com/id/20910258/device/rss/rss.html", category: "ECONOMIC", region: "US", tier: 2 },
+  { id: "ft-economy", name: "FT Global Economy", url: "https://www.ft.com/global-economy?format=rss", category: "ECONOMIC", region: "GLOBAL", tier: 2 },
+  { id: "bea-releases", name: "BEA", url: "https://apps.bea.gov/rss/rss.xml", category: "ECONOMIC", region: "US", tier: 1 },
+  { id: "bis-speeches", name: "BIS Central Bankers' Speeches", url: "https://www.bis.org/doclist/cbspeeches.rss", category: "REGULATORY", region: "GLOBAL", tier: 1 },
   { id: "un-news", name: "UN News", url: "https://news.un.org/feed/subscribe/en/news/all/rss.xml", category: "GEOPOLITICS", region: "GLOBAL", tier: 1 },
 
   // Tier 2 — major financial and world media
@@ -183,7 +193,9 @@ export function parseFeed(xml: string, feed: FeedDef, now = Date.now()): WireIte
       publisher = stripHtml(r.source);
       if (title.endsWith(` - ${publisher}`)) title = title.slice(0, -(publisher.length + 3));
     }
-    const parsed = Date.parse(r.date);
+    // A date with no zone ("2026-10-14 10:24:59", Investing.com's) is UTC, not this machine's time.
+    const zoneless = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(r.date.trim());
+    const parsed = Date.parse(zoneless ? `${r.date.trim().replace(" ", "T")}Z` : r.date);
     // Dates more than an hour ahead are feed bugs (Finextra's), treated as missing.
     const dated = Number.isFinite(parsed) && parsed <= now + 3_600_000;
     const at = dated ? Math.min(parsed, now) : now;
