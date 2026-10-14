@@ -18,7 +18,7 @@ export const MENU: Array<{ type: WidgetType; label: string }> = [
   { type: "indices", label: "WORLD INDICES" },
   { type: "watchlist", label: "WATCHLIST" },
   { type: "watcher", label: "WATCHER GURU" },
-  { type: "calendar", label: "CALENDAR" },
+  { type: "calendar", label: "MACRO" },
   { type: "astrocal", label: "ASTRO CALENDAR" },
   { type: "insider", label: "INSIDER" },
   { type: "tv", label: "LIVE TV" },

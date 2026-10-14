@@ -13,6 +13,10 @@ export type EconEvent = {
   forecast: string | null;
   previous: string | null;
   actual: string | null;
+  /** TradingView's category (prce inflation, lbr labour, bsnss business, cnsm consumer, hse
+   *  housing, gdp, mny money/central bank …) and its country code (US), when from TradingView. */
+  category?: string;
+  region?: string;
 };
 
 type FFRaw = { title: string; country: string; date: string; impact: string; forecast: string; previous: string };
@@ -138,6 +142,7 @@ export type TVRaw = {
   previous: number | null;
   unit?: string;
   scale?: string;
+  category?: string;
 };
 
 /** A reading as TradingView writes it: "4.6%", "£2.464B", "54.92K". */
@@ -159,6 +164,8 @@ export function fromTradingView(e: TVRaw): EconEvent {
     forecast: formatReading(e.forecast, e.unit, e.scale),
     previous: formatReading(e.previous, e.unit, e.scale),
     actual: formatReading(e.actual, e.unit, e.scale),
+    ...(e.category ? { category: e.category } : {}),
+    region: e.country,
   };
 }
 
@@ -187,4 +194,39 @@ export async function rangeEvents(from: Date, to: Date): Promise<EconEvent[]> {
   const lo = from.getTime();
   const hi = to.getTime();
   return events.filter((e) => Date.parse(e.date) >= lo && Date.parse(e.date) < hi).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * A country's events over the last two years, read a few months at a time (TradingView answers at
+ * most 2,000 events a call): what an indicator's history is drawn from.
+ */
+export async function countryHistory(country: string, now = Date.now(), months = 24): Promise<EconEvent[]> {
+  const out: EconEvent[] = [];
+  const end = new Date(now + 86_400_000);
+  for (let back = 0; back < months; back += 3) {
+    const to = new Date(end);
+    to.setUTCMonth(to.getUTCMonth() - back);
+    const from = new Date(to);
+    from.setUTCMonth(from.getUTCMonth() - 3);
+    const url = `https://economic-calendar.tradingview.com/events?from=${from.toISOString()}&to=${to.toISOString()}&countries=${country}`;
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0", Origin: "https://www.tradingview.com" }, signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) throw new Error(`tradingview calendar ${res.status}`);
+    const body = (await res.json()) as { status?: string; result?: TVRaw[] };
+    if (body.status !== "ok" || !Array.isArray(body.result)) throw new Error("tradingview calendar: unexpected reply");
+    out.push(...body.result.map(fromTradingView));
+  }
+  const seen = new Set<string>();
+  return out
+    .filter((e) => {
+      const key = `${e.title}|${e.date}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** One indicator's releases (a title in a country), oldest first. */
+export function indicatorHistory(events: EconEvent[], title: string): EconEvent[] {
+  return events.filter((e) => e.title === title);
 }
