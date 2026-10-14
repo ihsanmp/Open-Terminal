@@ -22,6 +22,15 @@ describe("news wire parsing", () => {
     expect(item.category).toBe("MARKETS");
   });
 
+  it("reads FinancialJuice's squawk without its name before every headline", () => {
+    const fj = FEEDS.find((f) => f.id === "financialjuice")!;
+    expect(fj).toMatchObject({ category: "ECONOMIC", minIntervalMs: 180_000 });
+    const xml = `<rss version="2.0"><channel><item><title>FinancialJuice: UKMTO: Container ship struck by projectile on October 13th </title>
+      <link>https://www.financialjuice.com/News/9804963/UKMTO.aspx?xy=rss</link><description /><author>FinancialJuice</author>
+      <pubDate>Thu, 24 Sep 2026 11:21:40 GMT</pubDate></item></channel></rss>`;
+    expect(parseFeed(xml, fj, NOW)[0]).toMatchObject({ title: "UKMTO: Container ship struck by projectile on October 13th", publisher: "FinancialJuice", category: "ECONOMIC" });
+  });
+
   it("reads Atom entries and RSS 1.0 (RDF) items", () => {
     const atom = `<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Atom story</title>
       <link rel="alternate" href="https://example.com/atom"/><updated>2026-09-24T10:00:00Z</updated>

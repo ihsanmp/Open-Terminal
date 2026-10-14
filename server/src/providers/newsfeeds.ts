@@ -13,7 +13,8 @@ import { XMLParser } from "fast-xml-parser";
 // headline within a minute or two of posting.
 
 export type NewsCategory = "MARKETS" | "ECONOMIC" | "REGULATORY" | "GEOPOLITICS" | "CRYPTO" | "ENERGY" | "TECH";
-export type FeedDef = { id: string; name: string; url: string; category: NewsCategory; region: string; tier: number };
+/** `minIntervalMs`: a feed that rate-limits (FinancialJuice behind Cloudflare) is read no more often. */
+export type FeedDef = { id: string; name: string; url: string; category: NewsCategory; region: string; tier: number; minIntervalMs?: number };
 
 const gnews = (query: string) =>
   `https://news.google.com/rss/search?q=${encodeURIComponent(`when:1d ${query}`)}&hl=en-US&gl=US&ceid=US:en`;
@@ -26,6 +27,9 @@ export const FEEDS: FeedDef[] = [
   { id: "fed-press", name: "Federal Reserve", url: "https://www.federalreserve.gov/feeds/press_all.xml", category: "REGULATORY", region: "US", tier: 1 },
   { id: "ecb-press", name: "ECB Press", url: "https://www.ecb.europa.eu/rss/press.html", category: "REGULATORY", region: "EU", tier: 1 },
   { id: "boe-news", name: "Bank of England", url: "https://www.bankofengland.co.uk/rss/news", category: "REGULATORY", region: "UK", tier: 1 },
+  // FinancialJuice: the macro squawk (data releases, central bankers' remarks, breaking market
+  // headlines) as it's said; read every few minutes, as its feed rate-limits.
+  { id: "financialjuice", name: "FinancialJuice", url: "https://www.financialjuice.com/feed.ashx?xy=rss", category: "ECONOMIC", region: "GLOBAL", tier: 1, minIntervalMs: 3 * 60_000 },
   { id: "un-news", name: "UN News", url: "https://news.un.org/feed/subscribe/en/news/all/rss.xml", category: "GEOPOLITICS", region: "GLOBAL", tier: 1 },
 
   // Tier 2 — major financial and world media
@@ -171,6 +175,8 @@ export function parseFeed(xml: string, feed: FeedDef, now = Date.now()): WireIte
     const link = r.link.trim();
     if (!title || !/^https?:\/\//.test(link)) continue;
     let publisher = feed.name;
+    // A feed that names itself in every title ("FinancialJuice: …"): the publisher shows it anyway.
+    if (title.startsWith(`${feed.name}: `)) title = title.slice(feed.name.length + 2);
     if (r.source) {
       // Google News titles end with " - Publisher".
       publisher = stripHtml(r.source);
@@ -214,7 +220,8 @@ let timer: NodeJS.Timeout | null = null;
 async function fetchFeed(feed: FeedDef): Promise<void> {
   const prev = state.get(feed.id);
   // Back off feeds that keep failing: skip 2^n polls, up to ~16 minutes.
-  if (prev && prev.failures > 0 && Date.now() - prev.fetchedAt < POLL_MS * Math.min(16, 2 ** prev.failures)) return;
+  if (prev && prev.failures > 0 && Date.now() - prev.fetchedAt < Math.max(POLL_MS, feed.minIntervalMs ?? 0) * Math.min(16, 2 ** prev.failures)) return;
+  if (prev && feed.minIntervalMs && Date.now() - prev.fetchedAt < feed.minIntervalMs) return;
   const headers: Record<string, string> = { "User-Agent": UA, Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*" };
   if (prev?.etag) headers["If-None-Match"] = prev.etag;
   if (prev?.lastModified) headers["If-Modified-Since"] = prev.lastModified;
