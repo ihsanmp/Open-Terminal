@@ -52,6 +52,14 @@ describe("hawkish or dovish", () => {
       ["inflation will slow", -1],
     ]);
     expect(sides("the Fed should not have been easing policy")).toEqual([["easing", 1]]);
+    expect(sides("we expect the tariff effects to be transitory; a one-time price increase")).toEqual([
+      ["transitory", -1],
+      ["one-time price increase", -1],
+    ]);
+    expect(sides("Inflation is persistent, it is not transitory")).toEqual([
+      ["inflation is persistent", 1],
+      ["transitory", 1],
+    ]);
   });
 
   it("damps the index toward zero when little has been said", () => {

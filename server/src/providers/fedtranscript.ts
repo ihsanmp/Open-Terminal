@@ -11,6 +11,7 @@
 // an hour back on first open, and kept on disk so it can be read again after the broadcast.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { Agent, request } from "node:https";
 import { join } from "node:path";
 import { dataDir } from "../db.js";
 import { findHits, indexOf, normalize, stanceOf, type Side, type Stance } from "./fedsentiment.js";
@@ -182,6 +183,8 @@ type Session = {
   catchUp: { start: number; from: number; to: number } | null;
   lastAsked: number;
   running: boolean;
+  /** Segments YouTube kept refusing, skipped. */
+  missed: number;
   /** When following last stopped (an ended or upcoming broadcast is asked about again a minute on). */
   stoppedAt: number;
   dirty: boolean;
@@ -191,15 +194,46 @@ type Session = {
 
 const sessions = new Map<string, Session>();
 
-async function captionTrack(videoId: string): Promise<{ title: string; live: boolean; url: string | null }> {
-  const res = await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
-    method: "POST",
-    headers: { "User-Agent": IOS_UA, "Content-Type": "application/json" },
-    body: JSON.stringify({ videoId, context: { client: IOS }, contentCheckOk: true, racyCheckOk: true }),
-    signal: AbortSignal.timeout(15_000),
+/** Connections kept open between segments: a fresh TLS handshake for each 1 kB segment is most of its time. */
+const agent = new Agent({ keepAlive: true, maxSockets: 4 });
+
+type Reply = { status: number; headers: Record<string, string | string[] | undefined>; body: Buffer };
+
+/**
+ * An HTTPS request over IPv4, following redirects. The media URLs YouTube hands out are bound to
+ * the address that asked for them (its `ip=`), and on a network with both IPv6 and IPv4 a request
+ * can leave by either: one family for both keeps them matching. googlevideo.com sometimes sends a
+ * segment request on to another server with a 302.
+ */
+function get4(url: string, opts: { method?: string; headers?: Record<string, string>; body?: string } = {}, hops = 0): Promise<Reply> {
+  return new Promise((resolve, reject) => {
+    const req = request(url, { method: opts.method ?? "GET", headers: { "User-Agent": IOS_UA, ...opts.headers }, family: 4, agent, timeout: 15_000 }, (res) => {
+      const location = res.headers.location;
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && location && hops < 3) {
+        res.resume();
+        resolve(get4(new URL(location, url).toString(), opts, hops + 1));
+        return;
+      }
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }));
+      res.on("error", reject);
+    });
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", reject);
+    if (opts.body) req.write(opts.body);
+    req.end();
   });
-  if (!res.ok) throw new Error(`youtube player ${res.status}`);
-  const j = (await res.json()) as {
+}
+
+async function captionTrack(videoId: string): Promise<{ title: string; live: boolean; url: string | null }> {
+  const res = await get4("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ videoId, context: { client: IOS }, contentCheckOk: true, racyCheckOk: true }),
+  });
+  if (res.status !== 200) throw new Error(`youtube player ${res.status}`);
+  const j = JSON.parse(res.body.toString("utf8")) as {
     videoDetails?: { title?: string; isLive?: boolean };
     playabilityStatus?: { status?: string; reason?: string };
     streamingData?: { adaptiveFormats?: Array<{ itag?: number; url?: string }> };
@@ -211,10 +245,10 @@ async function captionTrack(videoId: string): Promise<{ title: string; live: boo
 
 /** A caption segment (the newest when `seq` is left out), and YouTube's newest segment number. */
 async function fetchSegment(url: string, seq?: number): Promise<{ head: number | null; seg: CaptionSegment }> {
-  const res = await fetch(seq === undefined ? url : `${url}&sq=${seq}`, { headers: { "User-Agent": IOS_UA }, signal: AbortSignal.timeout(15_000) });
-  if (!res.ok) throw Object.assign(new Error(`caption segment ${res.status}`), { status: res.status });
-  const head = Number(res.headers.get("x-head-seqnum"));
-  return { head: Number.isFinite(head) && head > 0 ? head : null, seg: parseCaptionSegment(Buffer.from(await res.arrayBuffer()).toString("utf8")) };
+  const res = await get4(seq === undefined ? url : `${url}&sq=${seq}`);
+  if (res.status !== 200) throw Object.assign(new Error(`caption segment ${res.status}`), { status: res.status });
+  const head = Number(res.headers["x-head-seqnum"]);
+  return { head: Number.isFinite(head) && head > 0 ? head : null, seg: parseCaptionSegment(res.body.toString("utf8")) };
 }
 
 const fileOf = (videoId: string) => join(dir, `${videoId}.json`);
@@ -244,13 +278,39 @@ function save(s: Session): void {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * One segment, tried three times: a refusal (403, now and then for a run of segments) is asked again
+ * with a fresh URL from the player. A segment still refused is skipped (5 seconds of captions)
+ * rather than holding the transcript up.
+ */
+async function readSegment(s: Session, q: number): Promise<CaptionSegment | null> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return (await fetchSegment(s.url!, q)).seg;
+    } catch (err) {
+      if (attempt >= 2) {
+        s.missed++;
+        return null;
+      }
+      await sleep(500 * (attempt + 1));
+      if ((err as { status?: number }).status) {
+        const track = await captionTrack(s.videoId);
+        if (!track.url) throw err;
+        s.url = track.url;
+      }
+    }
+  }
+}
+
+/**
  * Reads segments `from`..`to`, one after another: YouTube answers a burst of parallel requests with
  * 401s from about the hundredth on (and then refuses the URL), while one at a time reads an hour
- * back in ~20 s. A failure ends the round; the next resumes at the segment that failed.
+ * back in ~20 s.
  */
 async function readRange(s: Session, from: number, to: number): Promise<void> {
   for (let q = from; q <= to; q++) {
-    appendSegment(s.tr, (await fetchSegment(s.url!, q)).seg, q);
+    const seg = await readSegment(s, q);
+    if (seg) appendSegment(s.tr, seg, q);
+    else s.tr.lastSeq = q;
     s.dirty = true;
     if (s.catchUp) s.catchUp.from = q + 1;
     if (Date.now() - s.lastAsked > IDLE_MS) return;
@@ -330,6 +390,8 @@ export type TranscriptReply = {
   lines: ScoredLine[];
   total: number;
   catchUp: { done: number; of: number } | null;
+  /** 5-second segments YouTube refused and that were skipped. */
+  missed: number;
   sentiment: Sentiment;
 };
 
@@ -353,6 +415,7 @@ export function transcript(videoId: string, since = 0): TranscriptReply {
       catchUp: null,
       lastAsked: Date.now(),
       running: false,
+      missed: 0,
       stoppedAt: 0,
       dirty: false,
       savedAt: Date.now(),
@@ -380,6 +443,7 @@ export function transcript(videoId: string, since = 0): TranscriptReply {
     lines: lines.slice(start),
     total: lines.length,
     catchUp: s.catchUp ? { done: s.catchUp.from - s.catchUp.start, of: s.catchUp.to - s.catchUp.start } : null,
+    missed: s.missed,
     sentiment,
   };
 }

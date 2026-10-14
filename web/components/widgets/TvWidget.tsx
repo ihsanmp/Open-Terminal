@@ -7,6 +7,7 @@ import { apiGet } from "../../lib/api";
 import { useWidgetSetting } from "../../store/terminal";
 import NowcastPanel from "./NowcastPanel";
 import { SentimentBar, TranscriptPanel, useFedTranscript } from "./FedTranscript";
+import { FedWatchCard, FedWatchStrip } from "./FedWatchCard";
 import { youtubeId } from "../../lib/youtube";
 
 // Live business-news channels as HLS straight from each broadcaster's own CDN (no YouTube, so
@@ -199,7 +200,7 @@ function FedPanel() {
   const now = useNow();
   const [picked, setPicked] = useState<string | null>(null);
   const [showStats, setShowStats] = useWidgetSetting("fedShowStats", false);
-  const [side, setSide] = useWidgetSetting<"schedule" | "nowcast" | "transcript">("fedSide", "schedule");
+  const [side, setSide] = useWidgetSetting<"schedule" | "nowcast" | "transcript" | "fedwatch">("fedSide", "schedule");
   const live = data?.live ?? [];
   // A pasted link plays instead of the Fed until cleared.
   const [custom, setCustom] = useWidgetSetting<string | null>("fedCustomVideo", null);
@@ -294,6 +295,7 @@ function FedPanel() {
             </div>
           </div>
         )}
+        <FedWatchStrip />
       </div>
       <div className="lg:w-[440px] shrink-0 border-l border-[var(--border)] flex flex-col min-h-0 max-h-[50vh] lg:max-h-none">
         <div className="flex items-center gap-3 px-2 py-1.5 border-b border-[var(--border)] text-fs-11">
@@ -306,13 +308,20 @@ function FedPanel() {
           <button className={side === "transcript" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("transcript")} title="Transkrip live siaran dan Fed Sentiment Index">
             Transkrip{playing?.status === "live" && <span className="down"> ●</span>}
           </button>
+          <button className={side === "fedwatch" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("fedwatch")} title="CME FedWatch: peluang suku bunga di rapat FOMC berikutnya">
+            FedWatch
+          </button>
           {side === "schedule" && (
             <label className="ml-auto flex items-center gap-1 dim cursor-pointer">
               <input type="checkbox" checked={showStats} onChange={(e) => setShowStats(e.target.checked)} /> rilis data
             </label>
           )}
         </div>
-        {side === "transcript" ? (
+        {side === "fedwatch" ? (
+          <div className="overflow-auto flex-1 min-h-0">
+            <FedWatchCard />
+          </div>
+        ) : side === "transcript" ? (
           <TranscriptPanel state={transcript} live={playing?.status === "live"} />
         ) : side === "nowcast" ? (
           <div className="overflow-auto flex-1 min-h-0">
