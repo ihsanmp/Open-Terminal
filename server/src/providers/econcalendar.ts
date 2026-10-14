@@ -17,6 +17,8 @@ export type EconEvent = {
    *  housing, gdp, mny money/central bank …) and its country code (US), when from TradingView. */
   category?: string;
   region?: string;
+  /** The period a release measures, its last day ("2026-09-30" for September's CPI). */
+  referenceDate?: string;
 };
 
 type FFRaw = { title: string; country: string; date: string; impact: string; forecast: string; previous: string };
@@ -143,6 +145,7 @@ export type TVRaw = {
   unit?: string;
   scale?: string;
   category?: string;
+  referenceDate?: string | null;
 };
 
 /** A reading as TradingView writes it: "4.6%", "£2.464B", "54.92K". */
@@ -166,6 +169,7 @@ export function fromTradingView(e: TVRaw): EconEvent {
     actual: formatReading(e.actual, e.unit, e.scale),
     ...(e.category ? { category: e.category } : {}),
     region: e.country,
+    ...(e.referenceDate ? { referenceDate: e.referenceDate.slice(0, 10) } : {}),
   };
 }
 
@@ -202,7 +206,8 @@ export async function rangeEvents(from: Date, to: Date): Promise<EconEvent[]> {
  */
 export async function countryHistory(country: string, now = Date.now(), months = 24): Promise<EconEvent[]> {
   const out: EconEvent[] = [];
-  const end = new Date(now + 86_400_000);
+  // Six weeks ahead too: the releases due, with their consensus (the nowcasts compare with it).
+  const end = new Date(now + 45 * 86_400_000);
   for (let back = 0; back < months; back += 3) {
     const to = new Date(end);
     to.setUTCMonth(to.getUTCMonth() - back);
