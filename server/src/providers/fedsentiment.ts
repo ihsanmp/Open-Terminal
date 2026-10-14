@@ -59,6 +59,9 @@ const LEXICON: Array<[string, Side]> = [
   ["(?:job|payroll) (?:losses|growth has slowed|gains have slowed)", -1],
   ["layoffs?", -1],
   ["disinflation\\w*", -1],
+  // "Transitory" (inflation that will pass) against "persistent" (above); "not transitory" turns hawkish.
+  ["(?:transitory|temporary|one-off|one-time) (?:inflation|price increases?|effects?|shocks?|bump)", -1],
+  ["transitory", -1],
   ["inflation (?:has |is |continues to )?(?:come|coming|moved|moving|comes|move|continued to move) (?:down|lower)", -1],
   ["inflation (?:is |has been )?(?:easing|cooling|moderating|declining|falling|slowing|eased|cooled|moderated|declined|fell|slowed)", -1],
   ["inflation (?:will|would|should|to|could) (?:continue to )?(?:slow|ease|cool|moderate|decline|fall|come down|move down)", -1],
