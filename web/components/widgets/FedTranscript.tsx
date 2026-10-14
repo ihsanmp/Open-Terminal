@@ -74,10 +74,12 @@ type Reply = {
 export type FedTranscriptState = { videoId: string | null; lines: TranscriptLine[]; reply: Reply | null; error: string | null };
 
 /** Polls a broadcast's transcript every 5 s, adding the new lines to what it has. */
-export function useFedTranscript(videoId: string | null, faces = true): FedTranscriptState {
+export function useFedTranscript(videoId: string | null, faces = true, fed = true): FedTranscriptState {
   const [state, setState] = useState<FedTranscriptState>({ videoId: null, lines: [], reply: null, error: null });
   const facesRef = useRef(faces);
   facesRef.current = faces;
+  const fedRef = useRef(fed);
+  fedRef.current = fed;
   useEffect(() => {
     setState({ videoId, lines: [], reply: null, error: null });
     if (!videoId) return;
@@ -90,7 +92,7 @@ export function useFedTranscript(videoId: string | null, faces = true): FedTrans
         // The last 40 lines again too: their voice is known only once their audio has been heard,
         // a moment after the captions.
         const from = Math.max(0, since - 40);
-        const r = await apiGet<Reply>(`/api/fed/transcript/${videoId}?since=${from}${facesRef.current ? "" : "&faces=0"}`);
+        const r = await apiGet<Reply>(`/api/fed/transcript/${videoId}?since=${from}${facesRef.current ? "" : "&faces=0"}${fedRef.current ? "" : "&src=link"}`);
         if (stopped) return;
         if (r.total < since) {
           // The server started over (restarted): read it all again.

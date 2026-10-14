@@ -383,7 +383,37 @@ export type TranscriptReply = {
  * The transcript of a broadcast from line `since`, and its sentiment. Asking keeps it being
  * followed; the first ask starts it (from disk, then from YouTube).
  */
-export function transcript(videoId: string, since = 0, faces = true): TranscriptReply {
+// ---------------------------------------------------------------- the latest reading, for the engine
+
+const sentimentFile = join(dataDir, "fed-sentiment.json");
+let sentimentSavedAt = 0;
+
+export type FedReading = { index: number; at: string; title: string; videoId: string };
+
+/** The Fed Sentiment Index last heard on a Fed broadcast (the macro engine's input), or null. */
+export function latestFedSentiment(): FedReading | null {
+  try {
+    return existsSync(sentimentFile) ? (JSON.parse(readFileSync(sentimentFile, "utf8")) as FedReading) : null;
+  } catch {
+    return null;
+  }
+}
+
+function keepReading(r: FedReading): void {
+  if (Date.now() - sentimentSavedAt < 60_000) return;
+  sentimentSavedAt = Date.now();
+  try {
+    writeFileSync(sentimentFile, JSON.stringify(r));
+  } catch {
+    // Not kept this time; the next poll tries again.
+  }
+}
+
+/**
+ * `fed` is false for a link pasted in the panel (a news channel's talk isn't the Fed's): its
+ * reading isn't kept for the engine.
+ */
+export function transcript(videoId: string, since = 0, faces = true, fed = true): TranscriptReply {
   let s = sessions.get(videoId);
   if (!s) {
     const saved = load(videoId);
@@ -430,6 +460,8 @@ export function transcript(videoId: string, since = 0, faces = true): Transcript
       const index = Math.round(sentiment.index * (0.9 + 0.1 * (2 * media.confidence - 1)) * 1000) / 1000;
       return { index, stance: stanceOf(index) };
     })();
+  // A reading worth keeping: three or more policy phrases heard from the Fed speaker.
+  if (fed && sentiment.hawkish + sentiment.dovish >= 3) keepReading({ index: combined?.index ?? sentiment.index, at: new Date().toISOString(), title: s.title, videoId });
   const start = Math.max(0, Math.min(since, lines.length));
   return {
     videoId,

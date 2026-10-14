@@ -48,7 +48,7 @@ export function parseClevelandCharts(charts: Chart[]): MonthNowcast[] {
   return out;
 }
 
-async function clevelandFile(kind: "month" | "year"): Promise<MonthNowcast[]> {
+export async function clevelandFile(kind: "month" | "year"): Promise<MonthNowcast[]> {
   const res = await fetch(`${CLEVELAND}/nowcast_${kind}.json`, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(60_000) });
   if (!res.ok) throw new Error(`cleveland fed nowcast ${res.status}`);
   return parseClevelandCharts(JSON.parse((await res.text()).replace(/^﻿/, "")) as Chart[]);
