@@ -75,6 +75,8 @@ function LinkBox({ active, onPick, onClear }: { active: boolean; onPick: (id: st
   const [text, setText] = useState("");
   const [bad, setBad] = useState(false);
   const submit = () => {
+    // Nothing pasted yet: nothing to say.
+    if (!text.trim()) return setBad(false);
     const id = youtubeId(text);
     setBad(!id);
     if (id) {
@@ -86,7 +88,7 @@ function LinkBox({ active, onPick, onClear }: { active: boolean; onPick: (id: st
     <div className="flex items-center gap-1 px-2 py-1 text-fs-11 bg-[#0b0b0b] border-b border-[var(--border)]">
       <input
         className={`flex-1 min-w-0 ${bad ? "!border-[#ef5350]" : ""}`}
-        placeholder="Tempel link YouTube live (mis. liputan CPI di Bloomberg) untuk transkrip & indeks…"
+        placeholder="Opsional: tempel link YouTube live lain (mis. liputan CPI di Bloomberg) untuk diputar di sini dengan transkrip & indeks…"
         value={text}
         onChange={(e) => {
           setText(e.target.value);
