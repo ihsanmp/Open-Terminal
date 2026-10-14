@@ -29,7 +29,9 @@ import * as tvquotes from "../live/tvquotes.js";
 import * as fedwatch from "../providers/fedwatch.js";
 import * as fedlive from "../providers/fedlive.js";
 import * as fedtranscript from "../providers/fedtranscript.js";
+import * as fedmedia from "../providers/fedmedia.js";
 import * as macroengine from "../providers/macroengine.js";
+import * as reactions from "../providers/reactions.js";
 import * as nowcast from "../providers/nowcast.js";
 import * as fundingrates from "../providers/fundingrates.js";
 import { asPairBars, asPairTrade, fxFutureOf } from "../providers/fxfutures.js";
@@ -611,7 +613,8 @@ marketRouter.get("/fed/transcript/:videoId", (req, res) => {
   const since = Number(req.query.since ?? 0);
   // faces=0 turns the video analysis (layer 3, the heaviest) off.
   // src=link: a broadcast pasted in by link, not the Fed's own (its reading isn't the engine's input).
-  res.json(fedtranscript.transcript(videoId, Number.isFinite(since) ? since : 0, req.query.faces !== "0", req.query.src !== "link"));
+  // media=0: the regular mode, text only (layers 2 and 3 off).
+  res.json(fedtranscript.transcript(videoId, Number.isFinite(since) ? since : 0, req.query.faces !== "0", req.query.src !== "link", req.query.media !== "0"));
 });
 
 // ---- macro: FedWatch odds, funding rates, an indicator's history ----
@@ -643,6 +646,28 @@ marketRouter.get("/macro/funding/:kind", async (req, res) => {
 marketRouter.get("/macro/engine", async (req, res) => {
   try {
     res.json(await cached("macro:engine", 2 * 60_000, () => macroengine.engine(fedtranscript.latestFedSentiment())));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// What the server is using: memory, CPU over the last interval asked about, the face worker.
+let cpuMark = { at: Date.now(), usage: process.cpuUsage() };
+marketRouter.get("/system/usage", (_req, res) => {
+  const now = Date.now();
+  const usage = process.cpuUsage();
+  const ms = Math.max(1, now - cpuMark.at);
+  const cpu = (usage.user - cpuMark.usage.user + usage.system - cpuMark.usage.system) / 1000 / ms;
+  cpuMark = { at: now, usage };
+  const mem = process.memoryUsage();
+  res.json({ rssMb: Math.round(mem.rss / 1e6), heapMb: Math.round(mem.heapUsed / 1e6), cpuPct: Math.round(cpu * 1000) / 10, faceWorker: fedmedia.faceWorkerRunning() });
+});
+
+// How markets moved on each release and Fed broadcast, against the surprise, the engine's call and
+// the Fed Sentiment Index (providers/reactions.ts).
+marketRouter.get("/macro/reactions", async (req, res) => {
+  try {
+    res.json(await cached("macro:reactions", 15 * 60_000, async () => reactions.reactions(await macroengine.engineInputs())));
   } catch (err) {
     fail(req, res, err);
   }

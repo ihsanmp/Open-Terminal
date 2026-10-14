@@ -7,6 +7,7 @@ import { apiGet } from "../../lib/api";
 import { useWidgetSetting } from "../../store/terminal";
 import NowcastPanel from "./NowcastPanel";
 import EnginePanel from "./EnginePanel";
+import ReactionsPanel from "./ReactionsPanel";
 import { SentimentBar, TranscriptPanel, useFedTranscript } from "./FedTranscript";
 import { FedWatchCard, FedWatchStrip } from "./FedWatchCard";
 import { youtubeId } from "../../lib/youtube";
@@ -201,7 +202,7 @@ function FedPanel() {
   const now = useNow();
   const [picked, setPicked] = useState<string | null>(null);
   const [showStats, setShowStats] = useWidgetSetting("fedShowStats", false);
-  const [side, setSide] = useWidgetSetting<"schedule" | "nowcast" | "transcript" | "fedwatch">("fedSide", "schedule");
+  const [side, setSide] = useWidgetSetting<"schedule" | "nowcast" | "transcript" | "fedwatch" | "reactions">("fedSide", "schedule");
   const live = data?.live ?? [];
   // A pasted link plays instead of the Fed until cleared.
   const [custom, setCustom] = useWidgetSetting<string | null>("fedCustomVideo", null);
@@ -210,7 +211,9 @@ function FedPanel() {
   const schedule = (data?.schedule ?? []).filter((e) => showStats || e.type !== "Stat");
   const [faces, setFaces] = useWidgetSetting("fedFaces", true);
   // A pasted link's reading isn't the Fed's: it's kept out of the macro engine.
-  const transcript = useFedTranscript(custom ?? fedPlaying?.videoId ?? null, faces, !custom);
+  // The mode (blueprint §4): regular is the words only; the watcher adds the voice and the face.
+  const [watcher, setWatcher] = useWidgetSetting("fedWatcher", true);
+  const transcript = useFedTranscript(custom ?? fedPlaying?.videoId ?? null, faces, !custom, watcher);
   const playing: FedStream | undefined = custom
     ? { videoId: custom, title: transcript.reply?.title || "Siaran YouTube", channel: "link tempelan", status: transcript.reply?.status === "offline" ? "ended" : "live", start: null }
     : fedPlaying;
@@ -255,7 +258,7 @@ function FedPanel() {
               allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
               allowFullScreen
             />
-            <SentimentBar state={transcript} faces={faces} setFaces={setFaces} />
+            <SentimentBar state={transcript} controls={{ faces, setFaces, watcher, setWatcher }} />
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gap-2 p-4 text-center">
@@ -314,13 +317,20 @@ function FedPanel() {
           <button className={side === "fedwatch" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("fedwatch")} title="CME FedWatch: peluang suku bunga di rapat FOMC berikutnya">
             FedWatch
           </button>
+          <button className={side === "reactions" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("reactions")} title="Uji reaksi pasar: emas, BTC, S&P, DXY, yield 2Y setelah tiap rilis dan siaran The Fed">
+            Reaksi
+          </button>
           {side === "schedule" && (
             <label className="ml-auto flex items-center gap-1 dim cursor-pointer">
               <input type="checkbox" checked={showStats} onChange={(e) => setShowStats(e.target.checked)} /> rilis data
             </label>
           )}
         </div>
-        {side === "fedwatch" ? (
+        {side === "reactions" ? (
+          <div className="overflow-auto flex-1 min-h-0">
+            <ReactionsPanel />
+          </div>
+        ) : side === "fedwatch" ? (
           <div className="overflow-auto flex-1 min-h-0">
             <FedWatchCard />
           </div>

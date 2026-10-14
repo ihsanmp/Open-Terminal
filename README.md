@@ -50,6 +50,7 @@ No signup. No credit card. No rate‑limited demo tier. Clone it, `npm install`,
 - 🏦 **Macro dashboard** — live US Treasury yield curve, VIX, and major index/commodity proxies
 - 💼 **Portfolio tracker** — log buy/sell transactions, track average cost, realized & unrealized P&L (persisted in SQLite)
 - 📅 **Calendar** — economic events (Fed, ECB, CPI, NFP and more) with consensus forecast, previous reading and, for the major US/EU releases, the actual outcome; plus a per‑watchlist earnings calendar with click‑through history showing forecast vs. actual EPS for the last several quarters and the stock's next‑day price move
+- 🏛️ **The Fed on air & macro engine** (Live TV → THE FED) — Fed broadcasts (Board and regional banks, US events only) played as they go live, with a live transcript from YouTube's captions and a Fed Sentiment Index in three layers: hawkish/dovish phrases, the main speaker's voice (pitch, pauses, fillers; voices told apart) and face (expressions, locked by lip sync). Beside it: CME-method FedWatch odds, the Cleveland Fed and GDPNow nowcasts against the consensus, our own P10/P50/P90 for the next CPI, PPI, payrolls, PCE, retail sales, GDP, claims and ISM (quantile gradient boosting on point-in-time data, with its walk-forward record shown), and how gold, bitcoin, S&P futures, the dollar and the 2-year yield actually moved on each release
 - 🤖 **AI assistant** (optional) — ask questions about the symbol you're looking at, powered by Claude, fully context‑aware of the terminal's current data
 - ⚡ **Near real‑time updates** — quotes and indexes refresh every second with a subtle flash on change, so you always know what just moved
 - ⌨️ **Keyboard shortcuts** everywhere — `⌘K` to search, `⌥1`–`⌥9` to add any widget
@@ -143,6 +144,20 @@ desktop\install.cmd
 It builds the project and adds an **OpenTerminal** shortcut to your Desktop and Start Menu. Opening it starts the API and web servers in the background, shows the terminal in its own window (Microsoft Edge or Chrome app mode), and stops the servers when you close that window.
 
 On every launch it also checks GitHub: if `origin/main` has new commits it fast-forwards, reinstalls dependencies when `package.json` changed, and rebuilds before starting. Without network access (or with local edits in the way) it simply opens the current version. Logs are written to `data/logs/`; `desktop\uninstall.ps1` removes the shortcuts.
+
+### Macro engine from the terminal
+
+The macro engine also runs headless, from the same data store as the app:
+
+```bash
+npm run engine -- --mode backtest                  # walk-forward record of every target
+npm run engine -- --mode live --target ppi_mom --consensus 0.5 --fed_sentiment 0.8
+npm run engine -- --mode live --set gas=7.3        # override an input
+npm run engine -- --mode train                     # fit and save the models (data/macro-engine/models.json)
+npm run engine -- --mode reactions                 # how markets moved on the surprises
+```
+
+Build first (`npm run build`). The Fed watcher's voice and face layers need `ffmpeg` on the PATH (or `FFMPEG_PATH`); the panel's *Reguler* mode turns them off.
 
 ### Optional: AI assistant
 

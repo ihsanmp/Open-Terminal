@@ -9,7 +9,7 @@ import { apiGet, fmt } from "../../lib/api";
 // Sentiment Index, the band kept 30 minutes before each release, and each model's out-of-sample
 // track record beside it.
 
-type Unit = "%" | "K";
+type Unit = "%" | "K" | "pt";
 type Backtest = { months: number; from: string | null; maeEngine: number; maeConsensus: number; coverage: number; calls: number; hits: number; medianSpread: number };
 type Snapshot = { at: string; p10: number; p50: number; p90: number; adjusted: number; consensus: number; sentiment: number | null };
 type Row = {
@@ -37,15 +37,16 @@ type Row = {
 type Engine = {
   asOf: string;
   rows: Row[];
-  waiting: Array<{ key: string; label: string; period: string; release: string; backtest: Backtest }>;
+  waiting: Array<{ key: string; label: string; unit: Unit; period: string; release: string; backtest: Backtest }>;
   recent: Array<{ key: string; label: string; unit: Unit; period: string; release: string; consensus: number; actual: number; h30: Snapshot }>;
 };
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 const periodLabel = (p: string) => `${MONTHS[Number(p.slice(5, 7)) - 1]} ${p.slice(0, 4)}`;
 const when = (iso: string) => new Date(iso).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-const val = (v: number, unit: Unit) => (unit === "K" ? `${Math.round(v)}K` : `${fmt(v, 2)}%`);
+const val = (v: number, unit: Unit) => (unit === "K" ? `${Math.round(v)}K` : unit === "pt" ? fmt(v, 1) : `${fmt(v, 2)}%`);
 const signed = (v: number, unit: Unit) => `${v > 0 ? "+" : ""}${unit === "K" ? Math.round(v) : fmt(v, 3)}`;
+const miss = (v: number, unit: Unit) => (unit === "K" ? `${Math.round(v)}K` : fmt(v, unit === "pt" ? 2 : 3));
 
 const BIAS = {
   hawkish: { label: "🦅 HAWKISH", cls: "bg-[#ef5350] text-black", reading: "lebih panas dari konsensus → USD & yield ↑, emas · saham · crypto ↓" },
@@ -101,7 +102,7 @@ function Track({ b, unit }: { b: Backtest; unit: Unit }) {
   return (
     <div className="dim text-fs-10 leading-relaxed">
       Uji walk-forward {b.months} rilis sejak {b.from ? periodLabel(b.from) : "-"}: meleset rata-rata{" "}
-      <b className={better ? "up" : "text-[var(--text)]"}>{unit === "K" ? `${Math.round(b.maeEngine)}K` : fmt(b.maeEngine, 3)}</b> vs konsensus {unit === "K" ? `${Math.round(b.maeConsensus)}K` : fmt(b.maeConsensus, 3)}
+      <b className={better ? "up" : "text-[var(--text)]"}>{miss(b.maeEngine, unit)}</b> vs konsensus {miss(b.maeConsensus, unit)}
       {better ? " (sedikit lebih baik)" : b.maeEngine === b.maeConsensus ? " (setara)" : " (belum lebih baik)"}; pita P10–P90 memuat {Math.round(b.coverage * 100)}% rilis (ideal 80%); saat berani beda dari konsensus: {b.hits}/{b.calls} benar arah.
     </div>
   );
@@ -109,6 +110,7 @@ function Track({ b, unit }: { b: Backtest; unit: Unit }) {
 
 export default function EnginePanel() {
   const now = useNow();
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const { data, isLoading, error } = useQuery({
     queryKey: ["macro-engine"],
     queryFn: () => apiGet<Engine>("/api/macro/engine"),
@@ -125,21 +127,32 @@ export default function EnginePanel() {
         <span className="font-bold text-[var(--text)]">⚙ ENGINE KUANTIL (P10 / P50 / P90)</span>
         <span className="dim text-fs-10">model sendiri · data point-in-time · diperbarui {new Date(data.asOf).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
       </div>
-      {data.rows.map((r) => {
+      {[...data.rows].sort((a, b) => a.release.localeCompare(b.release)).map((r, k, all) => {
         const t = Date.parse(r.release);
         const left = t - now;
         const h30 = left > 0 && left <= 30 * 60_000;
+        // The two releases due soonest open by themselves; the others on a click.
+        const soonest = all.filter((x) => x.actual === null).slice(0, 2).some((x) => x.key === r.key);
+        const isOpen = open[r.key] ?? (soonest || h30);
         return (
           <div key={r.key} className={`border rounded-sm ${h30 ? "border-[#f5a623]" : "border-[var(--border)]"}`}>
-            <div className="px-2 py-1 bg-[#141414] flex items-center gap-2">
+            <button className="w-full px-2 py-1 bg-[#141414] flex items-center gap-2 text-left" onClick={() => setOpen((o) => ({ ...o, [r.key]: !isOpen }))}>
+              <span className="dim">{isOpen ? "▾" : "▸"}</span>
               <span className="text-[var(--text)] font-bold">
                 {r.label} · {periodLabel(r.period)}
               </span>
               {h30 && <span className="text-fs-9 px-1 rounded-sm bg-[#f5a623] text-black font-bold">H-30</span>}
+              {!isOpen && (
+                <span className="tabular-nums">
+                  {val(r.adjusted, r.unit)} <span className="dim">vs {val(r.consensus, r.unit)}</span> <span className={`text-fs-9 px-1 rounded-sm font-bold ${BIAS[r.bias].cls}`}>{BIAS[r.bias].label}</span>
+                </span>
+              )}
               <span className="ml-auto dim tabular-nums">
                 {r.actual !== null ? `rilis ${when(r.release)}` : left > 0 ? `${countdown(left)} · ${when(r.release)}` : "menunggu angka…"}
               </span>
-            </div>
+            </button>
+            {isOpen && (
+              <>
             <div className="px-2 pt-1 flex items-center gap-3 flex-wrap">
               <div>
                 <div className="dim text-fs-9">P50 ENGINE</div>
@@ -171,7 +184,9 @@ export default function EnginePanel() {
                   : " · belum ada sentimen Fed dari siaran 14 hari terakhir"}
               </div>
               <div className="dim text-fs-10">
-                Input: {r.inputs.map((i) => `${i.name} ${i.value === null ? "belum ada" : fmt(i.value, 2)}`).join(" · ")}
+                {r.inputs.length
+                  ? `Input: ${r.inputs.map((i) => `${i.name} ${i.value === null ? "belum ada" : fmt(i.value, 2)}`).join(" · ")}`
+                  : "Tidak ada input yang terbukti menambah akurasi di atas konsensus: pitanya = konsensus + sebaran kejutan historis."}
               </div>
               {r.h30 && (
                 <div className="text-fs-10">
@@ -180,6 +195,8 @@ export default function EnginePanel() {
               )}
               <Track b={r.backtest} unit={r.unit} />
             </div>
+              </>
+            )}
           </div>
         );
       })}
@@ -192,7 +209,7 @@ export default function EnginePanel() {
             <span className="ml-auto dim">{when(w.release)}</span>
           </div>
           <div className="dim text-fs-10">Menunggu konsensus pasar; engine memprediksi selisih terhadap konsensus, jadi pitanya muncul setelah konsensus terbit.</div>
-          <Track b={w.backtest} unit={w.key === "nfp" ? "K" : "%"} />
+          <Track b={w.backtest} unit={w.unit} />
         </div>
       ))}
       {data.recent.length > 0 && (
@@ -231,7 +248,7 @@ export default function EnginePanel() {
         </div>
       )}
       <div className="dim text-fs-10 leading-relaxed">
-        Gradient boosting kuantil (pohon 1 level, 100 pohon) memprediksi kejutan (aktual − konsensus) dari data yang sudah ada sebelum rilis: rilis pertama dan konsensus di kalender sejak 2013, nowcast Cleveland Fed, kejutan ADP/PPI/CPI yang keluar lebih dulu, harga bensin. Model yang lebih besar (150 pohon × 3 level seperti di blueprint) terbukti overfit pada ±160 rilis, jadi dipakai yang sederhana. Konsensus pasar sulit dikalahkan: engine ini kebanyakan setara konsensus, dan baru berani berbeda saat inputnya jelas. Sentimen Fed menggeser P50 maksimal ¼ simpangan kejutan biasa. Bacaan arah, bukan sinyal trading.
+        Gradient boosting kuantil (pohon 1 level, 100 pohon) memprediksi kejutan (aktual − konsensus) dari data yang sudah ada sebelum rilis: rilis pertama dan konsensus di kalender sejak 2013, ditambah input yang lolos uji walk-forward (GDPNow untuk GDP, harga bensin untuk PPI, klaim lanjutan untuk pengangguran). Input lain yang dicoba (nowcast Cleveland, ADP, ISM, survei Fed regional, Redbook, dll.) tidak menambah akurasi, jadi tidak dipakai. Model yang lebih besar (150 pohon × 3 level seperti di blueprint) terbukti overfit pada ±160 rilis, jadi dipakai yang sederhana. Konsensus pasar sulit dikalahkan: engine ini kebanyakan setara konsensus, dan baru berani berbeda saat inputnya jelas. Sentimen Fed menggeser P50 maksimal ¼ simpangan kejutan biasa. Bacaan arah, bukan sinyal trading.
       </div>
     </div>
   );
