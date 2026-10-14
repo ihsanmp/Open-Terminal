@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { newYorkTime, parseChannelFeed, parseFedCalendar, plainText, streamState, videoIdOf } from "./fedlive.js";
+import { abroad, newYorkTime, parseChannelFeed, parseFedCalendar, plainText, streamState, videoIdOf } from "./fedlive.js";
 
 describe("the Fed on air", () => {
   it("reads New York times as instants, summer and winter", () => {
@@ -38,5 +38,26 @@ describe("the Fed on air", () => {
     const over = { microformat: { playerMicroformatRenderer: { liveBroadcastDetails: { isLiveNow: false, startTimestamp: "a", endTimestamp: "b" } } } };
     expect(streamState("z", over, "Fed")?.status).toBe("ended");
     expect(streamState("v", { videoDetails: { title: "a recording" } }, "Fed")).toBeNull();
+  });
+
+  it("tells the Fed's events abroad from those at home", () => {
+    expect(
+      [
+        "At the Bangkok Economic Festival 2026",
+        "At the Fireside Chat with International Monetary Fund (IMF) Managing Director Kristalina Georgieva, Bangkok, Thailand",
+        "At the European Central Bank (ECB) Forum on Central Banking 2026, Sintra, Portugal",
+        "At a Chat with U.S. Federal Reserve Vice Chair for Supervision Michelle Bowman, London, United Kingdom",
+      ].map(abroad),
+    ).toEqual([true, true, true, true]);
+    expect(
+      [
+        "At the 2026 Jackson Hole Economic Policy Symposium, Moran, Wyo.",
+        "At the Atlantic Council's Conversation with Michelle W. Bowman, Washington, D.C.",
+        "At the Reuters NEXT Newsmaker Interview (Virtual)",
+        "Before the U.S. Senate Committee on Banking, Housing, and Urban Affairs",
+        "At the Albuquerque Economic Forum, Albuquerque, New Mexico",
+        "",
+      ].map(abroad),
+    ).toEqual([false, false, false, false, false, false]);
   });
 });

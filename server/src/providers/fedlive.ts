@@ -46,6 +46,9 @@ export type FedStream = {
   status: "live" | "upcoming" | "ended";
   /** When it went live, or is due to. */
   start: string | null;
+  /** The Fed's calendar entries it carries: a speaker's slot inside another host's broadcast (a
+   *  conference stream opens at 8:00, the Vice Chair speaks at 9:55). */
+  events?: Array<{ title: string; description: string; location: string; start: string }>;
 };
 
 /** The video id in a YouTube link (watch?v=, /live/, youtu.be/, /embed/). */
@@ -71,6 +74,27 @@ export function newYorkTime(day: string, time: string): Date | null {
   const minute = Number(m[2] ?? 0);
   const asUtc = Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)), hour, minute);
   return new Date(asUtc - newYorkOffset(new Date(asUtc)) * 60_000);
+}
+
+// Places outside the United States the calendar names (its last part, or a city in the event's name).
+const ABROAD = new RegExp(
+  "\\b(?:" +
+    [
+      "Thailand", "Bangkok", "India", "New Delhi", "Mumbai", "Türkiye", "Turkey", "Istanbul", "United Kingdom", "England", "Scotland", "London",
+      "Italy", "Portugal", "Sintra", "Lisbon", "Croatia", "Iceland", "Japan", "Tokyo", "Germany", "Frankfurt", "Senegal", "Greece",
+      "France", "Paris", "Switzerland", "Basel", "Zurich", "Davos", "Spain", "Madrid", "Belgium", "Brussels", "Netherlands", "Amsterdam", "Austria",
+      "Ireland", "Sweden", "Stockholm", "Norway", "Oslo", "Denmark", "Finland", "Poland", "Czech", "Hungary", "Canada", "Ottawa",
+      "Toronto", "Montreal", "Mexico City", "United Mexican States", "Brazil", "Argentina", "Chile", "Colombia", "Peru", "China", "Beijing", "Shanghai", "Hong Kong", "Taiwan",
+      "Korea", "Seoul", "Singapore", "Indonesia", "Jakarta", "Bali", "Malaysia", "Philippines", "Vietnam", "Australia", "Sydney", "New Zealand",
+      "Saudi Arabia", "Riyadh", "United Arab Emirates", "Dubai", "Abu Dhabi", "Qatar", "Israel", "Egypt", "South Africa", "Nigeria", "Kenya", "Morocco",
+    ].join("|") +
+    ")\\b",
+  "i",
+);
+
+/** Whether an event's place is outside the United States ("…, Bangkok, Thailand"); a virtual one or one with no place isn't. */
+export function abroad(location: string): boolean {
+  return ABROAD.test(location);
 }
 
 /** The calendar's descriptions are escaped HTML ("&lt;p&gt;Two-day meeting…"): plain text. */
@@ -172,16 +196,24 @@ export async function fedLive(now = Date.now()): Promise<FedLive> {
     }),
     Promise.all(FED_CHANNELS.map((c) => channelFeed(c).then((v) => v.map((x) => ({ ...x, channel: c.name }))).catch(() => []))),
   ]);
+  // The Fed in the United States only: what its people say abroad is left out.
+  const home = calendar.filter((e) => !abroad(e.location));
+  const awayVideos = new Set(calendar.filter((e) => e.videoId && abroad(e.location)).map((e) => e.videoId));
   const candidates = new Map<string, string>();
-  for (const e of calendar) {
+  for (const e of home) {
     const t = Date.parse(e.start);
     if (e.videoId && t > now - 6 * 3_600_000 && t < now + 2 * 86_400_000) candidates.set(e.videoId, e.title);
   }
-  for (const v of feeds.flat()) if (Date.parse(v.published) > now - 2 * 86_400_000) candidates.set(v.videoId, v.channel);
+  for (const v of feeds.flat()) if (Date.parse(v.published) > now - 2 * 86_400_000 && !awayVideos.has(v.videoId)) candidates.set(v.videoId, v.channel);
   const states = await Promise.all([...candidates].map(([id, channel]) => playerState(id, channel).catch(() => null)));
-  const streams = states.filter((s): s is FedStream => s !== null);
+  const streams = states
+    .filter((s): s is FedStream => s !== null)
+    .map((s) => {
+      const events = home.filter((e) => e.videoId === s.videoId).map((e) => ({ title: e.title, description: e.description, location: e.location, start: e.start }));
+      return events.length ? { ...s, events } : s;
+    });
   // Three weeks ahead: the next FOMC meeting is always in it.
-  const schedule = calendar.filter((e) => Date.parse(e.start) > now - 12 * 3_600_000 && Date.parse(e.start) < now + 21 * 86_400_000);
+  const schedule = home.filter((e) => Date.parse(e.start) > now - 12 * 3_600_000 && Date.parse(e.start) < now + 21 * 86_400_000);
   return {
     checkedAt: now,
     live: streams.filter((s) => s.status === "live"),
