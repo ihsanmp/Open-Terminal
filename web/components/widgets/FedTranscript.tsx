@@ -296,12 +296,17 @@ export function SentimentBar({ state, controls }: { state: FedTranscriptState; c
         </div>
         <div className="flex-1 min-w-[120px] flex flex-col gap-1">
           <Gauge value={shown.index} />
-          <div className="flex justify-between dim text-fs-9">
-            <span>−1 dovish</span>
-            <span>
-              {s.hawkish} frasa hawkish · {s.dovish} dovish{combined ? ` · teks ${signed(s.index)}` : ""}
+          {/* On a phone the scale's ends shorten to −1 / +1 and the count gives way rather than overlap. */}
+          <div className="flex justify-between gap-1 dim text-fs-9 whitespace-nowrap">
+            <span className="shrink-0">
+              −1<span className="hidden sm:inline"> dovish</span>
             </span>
-            <span>hawkish +1</span>
+            <span className="min-w-0 truncate" title={`${s.hawkish} frasa hawkish · ${s.dovish} dovish`}>
+              {s.hawkish}🦅 · {s.dovish}🕊{combined ? ` · teks ${signed(s.index)}` : ""}
+            </span>
+            <span className="shrink-0">
+              <span className="hidden sm:inline">hawkish </span>+1
+            </span>
           </div>
         </div>
         <div className="shrink-0 w-[70px]" title="Indeks teks 5 menit terakhir">

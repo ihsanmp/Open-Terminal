@@ -268,14 +268,31 @@ export type Prediction = { date: string; month: string; consensus: number; actua
 
 /**
  * Walk-forward: from the 36th release on, each predicted by models trained only on the releases
- * before it (refitted every six releases; between refits the last fit is used). Surprises.
+ * before it (refitted every six releases, or every twentieth for a weekly one; between refits the
+ * last fit is used). Surprises.
  */
 export function walkForward(data: Row[], params: GbmParams = ENGINE_PARAMS): Prediction[] {
+  // The same releases give the same predictions: the engine, the reactions and the H-30 test all
+  // ask for them, every few minutes.
+  const key = `${JSON.stringify(params)}|${data.length}|${data[0]?.date}|${data.at(-1)?.date}|${data.at(-1)?.x.join(",")}|${data.at(-1)?.actual}`;
+  const hit = walkMemo.get(key);
+  if (hit) return hit;
+  const out = walkForwardFresh(data, params);
+  walkMemo.set(key, out);
+  if (walkMemo.size > 64) walkMemo.delete(walkMemo.keys().next().value!);
+  return out;
+}
+
+const walkMemo = new Map<string, Prediction[]>();
+
+function walkForwardFresh(data: Row[], params: GbmParams): Prediction[] {
   const out: Prediction[] = [];
+  // Refitted every six releases, or every twentieth of them for a weekly one (jobless claims).
+  const every = Math.max(6, Math.round(data.length / 20));
   let band: ReturnType<typeof fitBand> | null = null;
   let medians: number[] = [];
   for (let i = 36; i < data.length; i++) {
-    if (!band || (i - 36) % 6 === 0) {
+    if (!band || (i - 36) % every === 0) {
       const train = impute(data.slice(0, i).map((r) => r.x));
       medians = train.medians;
       band = fitBand(train.X, data.slice(0, i).map((r) => r.actual - r.consensus), params);
@@ -471,14 +488,20 @@ export async function engine(sentiment: { index: number; at: string; title: stri
  * Keeps the H-30 bands without anyone looking: every five minutes, when a target's release is due
  * within 35 minutes, the engine runs (and keeps the band once inside the last half hour).
  */
-export function startEngineWatch(sentiment: () => { index: number; at: string; title: string } | null): void {
+export function startEngineWatch(sentiment: () => { index: number; at: string; title: string } | null, also?: (engine: Engine, inputs: Inputs) => Promise<unknown>): void {
   const check = () => {
     const store = readJson<Record<string, { events: Release[] }>>(join(dir, "us-releases.json"));
     if (!store) return;
     const now = Date.now();
     const titles = new Set(TARGETS.map((t) => t.title));
     const due = Object.values(store).some((c) => c.events.some((e) => titles.has(e.title) && e.forecast !== null && Date.parse(e.date) > now && Date.parse(e.date) - now <= 35 * 60_000));
-    if (due) engine(sentiment()).catch((err) => console.warn("macro engine:", err instanceof Error ? err.message : err));
+    if (!due) return;
+    engineInputs()
+      .then(async (inputs) => {
+        const e = runEngine(inputs, sentiment());
+        if (also) await also(e, inputs);
+      })
+      .catch((err) => console.warn("macro engine:", err instanceof Error ? err.message : err));
   };
   setInterval(check, 5 * 60_000).unref();
 }

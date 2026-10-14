@@ -54,10 +54,28 @@ function write(file: string, value: unknown): void {
  * The instruments' bars at a resolution, kept on disk and merged with each read: TradingView gives
  * only the latest few thousand, so the store grows forward from the first read.
  */
-export async function barStore(resolution: "30" | "60" | "1D", maxAgeMs: number, now = Date.now()): Promise<Record<string, TvBar[]>> {
+export function barStore(resolution: "30" | "60" | "1D", maxAgeMs: number, now = Date.now()): Promise<Record<string, TvBar[]>> {
+  // Kept in memory once read (the files run to megabytes), and one refresh at a time.
+  let store = stores.get(resolution);
+  if (!store) {
+    store = read<Store>(join(dir, `bars-${resolution}.json`)) ?? { at: 0, bars: {} };
+    stores.set(resolution, store);
+  }
+  const s = store;
+  if (now - s.at < maxAgeMs && INSTRUMENTS.every((i) => s.bars[i.symbol]?.length)) return Promise.resolve(s.bars);
+  let p = refreshing.get(resolution);
+  if (!p) {
+    p = refreshStore(resolution, s, now).finally(() => refreshing.delete(resolution));
+    refreshing.set(resolution, p);
+  }
+  return p;
+}
+
+const stores = new Map<string, Store>();
+const refreshing = new Map<string, Promise<Record<string, TvBar[]>>>();
+
+async function refreshStore(resolution: string, store: Store, now: number): Promise<Record<string, TvBar[]>> {
   const file = join(dir, `bars-${resolution}.json`);
-  const store = read<Store>(file) ?? { at: 0, bars: {} };
-  if (now - store.at < maxAgeMs && INSTRUMENTS.every((i) => store.bars[i.symbol]?.length)) return store.bars;
   const fresh = await bars(
     INSTRUMENTS.map((i) => i.symbol),
     resolution,
@@ -75,6 +93,18 @@ export async function barStore(resolution: "30" | "60" | "1D", maxAgeMs: number,
   return store.bars;
 }
 
+/** The index of the first bar (sorted by time) whose `time` is at least `t` seconds; the length if none. */
+function firstAtOrAfter(series: TvBar[], t: number): number {
+  let lo = 0;
+  let hi = series.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (series[mid].time < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
 /**
  * The move over a window starting at `startMs` and `minutes` long, from bars of `res` minutes: the
  * last bar ending by the start against the first ending at or after the end (null when there's no
@@ -83,13 +113,9 @@ export async function barStore(resolution: "30" | "60" | "1D", maxAgeMs: number,
 export function moveIn(series: TvBar[], res: number, startMs: number, minutes: number, unit: "%" | "bp"): number | null {
   const R = res * 60_000;
   const end = startMs + minutes * 60_000;
-  let pre: TvBar | undefined;
-  let post: TvBar | undefined;
-  for (const b of series) {
-    const close = b.time * 1000 + R;
-    if (close <= startMs) pre = b;
-    else if (close >= end && !post) post = b;
-  }
+  // By binary search (the bars are sorted): thousands of events over tens of thousands of bars.
+  const pre = series[firstAtOrAfter(series, (startMs - R) / 1000 + 1e-6) - 1];
+  const post = series[firstAtOrAfter(series, (end - R) / 1000)];
   if (!pre || !post) return null;
   // Both within a bar of the window: a gap (a weekend, a holiday) is no reading.
   if (startMs - (pre.time * 1000 + R) > R || post.time * 1000 + R - end > R) return null;
@@ -101,8 +127,7 @@ export function moveIn(series: TvBar[], res: number, startMs: number, minutes: n
  * time is its session's open, which for FX is the evening before) and the one before it.
  */
 export function dayMove(series: TvBar[], releaseMs: number, unit: "%" | "bp"): number | null {
-  let i = -1;
-  for (let k = 0; k < series.length && series[k].time * 1000 <= releaseMs; k++) i = k;
+  const i = firstAtOrAfter(series, releaseMs / 1000 + 1e-6) - 1;
   if (i < 1 || releaseMs - series[i].time * 1000 > 86_400_000) return null;
   const pre = series[i - 1];
   const post = series[i];

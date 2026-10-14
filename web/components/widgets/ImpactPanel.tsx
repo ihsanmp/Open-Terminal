@@ -35,7 +35,114 @@ type Impact = {
   confirmation: Array<{ key: string; confirmed: { n: number; agree: number }; unconfirmed: { n: number; agree: number } }>;
   events: number;
   since30: string | null;
+  h30: H30;
 };
+
+type Lean = { pUp: number; p10: number; p50: number; p90: number; n: number };
+type AssetConclusion = { key: string; label: string; group: string; unit: string; dir: "naik" | "turun" | "datar"; chance: number; lean: Lean; price: number | null; levels: { p10: number; p50: number; p90: number } | null };
+type Conclusion = {
+  release: string;
+  driver: { key: string; label: string; consensus: number; p10: number; p50: number; p90: number };
+  others: string[];
+  probs: Record<string, number>;
+  assets: AssetConclusion[];
+  at: string;
+  final: boolean;
+};
+type H30 = {
+  next: Conclusion | null;
+  recent: Array<Conclusion & { moves: Record<string, number | null>; hits: number; calls: number }>;
+  skill: Record<string, { calls: number; hits: number }>;
+};
+
+const DIR = { naik: { label: "▲ naik", cls: "up" }, turun: { label: "▼ turun", cls: "down" }, datar: { label: "◆ datar", cls: "dim" } };
+const price = (v: number | null | undefined) => (v === null || v === undefined ? "-" : v >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : v.toLocaleString(undefined, { maximumFractionDigits: v < 10 ? 5 : 3 }));
+
+/** The conclusion 30 minutes before the next release: each asset's lean, range and the prices they mean. */
+function H30Card({ h, now }: { h: H30; now: number }) {
+  const c = h.next;
+  if (!c) return <div className="dim">Belum ada rilis besar berikutnya dengan konsensus.</div>;
+  const left = Date.parse(c.release) - now;
+  const inWindow = left > 0 && left <= 30 * 60_000;
+  const groups = [...new Set(c.assets.map((a) => a.group))];
+  const order = ["dingin kuat", "dingin", "sesuai", "panas", "panas kuat"];
+  const totalSkill = Object.values(h.skill).reduce((n, s) => ({ calls: n.calls + s.calls, hits: n.hits + s.hits }), { calls: 0, hits: 0 });
+  return (
+    <div className={`border rounded-sm ${c.final || inWindow ? "border-[#f5a623]" : "border-[var(--border)]"}`}>
+      <div className="px-2 py-1 bg-[#141414] flex items-center gap-2 flex-wrap">
+        <span className="font-bold text-[var(--text)]">🧭 KESIMPULAN H-30 · {c.driver.label}</span>
+        {c.others.length > 0 && <span className="dim">(bersama {c.others.join(", ")})</span>}
+        <span className={`text-fs-9 px-1 rounded-sm font-bold ${c.final ? "bg-[#f5a623] text-black" : "border border-[#555] dim"}`}>{c.final ? "FINAL H-30" : "pratinjau"}</span>
+        <span className="ml-auto amber tabular-nums">
+          {left > 0 ? `${Math.floor(left / 3_600_000)} jam ${Math.floor((left % 3_600_000) / 60_000)} mnt lagi` : "rilis sekarang"}
+        </span>
+      </div>
+      <div className="px-2 py-1 text-fs-10">
+        Konsensus {c.driver.consensus} · engine P10–P90 {c.driver.p10}–{c.driver.p90}. Peluang skenario:{" "}
+        {order.map((b) => (
+          <span key={b} className={SCEN[b]?.cls ?? ""}>
+            {" "}
+            {SCEN[b]?.label ?? b} {Math.round((c.probs[b] ?? 0) * 100)}%
+          </span>
+        ))}
+      </div>
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th className="!text-left">Aset</th>
+            <th>Arah 30 mnt</th>
+            <th>Median</th>
+            <th>Harga kini</th>
+            <th title="Harga setelah gerak P50 (rentang P10–P90)">Perkiraan harga (P10 – P90)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.flatMap((g) => [
+            <tr key={`g-${g}`}>
+              <td colSpan={5} className="!text-left dim text-fs-9 !py-0">
+                {g.toUpperCase()}
+              </td>
+            </tr>,
+            ...c.assets
+              .filter((a) => a.group === g)
+              .map((a) => (
+                <tr key={a.key} title={`Dari ${a.lean.n} rilis, ditimbang dengan peluang skenario. Gerak P10 ${mv(a.lean.p10, a.unit)} · P90 ${mv(a.lean.p90, a.unit)}`}>
+                  <td className="!text-left">{a.label}</td>
+                  <td className={DIR[a.dir].cls}>
+                    {DIR[a.dir].label} <span className="dim text-fs-9">{Math.round((a.dir === "datar" ? Math.max(a.lean.pUp, 1 - a.lean.pUp) : a.chance) * 100)}%</span>
+                  </td>
+                  <td className="tabular-nums">{mv(a.lean.p50, a.unit)}</td>
+                  <td className="tabular-nums">{price(a.price)}</td>
+                  <td className="tabular-nums">
+                    {a.levels ? (
+                      <>
+                        <span className="text-[var(--text)]">{price(a.levels.p50)}</span> <span className="dim">({price(a.levels.p10)} – {price(a.levels.p90)})</span>
+                      </>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+                </tr>
+              )),
+          ])}
+        </tbody>
+      </table>
+      <div className="px-2 py-1 dim text-fs-10 leading-relaxed">
+        Diuji walk-forward pada rilis lalu, kesimpulan arah seperti ini benar {totalSkill.calls ? Math.round((totalSkill.hits / totalSkill.calls) * 100) : "-"}% dari {totalSkill.calls} kali: sebelum rilis, engine jarang berbeda dari konsensus, jadi arah praktis masih 50:50. Pakai sebagai peta risiko (rentang harga per skenario); arah yang lebih bisa diandalkan muncul setelah angka keluar (lihat LIVE di atas, ±65–75%). Kesimpulan dibekukan otomatis 30 menit sebelum rilis.
+      </div>
+      {h.recent.length > 0 && (
+        <div className="px-2 pb-1 text-fs-10">
+          <div className="text-[var(--text)] font-bold">H-30 sebelumnya vs hasil 30 menit</div>
+          {h.recent.slice(0, 6).map((r) => (
+            <div key={r.release} className="tabular-nums">
+              {new Date(r.release).toLocaleDateString([], { day: "numeric", month: "short" })} {r.driver.label}: benar arah {r.hits}/{r.calls}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const SCEN: Record<string, { label: string; cls: string }> = {
   "dingin kuat": { label: "🕊🕊 dingin kuat", cls: "up" },
@@ -97,6 +204,8 @@ export default function ImpactPanel() {
           </button>
         </span>
       </div>
+
+      <H30Card h={data.h30} now={now} />
 
       {data.live.map((l) => (
         <div key={`${l.key}${l.release}`} className="border border-[#f5a623] rounded-sm">

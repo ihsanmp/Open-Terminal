@@ -14,6 +14,7 @@ const ev = (z: number, xau: number, weight = 0.5): ImpactEvent => ({
   day: {},
   confirm: 0,
   weight,
+  scale: 0.1,
 });
 
 describe("news impact", () => {

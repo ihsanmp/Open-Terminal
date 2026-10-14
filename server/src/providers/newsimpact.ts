@@ -20,6 +20,7 @@ import { bars, type TvBar } from "./tvchart.js";
 import { rows, TARGETS, type Engine, type Inputs, type Target } from "./macroengine.js";
 import { barStore, INSTRUMENTS, moveIn, dayMove, type InstrumentKey } from "./reactions.js";
 import { quantile } from "./quantgbm.js";
+import { h30, type H30 } from "./h30.js";
 
 /** An event counts once its release type has this many earlier surprises to scale it by. */
 const MIN_HISTORY = 12;
@@ -43,6 +44,8 @@ export type ImpactEvent = {
   confirm: -1 | 0 | 1;
   /** How big this release usually moves markets: its earlier events' median |30-minute gold move|, %. */
   weight: number;
+  /** The release's usual surprise at the time (what `z` is in). */
+  scale: number;
 };
 
 const sign = (v: number | null | undefined) => (v === null || v === undefined ? 0 : Math.sign(v));
@@ -95,6 +98,7 @@ export function impactEvents(inputs: Inputs, b30: Record<string, TvBar[]>, b60: 
           day,
           confirm: c10 !== 0 && c10 === cdx ? (c10 as 1 | -1) : 0,
           weight: goldMoves.length ? quantile(goldMoves, 0.5) : 0.2,
+          scale: sd,
         });
         if (first.xau !== null && first.xau !== undefined) goldMoves.push(Math.abs(first.xau));
         else if (day.xau !== null && day.xau !== undefined) goldMoves.push(Math.abs(day.xau) / 3);
@@ -148,8 +152,20 @@ export type Skill = {
   n: number;
 };
 
-/** Walk-forward: each event's band from the events before it only. */
+const skillMemo = new Map<string, Skill>();
+
+/** Walk-forward: each event's band from the events before it only (kept until a new event comes in). */
 export function skill(events: ImpactEvent[], inst: Inst, h: Horizon): Skill {
+  const key = `${inst.key}|${h}|${events.length}|${events.at(-1)?.date}`;
+  const hit = skillMemo.get(key);
+  if (hit) return hit;
+  const out = skillFresh(events, inst, h);
+  skillMemo.set(key, out);
+  if (skillMemo.size > 200) skillMemo.delete(skillMemo.keys().next().value!);
+  return out;
+}
+
+function skillFresh(events: ImpactEvent[], inst: Inst, h: Horizon): Skill {
   let n = 0;
   let inside = 0;
   let calls = 0;
@@ -212,6 +228,8 @@ export type Impact = {
   events: number;
   /** The first event with 30-minute moves (intraday bars reach back to here). */
   since30: string | null;
+  /** The conclusion 30 minutes before the next release (h30.ts). */
+  h30: H30;
 };
 
 /** Moves since a release for every instrument, from 1-minute bars (the live watch). */
@@ -306,5 +324,6 @@ export async function impact(inputs: Inputs, engine: Engine, now = Date.now()): 
     confirmation: confirmationStats(events),
     events: events.length,
     since30: timed?.date ?? null,
+    h30: await h30(events, inputs, engine, now),
   };
 }
