@@ -15,7 +15,7 @@ describe("TradingView's economic calendar", () => {
 
   it("lists events under their currency, with Forex Factory's impacts and the euro members named", () => {
     const base = { date: "2026-09-29T08:00:00.000Z", actual: 1.2, forecast: null, previous: 1.1, unit: "%" };
-    expect(fromTradingView({ ...base, title: "RBA Interest Rate Decision", country: "AU", currency: "AUD", importance: 1 })).toEqual({
+    expect(fromTradingView({ ...base, title: "RBA Interest Rate Decision", country: "AU", currency: "AUD", importance: 1, category: "mny" })).toEqual({
       title: "RBA Interest Rate Decision",
       country: "AUD",
       date: "2026-09-29T08:00:00.000Z",
@@ -23,6 +23,9 @@ describe("TradingView's economic calendar", () => {
       forecast: null,
       previous: "1.1%",
       actual: "1.2%",
+      // The Macro page's kind of release and the country it's read for.
+      category: "mny",
+      region: "AU",
     });
     expect(fromTradingView({ ...base, title: "Ifo Business Climate", country: "DE", currency: "EUR", importance: 0 })).toMatchObject({
       title: "German Ifo Business Climate",
