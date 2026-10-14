@@ -7,6 +7,7 @@ import { apiGet } from "../../lib/api";
 import { useWidgetSetting } from "../../store/terminal";
 import NowcastPanel from "./NowcastPanel";
 import { SentimentBar, TranscriptPanel, useFedTranscript } from "./FedTranscript";
+import { youtubeId } from "../../lib/youtube";
 
 // Live business-news channels as HLS straight from each broadcaster's own CDN (no YouTube, so
 // no embed or consent walls). Each was checked live — the playlist advancing and its segment
@@ -69,6 +70,43 @@ function countdown(to: number, now: number): string {
   return `${m} mnt ${String(s % 60).padStart(2, "0")} dtk`;
 }
 
+/** Paste a YouTube live link to watch it here and read its transcript and index like a Fed broadcast's. */
+function LinkBox({ active, onPick, onClear }: { active: boolean; onPick: (id: string) => void; onClear: () => void }) {
+  const [text, setText] = useState("");
+  const [bad, setBad] = useState(false);
+  const submit = () => {
+    const id = youtubeId(text);
+    setBad(!id);
+    if (id) {
+      onPick(id);
+      setText("");
+    }
+  };
+  return (
+    <div className="flex items-center gap-1 px-2 py-1 text-fs-11 bg-[#0b0b0b] border-b border-[var(--border)]">
+      <input
+        className={`flex-1 min-w-0 ${bad ? "!border-[#ef5350]" : ""}`}
+        placeholder="Tempel link YouTube live (mis. liputan CPI di Bloomberg) untuk transkrip & indeks…"
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          setBad(false);
+        }}
+        onKeyDown={(e) => e.key === "Enter" && submit()}
+      />
+      <button className="term-btn shrink-0" onClick={submit}>
+        ▶ Putar
+      </button>
+      {active && (
+        <button className="term-btn shrink-0" onClick={onClear} title="Kembali ke siaran The Fed">
+          ✕ The Fed
+        </button>
+      )}
+      {bad && <span className="down shrink-0">link tidak dikenali</span>}
+    </div>
+  );
+}
+
 const TYPE_LABEL: Record<string, string> = { Speeches: "PIDATO", FOMC: "FOMC", Testimony: "TESTIMONY", Beige: "BEIGE BOOK", Stat: "RILIS DATA", Board: "BOARD", Conferences: "KONFERENSI", Other: "LAINNYA", events: "ACARA" };
 
 function FedPanel() {
@@ -78,18 +116,40 @@ function FedPanel() {
   const [showStats, setShowStats] = useWidgetSetting("fedShowStats", false);
   const [side, setSide] = useWidgetSetting<"schedule" | "nowcast" | "transcript">("fedSide", "schedule");
   const live = data?.live ?? [];
-  const playing = live.find((l) => l.videoId === picked) ?? (picked ? data?.upcoming.find((u) => u.videoId === picked) : undefined) ?? live[0];
+  // A pasted link plays instead of the Fed until cleared.
+  const [custom, setCustom] = useWidgetSetting<string | null>("fedCustomVideo", null);
+  const fedPlaying = live.find((l) => l.videoId === picked) ?? (picked ? data?.upcoming.find((u) => u.videoId === picked) : undefined) ?? live[0];
   const next = data?.upcoming[0];
   const schedule = (data?.schedule ?? []).filter((e) => showStats || e.type !== "Stat");
-  const transcript = useFedTranscript(playing?.videoId ?? null);
+  const transcript = useFedTranscript(custom ?? fedPlaying?.videoId ?? null);
+  const playing: FedStream | undefined = custom
+    ? { videoId: custom, title: transcript.reply?.title || "Siaran YouTube", channel: "link tempelan", status: transcript.reply?.status === "offline" ? "ended" : "live", start: null }
+    : fedPlaying;
+  const badge = !playing
+    ? null
+    : custom && !transcript.reply
+      ? { cls: "dim", text: "… MEMERIKSA" }
+      : playing.status === "live"
+        ? { cls: "down font-bold", text: "● LIVE" }
+        : playing.status === "ended"
+          ? { cls: "dim font-bold", text: "○ TIDAK LIVE" }
+          : { cls: "amber font-bold", text: "◷ SEGERA" };
 
   return (
     <div className="flex flex-col lg:flex-row flex-1 min-h-0">
       <div className="relative flex-1 min-h-[240px] bg-black flex flex-col">
+        <LinkBox
+          active={!!custom}
+          onPick={(id) => {
+            setCustom(id);
+            setSide("transcript");
+          }}
+          onClear={() => setCustom(null)}
+        />
         {playing ? (
           <>
             <div className="flex items-center gap-2 px-2 py-1 text-fs-11 bg-[#111] border-b border-[var(--border)]">
-              <span className={playing.status === "live" ? "down font-bold" : "amber font-bold"}>{playing.status === "live" ? "● LIVE" : "◷ SEGERA"}</span>
+              <span className={badge!.cls}>{badge!.text}</span>
               <span className="text-[var(--text)] truncate">{playing.title}</span>
               <span className="dim shrink-0">· {playing.channel}</span>
               <a className="ml-auto term-btn shrink-0" href={`https://www.youtube.com/watch?v=${playing.videoId}`} target="_blank" rel="noreferrer" title="Buka di YouTube">
