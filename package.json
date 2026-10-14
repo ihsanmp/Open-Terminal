@@ -10,7 +10,8 @@
     "build": "node scripts/build.mjs",
     "start": "concurrently -n api,web \"npm run start -w server\" \"npm run start -w web\"",
     "test": "npm run test -w server && npm run test -w web",
-    "lint": "npm run lint -w web"
+    "lint": "npm run lint -w web",
+    "engine": "npm run engine -w server --"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

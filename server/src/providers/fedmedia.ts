@@ -50,6 +50,14 @@ function ffmpeg(args: string[], input: Buffer): Promise<Buffer> {
 // ---------------------------------------------------------------- the face worker (shared)
 
 let worker: Worker | null = null;
+
+/** Whether the face worker (and its ~150 MB of models) is loaded now. */
+export const faceWorkerRunning = () => worker !== null;
+
+/** Lets the face worker go now (no broadcast is being watched with the voice and face layers). */
+export function stopFaceWorker(): void {
+  void worker?.terminate();
+}
 let workerIdle: ReturnType<typeof setTimeout> | null = null;
 let jobId = 0;
 const pending = new Map<number, (r: FrameReply) => void>();
@@ -170,6 +178,8 @@ export class MediaAnalyzer {
   constructor(
     private videoId: string,
     public faces = true,
+    /** Off in the regular mode (text only): no audio or video is fetched or analysed. */
+    public enabled = true,
   ) {}
 
   /** New URLs from the player (they're refreshed together with the captions'). */
@@ -208,7 +218,7 @@ export class MediaAnalyzer {
     this.running = true;
     void (async () => {
       try {
-        while (alive()) {
+        while (alive() && this.enabled) {
           try {
             await this.tick();
           } catch (err) {
@@ -379,6 +389,9 @@ export class MediaAnalyzer {
   }
 
   report(lines: Array<{ at: number; text: string }>): MediaReport {
+    if (!this.enabled) {
+      return { audio: "off", video: "off", message: "Mode reguler: lapisan suara & wajah dimatikan.", speakers: [], prosody: null, face: null, confidence: null };
+    }
     const main = this.speakers.main();
     const end = this.seconds.at(-1)?.at ?? Date.now();
     const recentCut = end - 60_000;

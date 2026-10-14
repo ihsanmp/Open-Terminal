@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { apiGet, fmt } from "../../lib/api";
 
 // A Fed broadcast's live transcript and the Fed Sentiment Index (server: providers/fedtranscript.ts,
@@ -74,12 +75,14 @@ type Reply = {
 export type FedTranscriptState = { videoId: string | null; lines: TranscriptLine[]; reply: Reply | null; error: string | null };
 
 /** Polls a broadcast's transcript every 5 s, adding the new lines to what it has. */
-export function useFedTranscript(videoId: string | null, faces = true, fed = true): FedTranscriptState {
+export function useFedTranscript(videoId: string | null, faces = true, fed = true, watcher = true): FedTranscriptState {
   const [state, setState] = useState<FedTranscriptState>({ videoId: null, lines: [], reply: null, error: null });
   const facesRef = useRef(faces);
   facesRef.current = faces;
   const fedRef = useRef(fed);
   fedRef.current = fed;
+  const watcherRef = useRef(watcher);
+  watcherRef.current = watcher;
   useEffect(() => {
     setState({ videoId, lines: [], reply: null, error: null });
     if (!videoId) return;
@@ -92,7 +95,7 @@ export function useFedTranscript(videoId: string | null, faces = true, fed = tru
         // The last 40 lines again too: their voice is known only once their audio has been heard,
         // a moment after the captions.
         const from = Math.max(0, since - 40);
-        const r = await apiGet<Reply>(`/api/fed/transcript/${videoId}?since=${from}${facesRef.current ? "" : "&faces=0"}${fedRef.current ? "" : "&src=link"}`);
+        const r = await apiGet<Reply>(`/api/fed/transcript/${videoId}?since=${from}${facesRef.current ? "" : "&faces=0"}${fedRef.current ? "" : "&src=link"}${watcherRef.current ? "" : "&media=0"}`);
         if (stopped) return;
         if (r.total < since) {
           // The server started over (restarted): read it all again.
@@ -152,14 +155,56 @@ function Sparkline({ points }: { points: Array<{ index: number }> }) {
 const pct0 = (v: number) => `${Math.round(v * 100)}%`;
 const EXPRESSION: Record<string, string> = { neutral: "netral", happy: "senang", sad: "sedih", angry: "marah", fearful: "takut", disgusted: "jijik", surprised: "terkejut" };
 
+/** The panel's switches: the mode (regular: words only; watcher: voice and face too) and the face layer. */
+export type Controls = { faces: boolean; setFaces: (v: boolean) => void; watcher: boolean; setWatcher: (v: boolean) => void };
+
+type Usage = { rssMb: number; heapMb: number; cpuPct: number; faceWorker: boolean };
+
+/** What the server is using, every ten seconds while the panel is open. */
+function UsageNote() {
+  const { data } = useQuery({ queryKey: ["system-usage"], queryFn: () => apiGet<Usage>("/api/system/usage"), refetchInterval: 10_000 });
+  if (!data) return null;
+  return (
+    <span className="dim tabular-nums" title="Pemakaian proses server OpenTerminal (CPU dalam % satu core)">
+      server RAM {data.rssMb} MB · CPU {fmt(data.cpuPct, 0)}%{data.faceWorker ? " · model wajah dimuat" : ""}
+    </span>
+  );
+}
+
+function ModeSwitch({ c }: { c: Controls }) {
+  return (
+    <span className="flex gap-1" title="Reguler: teks saja, ringan. Watcher: suara & wajah juga (butuh CPU, RAM ±150 MB untuk model wajah).">
+      <button className={`term-btn !py-0 ${!c.watcher ? "active" : ""}`} onClick={() => c.setWatcher(false)}>
+        Reguler
+      </button>
+      <button className={`term-btn !py-0 ${c.watcher ? "active" : ""}`} onClick={() => c.setWatcher(true)}>
+        Watcher
+      </button>
+    </span>
+  );
+}
+
 /** Layers 2 and 3 in one line: how the main speaker sounds and looks, and the delivery's confidence. */
-function Delivery({ media, faces, setFaces }: { media: Media; faces: boolean; setFaces: (v: boolean) => void }) {
+function Delivery({ media, c }: { media: Media; c: Controls }) {
+  const { faces, setFaces } = c;
+  if (!c.watcher) {
+    return (
+      <div className="shrink-0 border-t border-[#1c1c1c] bg-[#0b0b0b] px-2 py-1 flex items-center gap-x-3 gap-y-0.5 flex-wrap text-fs-10">
+        <ModeSwitch c={c} />
+        <span className="dim">Mode reguler: teks saja (lapisan suara & wajah mati, hemat CPU & RAM).</span>
+        <span className="ml-auto">
+          <UsageNote />
+        </span>
+      </div>
+    );
+  }
   const p = media.prosody;
   const f = media.face;
   const voices = media.speakers.filter((v) => v.seconds >= 3);
   const z = (v: number) => `${v > 0 ? "+" : ""}${fmt(v, 1)}σ`;
   return (
     <div className="shrink-0 border-t border-[#1c1c1c] bg-[#0b0b0b] px-2 py-1 flex items-center gap-x-3 gap-y-0.5 flex-wrap text-fs-10">
+      <ModeSwitch c={c} />
       <span className="dim" title="Layer 2: suara pembicara utama dibanding dirinya sendiri sepanjang siaran">
         🎙 SUARA
       </span>
@@ -218,6 +263,9 @@ function Delivery({ media, faces, setFaces }: { media: Media; faces: boolean; se
           KEYAKINAN <b className={media.confidence >= 0.7 ? "up" : media.confidence >= 0.5 ? "amber" : "down"}>{pct0(media.confidence)}</b>
         </span>
       )}
+      <span className={media.confidence !== null ? "" : "ml-auto"}>
+        <UsageNote />
+      </span>
     </div>
   );
 }
@@ -226,7 +274,7 @@ function Delivery({ media, faces, setFaces }: { media: Media; faces: boolean; se
  * The index under the video: where it stands (all three layers once the voice has been heard; the
  * words alone until then), the last five minutes, how it got there, and layers 2 and 3.
  */
-export function SentimentBar({ state, faces, setFaces }: { state: FedTranscriptState; faces: boolean; setFaces: (v: boolean) => void }) {
+export function SentimentBar({ state, controls }: { state: FedTranscriptState; controls: Controls }) {
   const s = state.reply?.sentiment;
   if (!state.reply || !s) return null;
   const heard = s.hawkish + s.dovish;
@@ -266,7 +314,7 @@ export function SentimentBar({ state, faces, setFaces }: { state: FedTranscriptS
           {heard > 0 ? <Sparkline points={s.timeline} /> : <div className="dim text-fs-9">belum ada frasa kebijakan</div>}
         </div>
       </div>
-      {state.reply.media && <Delivery media={state.reply.media} faces={faces} setFaces={setFaces} />}
+      {state.reply.media && <Delivery media={state.reply.media} c={controls} />}
     </>
   );
 }

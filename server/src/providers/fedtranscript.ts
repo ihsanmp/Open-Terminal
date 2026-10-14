@@ -15,7 +15,8 @@ import { join } from "node:path";
 import { dataDir } from "../db.js";
 import { findHits, indexOf, normalize, stanceOf, type Side, type Stance } from "./fedsentiment.js";
 import { liveTracks, segment, type LiveTracks } from "./youtubelive.js";
-import { MediaAnalyzer, type MediaReport } from "./fedmedia.js";
+import { MediaAnalyzer, stopFaceWorker, type MediaReport } from "./fedmedia.js";
+import { noteFedBroadcast } from "./reactions.js";
 
 /** On first open, read back this many 5-second segments (an hour). */
 const BACKFILL = 720;
@@ -205,6 +206,9 @@ type Session = {
   missed: number;
   /** Layers 2 and 3: the voices and faces. */
   media: MediaAnalyzer;
+  /** A Fed broadcast (not a pasted link), and the index last shown for it. */
+  fed: boolean;
+  lastIndex: number | null;
   /** When following last stopped (an ended or upcoming broadcast is asked about again a minute on). */
   stoppedAt: number;
   dirty: boolean;
@@ -351,6 +355,7 @@ async function follow(s: Session): Promise<void> {
     }
   } finally {
     save(s);
+    keepBroadcast(s);
     s.running = false;
     s.stoppedAt = Date.now();
     s.catchUp = null;
@@ -383,6 +388,19 @@ export type TranscriptReply = {
  * The transcript of a broadcast from line `since`, and its sentiment. Asking keeps it being
  * followed; the first ask starts it (from disk, then from YouTube).
  */
+/** A Fed broadcast with a reading (three or more policy phrases), kept to score markets' moves on. */
+function keepBroadcast(s: Session): void {
+  const sent = s.scored?.result.sentiment;
+  const first = s.tr.lines[0];
+  const last = s.tr.lines.at(-1);
+  if (!s.fed || !sent || !first || !last || sent.hawkish + sent.dovish < 3) return;
+  try {
+    noteFedBroadcast({ videoId: s.videoId, title: s.title, start: first.at, end: last.at, index: s.lastIndex ?? sent.index });
+  } catch (err) {
+    console.warn("fed broadcast:", err instanceof Error ? err.message : err);
+  }
+}
+
 // ---------------------------------------------------------------- the latest reading, for the engine
 
 const sentimentFile = join(dataDir, "fed-sentiment.json");
@@ -413,7 +431,7 @@ function keepReading(r: FedReading): void {
  * `fed` is false for a link pasted in the panel (a news channel's talk isn't the Fed's): its
  * reading isn't kept for the engine.
  */
-export function transcript(videoId: string, since = 0, faces = true, fed = true): TranscriptReply {
+export function transcript(videoId: string, since = 0, faces = true, fed = true, withMedia = true): TranscriptReply {
   let s = sessions.get(videoId);
   if (!s) {
     const saved = load(videoId);
@@ -431,6 +449,8 @@ export function transcript(videoId: string, since = 0, faces = true, fed = true)
       running: false,
       missed: 0,
       media: new MediaAnalyzer(videoId, faces),
+      fed,
+      lastIndex: null,
       stoppedAt: 0,
       dirty: false,
       savedAt: Date.now(),
@@ -448,9 +468,12 @@ export function transcript(videoId: string, since = 0, faces = true, fed = true)
   const resting = (s.status === "offline" || s.status === "no-captions") && Date.now() - s.stoppedAt < 60_000;
   if (!s.running && !resting) void follow(s);
   s.media.faces = faces;
+  s.media.enabled = withMedia;
   // Layers 2 and 3 follow the newest segment only (an hour of audio and video read back would be
   // heavy), on their own loop beside the captions'.
-  s.media.start(() => Date.now() - s!.lastAsked < IDLE_MS);
+  if (withMedia) s.media.start(() => Date.now() - s!.lastAsked < IDLE_MS);
+  // The regular mode everywhere: the face models' memory goes back at once.
+  else if (![...sessions.values()].some((x) => x.media.enabled && Date.now() - x.lastAsked < IDLE_MS)) stopFaceWorker();
   const key = `${s.tr.lines.length}:${s.media.version}`;
   if (s.scored?.key !== key) s.scored = { key, result: scoreTranscript(s.tr.lines, { speakerAt: (at) => s!.media.speakerAt(at), diarized: s.media.diarized() }) };
   const { lines, sentiment } = s.scored.result;
@@ -461,6 +484,8 @@ export function transcript(videoId: string, since = 0, faces = true, fed = true)
       return { index, stance: stanceOf(index) };
     })();
   // A reading worth keeping: three or more policy phrases heard from the Fed speaker.
+  s.fed = fed;
+  s.lastIndex = combined?.index ?? sentiment.index;
   if (fed && sentiment.hawkish + sentiment.dovish >= 3) keepReading({ index: combined?.index ?? sentiment.index, at: new Date().toISOString(), title: s.title, videoId });
   const start = Math.max(0, Math.min(since, lines.length));
   return {

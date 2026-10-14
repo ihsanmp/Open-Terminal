@@ -1,28 +1,24 @@
-// The macro nowcasting engine (blueprint stage 4): our own P10/P50/P90 for the next CPI, core CPI,
-// PPI and payrolls prints, by quantile gradient boosting (quantgbm.ts) on point-in-time data.
+// The macro nowcasting engine (blueprint stage 4): our own P10/P50/P90 for the next US releases
+// that move markets (CPI, core CPI, PPI, payrolls, unemployment, PCE, retail sales, GDP, jobless
+// claims, ISM manufacturing), by quantile gradient boosting (quantgbm.ts) on point-in-time data.
 //
 // What's predicted is the surprise (actual − consensus), what markets move on; the band is the
-// consensus plus the surprise's quantiles. Every input is as it was known before the release:
-//   - the first print, the consensus and the previous as the calendar showed them on the day
-//     (TradingView's economic calendar keeps them since 2013; revisions come later and aren't used);
-//   - releases out before this one: ADP before payrolls, ISM prices before CPI, PPI before CPI when
-//     it came first, jobless claims weekly;
-//   - the Cleveland Fed's inflation nowcast for the month, its last value before the release;
-//   - markets over the month measured, which are never revised: WTI, retail gasoline, the broad
-//     dollar, the 2-year yield and 5-year breakeven inflation (FRED).
-// Each model is tested walk-forward (trained only on the releases before each one it predicts), so
-// the track record shown is out of sample.
+// consensus plus the surprise's quantiles. Every input is as it was known before the release: the
+// first print and the consensus as the calendar showed them on the day (TradingView's economic
+// calendar keeps them since 2013; revisions come later and aren't used), releases out before this
+// one, the Atlanta Fed's last GDPNow, retail gasoline over the month measured (FRED). Each model is
+// tested walk-forward (trained only on the releases before each one it predicts), so the track
+// record shown is out of sample; inputs that didn't hold up there were dropped (see TARGETS).
 //
 // Live: the engine refreshes the next release's band as data comes in, and keeps the band it had
 // 30 minutes before the release (H-30) to score afterwards. The latest Fed Sentiment Index from a
-// Fed broadcast (layer 1–3) nudges the median, by a quarter of the surprise's usual size at ±1.
+// Fed broadcast (layers 1–3) nudges the median, by a quarter of the surprise's usual size at ±1.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dataDir } from "../db.js";
 import type { TVRaw } from "./econcalendar.js";
 import * as fred from "./fred.js";
-import { clevelandFile, type MonthNowcast } from "./nowcast.js";
 import { fitBand, predictBand, quantile, type GbmParams } from "./quantgbm.js";
 
 const dir = join(dataDir, "macro-engine");
@@ -42,7 +38,24 @@ const TITLES = new Set([
   "ISM Manufacturing Employment",
   "ISM Services Prices",
   "JOLTs Job Openings",
+  "Core PCE Price Index MoM",
+  "PCE Price Index MoM",
+  "Retail Sales MoM",
+  "GDP Growth Rate QoQ Adv",
+  "Continuing Jobless Claims",
+  "ISM Manufacturing PMI",
+  "ISM Services PMI",
+  "Unemployment Rate",
+  "NY Empire State Manufacturing Index",
+  "Philadelphia Fed Manufacturing Index",
+  "Chicago PMI",
+  "S&P Global Manufacturing PMI Flash",
+  "S&P Global Services PMI Flash",
+  "Redbook YoY",
+  "Michigan Consumer Sentiment Prel",
 ]);
+/** The titles kept: a quarter read with another list is read again. */
+const TITLES_SIG = [...TITLES].sort().join("|");
 
 // ---------------------------------------------------------------- the data, kept on disk
 
@@ -72,14 +85,14 @@ const addMonths = (month: string, n: number) => {
  */
 export async function usReleases(now = Date.now()): Promise<Release[]> {
   const file = join(dir, "us-releases.json");
-  const store = readJson<Record<string, { at: number; events: Release[] }>>(file) ?? {};
+  const store = readJson<Record<string, { at: number; sig?: string; events: Release[] }>>(file) ?? {};
   let changed = false;
   const end = monthKey(now + 45 * 86_400_000);
   for (let from = monthKey(START); from <= end; from = addMonths(from, 3)) {
     const to = addMonths(from, 3);
     const kept = store[from];
     const settled = Date.parse(`${to}-01T00:00:00Z`) < now - 180 * 86_400_000;
-    if (kept && (settled || kept.at > now - 12 * 3_600_000)) continue;
+    if (kept && kept.sig === TITLES_SIG && (settled || kept.at > now - 12 * 3_600_000)) continue;
     const url = `https://economic-calendar.tradingview.com/events?from=${from}-01T00:00:00.000Z&to=${to}-01T00:00:00.000Z&countries=US`;
     const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0", Origin: "https://www.tradingview.com" }, signal: AbortSignal.timeout(30_000) });
     if (!res.ok) throw new Error(`tradingview calendar ${res.status}`);
@@ -87,6 +100,7 @@ export async function usReleases(now = Date.now()): Promise<Release[]> {
     if (body.status !== "ok" || !Array.isArray(body.result)) throw new Error("tradingview calendar: unexpected reply");
     store[from] = {
       at: now,
+      sig: TITLES_SIG,
       events: body.result
         .filter((e) => TITLES.has(e.title))
         .map((e) => ({
@@ -121,17 +135,13 @@ export async function marketSeries(ids: string[], now = Date.now()): Promise<Rec
 
 // ---------------------------------------------------------------- features, as known at a moment
 
-export type Inputs = { releases: Release[]; markets: Record<string, fred.SeriesPoint[]>; cleveland: MonthNowcast[] };
+export type Inputs = { releases: Release[]; markets: Record<string, fred.SeriesPoint[]> };
 
 const avg = (v: number[]) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : NaN);
 
 /** A series' average over a month, from points dated before `before`. */
 function monthAvg(points: fred.SeriesPoint[], month: string, before: string): number {
   return avg(points.filter((p) => p.date.startsWith(month) && p.date < before).map((p) => p.value));
-}
-function monthLast(points: fred.SeriesPoint[], month: string, before: string): number {
-  const v = points.filter((p) => p.date.startsWith(month) && p.date < before);
-  return v.length ? v[v.length - 1].value : NaN;
 }
 
 /** % change of a series' monthly average, month on month. */
@@ -140,97 +150,73 @@ const pctChange = (points: fred.SeriesPoint[], month: string, before: string) =>
   const b = monthAvg(points, month, before);
   return Number.isFinite(a) && Number.isFinite(b) && a !== 0 ? ((b - a) / Math.abs(a)) * 100 : NaN;
 };
-/** Change of a series' month-end level, month on month. */
-const levelChange = (points: fred.SeriesPoint[], month: string, before: string) => monthLast(points, month, before) - monthLast(points, addMonths(month, -1), before);
 
-/** Another release for the same month (`month`), if it was out before `before`. */
-function sameMonth(inputs: Inputs, title: string, month: string, before: string): Release | undefined {
-  return inputs.releases.find((e) => e.title === title && e.ref.startsWith(month) && e.date < before && e.actual !== null);
-}
-const surprise = (e: Release | undefined) => (e && e.actual !== null && e.forecast !== null ? e.actual - e.forecast : NaN);
-
-/** Initial jobless claims averaged over a month (weeks ending in it), as printed before `before`. */
-function claimsAvg(inputs: Inputs, month: string, before: string): number {
-  return avg(inputs.releases.filter((e) => e.title === "Initial Jobless Claims" && e.ref.startsWith(month) && e.date < before && e.actual !== null).map((e) => e.actual!));
+/** A weekly release's prints averaged over the weeks of a month, as out before `before`. */
+function weeklyAvg(inputs: Inputs, title: string, month: string, before: string): number {
+  return avg(inputs.releases.filter((e) => e.title === title && e.ref.startsWith(month) && e.date < before && e.actual !== null).map((e) => e.actual!));
 }
 
-/** The latest JOLTS openings out before `before`, and its change from the print before. */
-function joltsChange(inputs: Inputs, before: string): number {
-  const v = inputs.releases.filter((e) => e.title === "JOLTs Job Openings" && e.date < before && e.actual !== null);
-  const last = v.at(-1);
-  return last && last.previous !== null ? last.actual! - last.previous : NaN;
+/** GDPNow's last nowcast for a quarter (FRED dates it by the quarter's first day). */
+function gdpNow(inputs: Inputs, quarterEnd: string): number {
+  const y = Number(quarterEnd.slice(0, 4));
+  const q = Math.floor((Number(quarterEnd.slice(5, 7)) - 1) / 3);
+  const start = `${y}-${String(q * 3 + 1).padStart(2, "0")}-01`;
+  return inputs.markets.GDPNOW?.find((p) => p.date === start)?.value ?? NaN;
 }
 
-function clevelandFor(inputs: Inputs, series: string, month: string): number {
-  return inputs.cleveland.find((m) => m.month === month)?.nowcast[series] ?? NaN;
-}
+/** A feature: its value for the release `e` (measuring `month`, out at `before`, consensus `c`). */
+type Feature = { name: string; label: string; value: (inputs: Inputs, month: string, before: string, consensus: number, e: Release) => number };
 
-type Feature = { name: string; label: string; value: (inputs: Inputs, month: string, before: string, consensus: number) => number };
+const GASOLINE: Feature = { name: "gas", label: "Bensin eceran Δ%", value: (i, m, b) => pctChange(i.markets.GASREGW ?? [], m, b) };
 
-const MARKET_FEATURES: Feature[] = [
-  { name: "wti", label: "WTI Δ% bulan itu", value: (i, m, b) => pctChange(i.markets.DCOILWTICO ?? [], m, b) },
-  { name: "gas", label: "Bensin eceran Δ%", value: (i, m, b) => pctChange(i.markets.GASREGW ?? [], m, b) },
-  { name: "usd", label: "Dolar (broad) Δ%", value: (i, m, b) => pctChange(i.markets.DTWEXBGS ?? [], m, b) },
-  { name: "y2", label: "Yield 2Y Δ (pp)", value: (i, m, b) => levelChange(i.markets.DGS2 ?? [], m, b) },
-  { name: "be5", label: "Breakeven 5Y Δ (pp)", value: (i, m, b) => levelChange(i.markets.T5YIE ?? [], m, b) },
-];
+export type Unit = "%" | "K" | "pt";
 
 export type Target = {
   key: string;
   label: string;
   title: string;
-  unit: "%" | "K";
+  unit: Unit;
   /** A gap from the consensus this big or more calls a side. */
   hot: number;
+  /** +1 when a print above the consensus is hawkish (inflation, jobs), −1 when it's dovish
+   *  (unemployment, jobless claims). */
+  hawk: 1 | -1;
   features: Feature[];
 };
 
-// The features each target keeps: the few that held up out of sample (walk-forward, 2016–2026).
-// With ~160 releases, more features made every model worse than the consensus it adjusts; the
-// consensus and previous print themselves added nothing (the target is already the surprise).
-const MARKET = Object.fromEntries(MARKET_FEATURES.map((f) => [f.name, f]));
+// The features each target keeps: those that cut the walk-forward miss (2016–2026) by 1% or more,
+// added one at a time, best first. Tried and not kept, as they added nothing over the consensus:
+//   CPI: Cleveland nowcast gap, PPI surprise, gasoline, WTI, ISM prices, dollar, 2Y, breakevens;
+//   core CPI: Cleveland, ISM services prices, PPI; payrolls: ADP surprise, claims, ISM employment,
+//   JOLTS; PCE and core PCE: Cleveland, CPI and PPI surprises; retail sales: gasoline, Redbook,
+//   Michigan sentiment; claims: last week's surprise, 4-week average, continuing claims; ISM
+//   manufacturing: Empire, Philly, Chicago, S&P Global flash.
+// With none kept, the band is the consensus plus the surprise's spread over the years: still the
+// honest range of where the print can land. ISM services (42 releases) is too short to test.
+const target = (key: string, label: string, title: string, unit: Unit, hot: number, features: Feature[] = [], hawk: 1 | -1 = 1): Target => ({ key, label, title, unit, hot, hawk, features });
 
 export const TARGETS: Target[] = [
-  {
-    key: "cpi_mom",
-    label: "CPI MoM",
-    title: "Inflation Rate MoM",
-    unit: "%",
-    hot: 0.05,
-    features: [
-      { name: "clev", label: "Nowcast Cleveland − konsensus", value: (i, m, _b, c) => clevelandFor(i, "CPI Inflation", m) - c },
-      { name: "ppi", label: "Kejutan PPI (bila rilis lebih dulu)", value: (i, m, b) => surprise(sameMonth(i, "PPI MoM", m, b)) },
-      MARKET.gas,
-    ],
-  },
-  {
-    key: "core_cpi_mom",
-    label: "Core CPI MoM",
-    title: "Core Inflation Rate MoM",
-    unit: "%",
-    hot: 0.05,
-    features: [{ name: "ism_s", label: "ISM Services Prices", value: (i, m, b) => sameMonth(i, "ISM Services Prices", m, b)?.actual ?? NaN }],
-  },
-  {
-    key: "ppi_mom",
-    label: "PPI MoM",
-    title: "PPI MoM",
-    unit: "%",
-    hot: 0.1,
-    features: [{ name: "cpi", label: "Kejutan CPI (bila rilis lebih dulu)", value: (i, m, b) => surprise(sameMonth(i, "Inflation Rate MoM", m, b)) }, MARKET.gas],
-  },
-  {
-    key: "nfp",
-    label: "Non Farm Payrolls",
-    title: "Non Farm Payrolls",
-    unit: "K",
-    hot: 25,
-    features: [{ name: "adp", label: "Kejutan ADP (K)", value: (i, m, b) => surprise(sameMonth(i, "ADP Employment Change", m, b)) }],
-  },
+  target("cpi_mom", "CPI MoM", "Inflation Rate MoM", "%", 0.05),
+  target("core_cpi_mom", "Core CPI MoM", "Core Inflation Rate MoM", "%", 0.05),
+  target("ppi_mom", "PPI MoM", "PPI MoM", "%", 0.1, [GASOLINE]),
+  target("nfp", "Non Farm Payrolls", "Non Farm Payrolls", "K", 25),
+  target("unemployment", "Unemployment Rate", "Unemployment Rate", "%", 0.1, [
+    {
+      name: "cont",
+      label: "Klaim lanjutan Δ rata-rata (K)",
+      value: (i, m, b) => weeklyAvg(i, "Continuing Jobless Claims", m, b) - weeklyAvg(i, "Continuing Jobless Claims", addMonths(m, -1), b),
+    },
+  ], -1),
+  target("core_pce_mom", "Core PCE MoM", "Core PCE Price Index MoM", "%", 0.05),
+  target("pce_mom", "PCE MoM", "PCE Price Index MoM", "%", 0.05),
+  target("retail", "Retail Sales MoM", "Retail Sales MoM", "%", 0.2),
+  target("gdp", "GDP QoQ (Adv)", "GDP Growth Rate QoQ Adv", "%", 0.3, [{ name: "gdpnow", label: "GDPNow − konsensus", value: (i, _m, _b, c, e) => gdpNow(i, e.ref) - c }]),
+  target("claims", "Initial Jobless Claims", "Initial Jobless Claims", "K", 8, [], -1),
+  target("ism_mfg", "ISM Manufacturing PMI", "ISM Manufacturing PMI", "pt", 1),
 ];
 
-function featureRow(t: Target, inputs: Inputs, month: string, before: string, consensus: number): number[] {
-  return t.features.map((f) => f.value(inputs, month, before, consensus));
+function featureRow(t: Target, inputs: Inputs, month: string, before: string, consensus: number, e: Release): number[] {
+  return t.features.map((f) => f.value(inputs, month, before, consensus, e));
 }
 const featureNames = (t: Target) => t.features.map((f) => f.label);
 
@@ -260,7 +246,7 @@ export function rows(t: Target, inputs: Inputs): Row[] {
     .filter((e) => e.title === t.title && e.actual !== null && e.forecast !== null)
     .map((e) => {
       const month = e.ref.slice(0, 7);
-      return { date: e.date, month, x: featureRow(t, inputs, month, e.date, e.forecast!), consensus: e.forecast!, actual: e.actual! };
+      return { date: e.date, month, x: featureRow(t, inputs, month, e.date, e.forecast!, e), consensus: e.forecast!, actual: e.actual! };
     });
 }
 
@@ -278,18 +264,14 @@ export type Backtest = {
   medianSpread: number;
 };
 
+export type Prediction = { date: string; month: string; consensus: number; actual: number; lo: number; mid: number; hi: number };
+
 /**
  * Walk-forward: from the 36th release on, each predicted by models trained only on the releases
- * before it (refitted every six releases; between refits the last fit is used).
+ * before it (refitted every six releases; between refits the last fit is used). Surprises.
  */
-export function backtest(t: Target, data: Row[], params: GbmParams = ENGINE_PARAMS): Backtest {
-  let n = 0;
-  let eEng = 0;
-  let eCon = 0;
-  let inside = 0;
-  let calls = 0;
-  let hits = 0;
-  const spreads: number[] = [];
+export function walkForward(data: Row[], params: GbmParams = ENGINE_PARAMS): Prediction[] {
+  const out: Prediction[] = [];
   let band: ReturnType<typeof fitBand> | null = null;
   let medians: number[] = [];
   for (let i = 36; i < data.length; i++) {
@@ -300,27 +282,47 @@ export function backtest(t: Target, data: Row[], params: GbmParams = ENGINE_PARA
     }
     const r = data[i];
     const [lo, mid, hi] = predictBand(band, fill(r.x, medians));
-    const s = r.actual - r.consensus;
-    n++;
-    eEng += Math.abs(s - mid);
+    out.push({ date: r.date, month: r.month, consensus: r.consensus, actual: r.actual, lo, mid, hi });
+  }
+  return out;
+}
+
+/** The engine's side for a surprise: hawkish, dovish or neither, on the gap as shown. */
+export function biasOf(t: Target, surprise: number): Bias {
+  // Called on the gap as shown (to 0.01 pp, or 1K): 0.599 against 0.5 reads as 0.60, a 0.1 gap.
+  const shown = t.unit === "K" ? Math.round(surprise) : Math.round(surprise * 100) / 100;
+  const signed = shown * t.hawk;
+  return signed >= t.hot ? "hawkish" : signed <= -t.hot ? "dovish" : "neutral";
+}
+
+export function backtest(t: Target, data: Row[], params: GbmParams = ENGINE_PARAMS): Backtest {
+  const preds = walkForward(data, params);
+  let eEng = 0;
+  let eCon = 0;
+  let inside = 0;
+  let calls = 0;
+  let hits = 0;
+  for (const p of preds) {
+    const s = p.actual - p.consensus;
+    eEng += Math.abs(s - p.mid);
     eCon += Math.abs(s);
-    if (s >= lo && s <= hi) inside++;
-    spreads.push(hi - lo);
-    if (Math.abs(mid) >= t.hot && s !== 0) {
+    if (s >= p.lo && s <= p.hi) inside++;
+    if (Math.abs(p.mid) >= t.hot && s !== 0) {
       calls++;
-      if (Math.sign(mid) === Math.sign(s)) hits++;
+      if (Math.sign(p.mid) === Math.sign(s)) hits++;
     }
   }
+  const n = preds.length;
   const r3 = (v: number) => Math.round(v * 1000) / 1000;
   return {
     months: n,
-    from: data[36]?.month ?? null,
+    from: preds[0]?.month ?? null,
     maeEngine: r3(n ? eEng / n : 0),
     maeConsensus: r3(n ? eCon / n : 0),
     coverage: r3(n ? inside / n : 0),
     calls,
     hits,
-    medianSpread: r3(quantile(spreads, 0.5)),
+    medianSpread: r3(quantile(preds.map((p) => p.hi - p.lo), 0.5)),
   };
 }
 
@@ -330,7 +332,7 @@ export type Snapshot = { at: string; p10: number; p50: number; p90: number; adju
 export type EngineRow = {
   key: string;
   label: string;
-  unit: "%" | "K";
+  unit: Unit;
   period: string;
   release: string;
   consensus: number;
@@ -357,9 +359,9 @@ export type Engine = {
   asOf: string;
   rows: EngineRow[];
   /** Releases due whose consensus isn't out yet. */
-  waiting: Array<{ key: string; label: string; period: string; release: string; backtest: Backtest }>; recent: Array<{ key: string; label: string; unit: "%" | "K"; period: string; release: string; consensus: number; actual: number; h30: Snapshot }> ; source: string };
+  waiting: Array<{ key: string; label: string; unit: Unit; period: string; release: string; backtest: Backtest }>; recent: Array<{ key: string; label: string; unit: Unit; period: string; release: string; consensus: number; actual: number; h30: Snapshot }> ; source: string };
 
-const round = (v: number, unit: "%" | "K") => (unit === "K" ? Math.round(v) : Math.round(v * 1000) / 1000);
+const round = (v: number, unit: Unit) => (unit === "K" ? Math.round(v) : Math.round(v * 1000) / 1000);
 
 function loadSnapshots(): Record<string, Snapshot> {
   return readJson<Record<string, Snapshot>>(join(dir, "h30.json")) ?? {};
@@ -369,7 +371,10 @@ function loadSnapshots(): Record<string, Snapshot> {
  * The next release of each target: its band now, with the inputs as they stand (and the band kept
  * at H-30 once inside the last half hour), and the targets' out-of-sample track records.
  */
-export function runEngine(inputs: Inputs, sentiment: { index: number; at: string; title: string } | null, now = Date.now()): Engine {
+/** Inputs set by hand (the CLI's --set name=value), by feature name, for every target that has it. */
+export type Overrides = Record<string, number>;
+
+export function runEngine(inputs: Inputs, sentiment: { index: number; at: string; title: string } | null, now = Date.now(), overrides: Overrides = {}): Engine {
   const snapshots = loadSnapshots();
   let snapped = false;
   const out: EngineRow[] = [];
@@ -385,21 +390,20 @@ export function runEngine(inputs: Inputs, sentiment: { index: number; at: string
     if (!next) {
       // Scheduled, but its consensus isn't out yet: the band needs it.
       const due = inputs.releases.find((e) => e.title === t.title && Date.parse(e.date) > now);
-      if (due) waiting.push({ key: t.key, label: t.label, period: due.ref.slice(0, 7), release: due.date, backtest: bt });
+      if (due) waiting.push({ key: t.key, label: t.label, unit: t.unit, period: due.ref.slice(0, 7), release: due.date, backtest: bt });
       continue;
     }
     const month = next.ref.slice(0, 7);
     const before = new Date(Math.min(now, Date.parse(next.date))).toISOString();
-    const x = featureRow(t, inputs, month, before, next.forecast!);
+    const x = featureRow(t, inputs, month, before, next.forecast!, next).map((v, j) => overrides[t.features[j].name] ?? v);
     const [lo, mid, hi] = predictBand(band, fill(x, train.medians));
     const spread = hi - lo;
     const sd = Math.sqrt(data.reduce((n, r) => n + (r.actual - r.consensus) ** 2, 0) / data.length);
     const fresh = sentiment && now - Date.parse(sentiment.at) < 14 * 86_400_000 ? sentiment : null;
-    const adjustment = fresh ? fresh.index * 0.25 * sd : 0;
+    // A hawkish Fed leans the print the hawkish way (up for inflation, down for unemployment).
+    const adjustment = fresh ? fresh.index * 0.25 * sd * t.hawk : 0;
     const adjustedSurprise = mid + adjustment;
-    // Called on the gap as shown (to 0.01 pp, or 1K): 0.599 against 0.5 reads as 0.60, a 0.1 gap.
-    const shownGap = t.unit === "K" ? Math.round(adjustedSurprise) : Math.round(adjustedSurprise * 100) / 100;
-    const bias: Bias = shownGap >= t.hot ? "hawkish" : shownGap <= -t.hot ? "dovish" : "neutral";
+    const bias = biasOf(t, adjustedSurprise);
     const c = next.forecast!;
     const id = `${t.key}|${next.date}`;
     const releaseAt = Date.parse(next.date);
@@ -447,15 +451,20 @@ export function runEngine(inputs: Inputs, sentiment: { index: number; at: string
     rows: out,
     waiting,
     recent,
-    source: "Quantile gradient boosting (P10/P50/P90) on point-in-time data: TradingView economic calendar (first prints, consensus) since 2013, Cleveland Fed nowcast, FRED markets",
+    source: "Quantile gradient boosting (P10/P50/P90) on point-in-time data: TradingView economic calendar (first prints, consensus) since 2013, Atlanta Fed GDPNow and retail gasoline (FRED)",
   };
 }
 
-export const MARKET_IDS = ["DCOILWTICO", "GASREGW", "DTWEXBGS", "DGS2", "T5YIE"];
+export const MARKET_IDS = ["GASREGW", "GDPNOW"];
+
+/** The engine's data: the releases and the market series, as kept on disk. */
+export async function engineInputs(now = Date.now()): Promise<Inputs> {
+  const [releases, markets] = await Promise.all([usReleases(now), marketSeries(MARKET_IDS, now)]);
+  return { releases, markets };
+}
 
 export async function engine(sentiment: { index: number; at: string; title: string } | null, now = Date.now()): Promise<Engine> {
-  const [releases, markets, cleveland] = await Promise.all([usReleases(now), marketSeries(MARKET_IDS, now), clevelandFile("month").catch(() => [] as MonthNowcast[])]);
-  return runEngine({ releases, markets, cleveland }, sentiment, now);
+  return runEngine(await engineInputs(now), sentiment, now);
 }
 
 /**
