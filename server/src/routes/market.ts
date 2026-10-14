@@ -601,13 +601,15 @@ marketRouter.get("/fed/live", async (req, res) => {
   }
 });
 
-// A Fed broadcast's live transcript (YouTube's captions) and how hawkish or dovish it sounds,
-// from line `since` on. Polling it keeps the broadcast being followed.
+// A Fed broadcast's live transcript (YouTube's captions), how hawkish or dovish it sounds, and how
+// its main speaker sounds and looks (layers 2 and 3), from line `since` on. Polling it keeps the
+// broadcast being followed.
 marketRouter.get("/fed/transcript/:videoId", (req, res) => {
   const videoId = req.params.videoId;
   if (!/^[\w-]{11}$/.test(videoId)) return res.status(400).json({ error: "bad video id" });
   const since = Number(req.query.since ?? 0);
-  res.json(fedtranscript.transcript(videoId, Number.isFinite(since) ? since : 0));
+  // faces=0 turns the video analysis (layer 3, the heaviest) off.
+  res.json(fedtranscript.transcript(videoId, Number.isFinite(since) ? since : 0, req.query.faces !== "0"));
 });
 
 // ---- macro: FedWatch odds, funding rates, an indicator's history ----
