@@ -26,6 +26,8 @@ import * as moneyflow from "../providers/moneyflow.js";
 import * as transfers from "../providers/transfers.js";
 import * as newsArchive from "../news/archive.js";
 import * as tvquotes from "../live/tvquotes.js";
+import * as fedwatch from "../providers/fedwatch.js";
+import * as fundingrates from "../providers/fundingrates.js";
 import { asPairBars, asPairTrade, fxFutureOf } from "../providers/fxfutures.js";
 import { buildRecap, quotedTexts, withTranslations } from "../news/recap.js";
 import { toIndonesian } from "../news/translate.js";
@@ -581,6 +583,46 @@ marketRouter.get("/econ-calendar", async (req, res) => {
     }
     const data = await cached("econ-calendar", 900_000, () => econcalendar.weeklyEvents());
     res.json(data);
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// ---- macro: FedWatch odds, funding rates, an indicator's history ----
+
+marketRouter.get("/macro/fedwatch", async (req, res) => {
+  try {
+    res.json(await cached("macro:fedwatch", 10 * 60_000, () => fedwatch.fedWatch()));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+marketRouter.get("/macro/funding/:kind", async (req, res) => {
+  const kind = req.params.kind.toLowerCase() as fundingrates.FundingKind;
+  if (!fundingrates.FUNDING_KINDS.includes(kind)) {
+    res.status(400).json({ error: `kind must be one of ${fundingrates.FUNDING_KINDS.join(", ")}` });
+    return;
+  }
+  try {
+    res.json(await cached(`macro:funding:${kind}`, 60 * 60_000, () => fundingrates.fundingSeries(kind)));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// An indicator's releases over two years (?country=US&title=Core Inflation Rate MoM): the country's
+// history is read once every few hours and each indicator picked out of it.
+marketRouter.get("/macro/history", async (req, res) => {
+  const country = String(req.query.country ?? "").toUpperCase();
+  const title = String(req.query.title ?? "").slice(0, 120);
+  if (!econcalendar.TV_COUNTRIES.includes(country) || !title) {
+    res.status(400).json({ error: "country (a TradingView country code) and title are required" });
+    return;
+  }
+  try {
+    const events = await cached(`macro:history:${country}`, 6 * 3_600_000, () => econcalendar.countryHistory(country));
+    res.json(econcalendar.indicatorHistory(events, title));
   } catch (err) {
     fail(req, res, err);
   }

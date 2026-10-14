@@ -565,7 +565,7 @@ export function followOtherWindows(): () => void {
 
 /** What a tab is called on the tab bar: its name, or its symbol and page. */
 /** Pages whose name isn't their id capitalized. */
-const PAGE_LABELS: Record<string, string> = { workspace: "Workspace", astrocal: "Astro Calendar", moneyflow: "Money Flow", recap: "News Recap" };
+const PAGE_LABELS: Record<string, string> = { workspace: "Workspace", astrocal: "Astro Calendar", moneyflow: "Money Flow", recap: "News Recap", calendar: "Macro" };
 
 export function tabLabel(tab: TabData): string {
   if (tab.title) return tab.title;
