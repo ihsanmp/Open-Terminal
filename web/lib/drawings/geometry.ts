@@ -56,6 +56,8 @@ export type GeometryContext = {
    * reads these between its two times, as TradingView does, so a few wide bars don't smear it.
    */
   detailBars?: ReadonlyArray<Bar & { time: number }>;
+  /** A time's bar index, between bars too (where a finer bar sits on a coarser chart). */
+  logicalOf?: (time: number) => number;
 };
 
 export type Bar = { open: number; high: number; low: number; close: number; volume?: number };
@@ -271,6 +273,9 @@ export function fmtDuration(seconds: number): string {
   const d = Math.floor(s / 86_400);
   const h = Math.floor((s % 86_400) / 3600);
   const m = Math.floor((s % 3600) / 60);
+  // A week or more in days only: on a weekly or monthly chart the hours are only where between
+  // two bars a point sits ("471d 16h").
+  if (d >= 7) return `${Math.round(s / 86_400)}d`;
   if (d) return h ? `${d}d ${h}h` : `${d}d`;
   if (h) return m ? `${h}h ${m}m` : `${h}h`;
   return `${m}m`;
@@ -975,7 +980,22 @@ export function shapesFor(tool: ToolId, ctx: GeometryContext): Shape[] {
       const pts: Anchor[] = [];
       let pv = 0;
       let vol = 0;
-      for (let i = Math.max(0, Math.round(A.logical)); i < bars.length; i++) {
+      // On a weekly or monthly chart, from the finer bars: from the anchor's own day, each at its
+      // place between the chart's bars, rather than from the nearest week's or month's bar.
+      if (ctx.detailBars?.length && ctx.timeOf && ctx.logicalOf) {
+        const from = ctx.timeOf(A.logical);
+        for (const b of ctx.detailBars) {
+          if (b.time + 86_399 < from) continue;
+          const v = b.volume && b.volume > 0 ? b.volume : 1;
+          pv += ((b.high + b.low + b.close) / 3) * v;
+          vol += v;
+          const logical = ctx.logicalOf(b.time);
+          const x = xOf(logical);
+          const y = yOf(pv / vol);
+          if (x !== null && y !== null) pts.push({ x, y, logical, price: pv / vol });
+        }
+      }
+      for (let i = pts.length ? bars.length : Math.max(0, Math.round(A.logical)); i < bars.length; i++) {
         const b = bars[i];
         const v = b.volume && b.volume > 0 ? b.volume : 1;
         pv += ((b.high + b.low + b.close) / 3) * v;

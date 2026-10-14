@@ -186,6 +186,7 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
     return shapesFor(tool, {
       selected,
       timeOf: (l) => timeOfLogical(times, interval, l),
+      logicalOf: (t) => logicalOfTime(times, interval, t),
       formatTime: this.data.formatTime,
       bars: this.data.bars,
       detailBars: this.data.detailBars,

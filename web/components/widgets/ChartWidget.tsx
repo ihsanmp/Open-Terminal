@@ -478,9 +478,10 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
 
   const bars = useMemo(() => (liveCandles && liveCandles.length > 0 ? candlesToBars(liveCandles) : null), [liveCandles]);
 
-  // A volume profile on a chart of more than a day a bar reads daily bars, as TradingView reads
-  // intrabar data: a few weekly or monthly bars, each spread over its whole range, smear it.
-  const needsDetail = INTERVAL_SECONDS[interval] > 86_400 && !rangeChart && drawings.some((d) => d.tool === "volumeProfile");
+  // A volume profile or an anchored VWAP on a chart of more than a day a bar reads daily bars, as
+  // TradingView reads intrabar data: a few weekly or monthly bars, each spread over its whole
+  // range, smear a profile, and a VWAP would start at the nearest week rather than its own day.
+  const needsDetail = INTERVAL_SECONDS[interval] > 86_400 && !rangeChart && drawings.some((d) => d.tool === "volumeProfile" || d.tool === "anchoredVwap");
   const { data: detail } = useQuery({
     queryKey: ["history", symbol, "MAX", "1D"],
     queryFn: () => apiGetWithStale<Candle[]>(`/api/history/${symbol}?range=MAX&interval=1D`),

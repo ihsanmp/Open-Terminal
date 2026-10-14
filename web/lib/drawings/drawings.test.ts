@@ -89,6 +89,79 @@ describe("Fibonacci and Gann tools", () => {
   });
 });
 
+describe("every tool on weekly and monthly charts", () => {
+  /** Every number in a shape is finite, and no text reads NaN, Infinity or undefined. */
+  const sound = (shape: Shape): string | null => {
+    for (const [k, v] of Object.entries(shape)) {
+      if (typeof v === "number" && !Number.isFinite(v)) return `${k}=${v}`;
+      if (typeof v === "string" && /NaN|Infinity|undefined/.test(v)) return `${k}="${v}"`;
+      if (Array.isArray(v)) for (const p of v.flat(2)) if (typeof p === "number" && !Number.isFinite(p)) return `${k} has ${p}`;
+    }
+    return null;
+  };
+
+  // Two years of weekly bars (Mondays) and of calendar months (28–31 days apart), and the daily
+  // bars inside them; points between bars, on the last bar and past it.
+  const DAY = 86_400;
+  const start = Date.UTC(2024, 0, 1) / 1000;
+  const weeklyTimes = Array.from({ length: 104 }, (_, i) => start + i * 7 * DAY);
+  const monthlyTimes = Array.from({ length: 24 }, (_, i) => Date.UTC(2024, i, 1) / 1000);
+  const daily = Array.from({ length: 730 }, (_, i) => ({ time: start + i * DAY, open: 100 + i * 0.1, high: 103 + i * 0.1, low: 98 + i * 0.1, close: 101 + i * 0.1, volume: 1000 + (i % 7) * 50 }));
+  const barsOf = (times: number[]) =>
+    times.map((t) => {
+      const inside = daily.filter((d) => d.time >= t && d.time < t + 31 * DAY);
+      return { open: inside[0]?.open ?? 100, high: Math.max(...inside.map((d) => d.high)), low: Math.min(...inside.map((d) => d.low)), close: inside.at(-1)?.close ?? 100, volume: inside.reduce((n, d) => n + d.volume, 0) };
+    });
+
+  for (const [name, times, interval] of [
+    ["weekly", weeklyTimes, 7 * DAY],
+    ["monthly", monthlyTimes, 30 * DAY],
+  ] as const) {
+    it(`draws on a ${name} chart without a broken number or label`, () => {
+      const n = times.length;
+      const pts = [at(n * 0.1 + 0.4, 120), at(n * 0.3 + 0.6, 160), at(n * 0.45, 140), at(n * 0.55 + 0.25, 170), at(n * 0.65, 130), at(n - 1, 165), at(n + 3.5, 125)];
+      const geo = {
+        bars: barsOf(times),
+        detailBars: daily,
+        timeOf: (l: number) => timeOfLogical(times, interval, l),
+        logicalOf: (t: number) => logicalOfTime(times, interval, t),
+        formatTime: (t: number) => new Date(t * 1000).toISOString().slice(0, 10),
+      };
+      for (const t of TOOLS) {
+        const count = t.variable ? Math.max(t.points, 4) : t.points;
+        const shapes = shapesFor(t.id as ToolId, { ...ctx(pts.slice(0, count)), ...geo, drawing: { color: "#2962FF", width: 1, text: "Hi" } });
+        expect(shapes.length, t.id).toBeGreaterThan(0);
+        for (const s of shapes) expect(sound(s), `${t.id} on ${name}`).toBeNull();
+        expect(() => shapesFor(t.id as ToolId, { ...ctx(pts.slice(0, 1)), ...geo }), t.id).not.toThrow();
+      }
+    });
+  }
+
+  it("states a span of weeks in days, without the hours between bars", () => {
+    const weeks = Array.from({ length: 80 }, (_, i) => i * 7 * DAY);
+    const geo = { timeOf: (l: number) => timeOfLogical(weeks, 7 * DAY, l), bars: barsOf(weeks) };
+    const label = shapesFor("dateRange", { ...ctx([at(2.3, 120), at(69.6, 150)]), ...geo }).find((s) => s.t === "text") as Extract<Shape, { t: "text" }>;
+    expect(label.text).toMatch(/67 bars, 471d$/);
+  });
+
+  it("an anchored VWAP on a weekly chart starts on its anchor's day, from the daily bars", () => {
+    const times = weeklyTimes;
+    const geo = {
+      bars: barsOf(times),
+      detailBars: daily,
+      timeOf: (l: number) => timeOfLogical(times, 7 * DAY, l),
+      logicalOf: (t: number) => logicalOfTime(times, 7 * DAY, t),
+    };
+    // Anchored on the Wednesday of week 10: its first point is that day, at 10 + 2/7.
+    const line = shapesFor("anchoredVwap", { ...ctx([at(10 + 2 / 7, 0)]), ...geo, drawing: { color: "#2962FF", width: 1, options: { showLabels: false } } })[0] as Extract<Shape, { t: "poly" }>;
+    expect(line.pts[0][0]).toBeCloseTo(xOf(10 + 2 / 7), 6);
+    const wed = daily[72];
+    expect(line.pts[0][1]).toBeCloseTo(yOf((wed.high + wed.low + wed.close) / 3), 6);
+    // One point a day after it, not one a week.
+    expect(line.pts.length).toBe(daily.length - 72);
+  });
+});
+
 describe("picking a drawing", () => {
   it("measures the distance to lines, ellipses and filled boxes", () => {
     expect(distanceTo({ t: "seg", x1: 0, y1: 0, x2: 100, y2: 0, color: "" }, 50, 4)).toBeCloseTo(4);
