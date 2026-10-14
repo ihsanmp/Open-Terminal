@@ -27,6 +27,7 @@ import * as transfers from "../providers/transfers.js";
 import * as newsArchive from "../news/archive.js";
 import * as tvquotes from "../live/tvquotes.js";
 import * as fedwatch from "../providers/fedwatch.js";
+import * as fedlive from "../providers/fedlive.js";
 import * as fundingrates from "../providers/fundingrates.js";
 import { asPairBars, asPairTrade, fxFutureOf } from "../providers/fxfutures.js";
 import { buildRecap, quotedTexts, withTranslations } from "../news/recap.js";
@@ -583,6 +584,16 @@ marketRouter.get("/econ-calendar", async (req, res) => {
     }
     const data = await cached("econ-calendar", 900_000, () => econcalendar.weeklyEvents());
     res.json(data);
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// ---- the Fed on air: streaming now, due soon, and its calendar (providers/fedlive.ts) ----
+
+marketRouter.get("/fed/live", async (req, res) => {
+  try {
+    res.json(await cached("fed:live", 60_000, () => fedlive.fedLive()));
   } catch (err) {
     fail(req, res, err);
   }
