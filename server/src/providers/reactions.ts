@@ -17,12 +17,22 @@ import { biasOf, rows, TARGETS, walkForward, type Bias, type Inputs } from "./ma
 
 const dir = join(dataDir, "macro-engine");
 
+/**
+ * What a hawkish reading usually does to each (`hawk`): a stronger dollar and higher yields push
+ * gold, crypto, stocks and the euro down, the dollar index, dollar-yen and yields up.
+ */
 export const INSTRUMENTS = [
-  { key: "xau", label: "XAU/USD", symbol: "OANDA:XAUUSD", hawk: -1, unit: "%" },
-  { key: "btc", label: "BTC", symbol: "BITSTAMP:BTCUSD", hawk: -1, unit: "%" },
-  { key: "es", label: "S&P 500 fut", symbol: "CME_MINI:ES1!", hawk: -1, unit: "%" },
-  { key: "dxy", label: "DXY", symbol: "TVC:DXY", hawk: 1, unit: "%" },
-  { key: "us2y", label: "Yield 2Y", symbol: "TVC:US02Y", hawk: 1, unit: "bp" },
+  { key: "xau", label: "XAU/USD", symbol: "OANDA:XAUUSD", hawk: -1, unit: "%", group: "Komoditas" },
+  // Oil goes the other way: a hot US print reads as demand (2025–26, 30 minutes: up 63% of the time).
+  { key: "oil", label: "Minyak WTI", symbol: "TVC:USOIL", hawk: 1, unit: "%", group: "Komoditas" },
+  { key: "btc", label: "BTC", symbol: "BITSTAMP:BTCUSD", hawk: -1, unit: "%", group: "Crypto" },
+  { key: "eth", label: "ETH", symbol: "BITSTAMP:ETHUSD", hawk: -1, unit: "%", group: "Crypto" },
+  { key: "es", label: "S&P 500 fut", symbol: "CME_MINI:ES1!", hawk: -1, unit: "%", group: "Saham" },
+  { key: "eurusd", label: "EUR/USD", symbol: "FX:EURUSD", hawk: -1, unit: "%", group: "Forex" },
+  { key: "usdjpy", label: "USD/JPY", symbol: "FX:USDJPY", hawk: 1, unit: "%", group: "Forex" },
+  { key: "dxy", label: "DXY", symbol: "TVC:DXY", hawk: 1, unit: "%", group: "Forex" },
+  { key: "us2y", label: "Yield 2Y", symbol: "TVC:US02Y", hawk: 1, unit: "bp", group: "Obligasi" },
+  { key: "us10y", label: "Yield 10Y", symbol: "TVC:US10Y", hawk: 1, unit: "bp", group: "Obligasi" },
 ] as const;
 export type InstrumentKey = (typeof INSTRUMENTS)[number]["key"];
 
@@ -154,7 +164,7 @@ export type Reactions = {
   /** By target: how often each instrument moved the surprise's way (~30 min / day), and the engine's call's. */
   summary: Array<{ key: string; label: string; surprise30: Tally; surpriseDay: Tally; call30: Tally; callDay: Tally; releases: number }>;
   broadcasts: BroadcastReaction[];
-  instruments: Array<{ key: string; label: string; unit: string }>;
+  instruments: Array<{ key: string; label: string; unit: string; hawk: number; group: string }>;
 };
 
 const sideOfIndex = (index: number): Bias => (index >= 0.2 ? "hawkish" : index <= -0.2 ? "dovish" : "neutral");
@@ -201,7 +211,7 @@ export async function reactions(inputs: Inputs, now = Date.now()): Promise<React
     releases: out.filter((r) => Object.values(r.m30).some((v) => v !== null) || Object.values(r.day).some((v) => v !== null)).sort((a, b) => b.date.localeCompare(a.date)),
     summary,
     broadcasts: broadcasts.sort((a, b) => b.start - a.start),
-    instruments: INSTRUMENTS.map((i) => ({ key: i.key, label: i.label, unit: i.unit })),
+    instruments: INSTRUMENTS.map((i) => ({ key: i.key, label: i.label, unit: i.unit, hawk: i.hawk, group: i.group })),
   };
 }
 

@@ -32,6 +32,7 @@ import * as fedtranscript from "../providers/fedtranscript.js";
 import * as fedmedia from "../providers/fedmedia.js";
 import * as macroengine from "../providers/macroengine.js";
 import * as reactions from "../providers/reactions.js";
+import * as newsimpact from "../providers/newsimpact.js";
 import * as nowcast from "../providers/nowcast.js";
 import * as fundingrates from "../providers/fundingrates.js";
 import { asPairBars, asPairTrade, fxFutureOf } from "../providers/fxfutures.js";
@@ -661,6 +662,25 @@ marketRouter.get("/system/usage", (_req, res) => {
   cpuMark = { at: now, usage };
   const mem = process.memoryUsage();
   res.json({ rssMb: Math.round(mem.rss / 1e6), heapMb: Math.round(mem.heapUsed / 1e6), cpuPct: Math.round(cpu * 1000) / 10, faceWorker: fedmedia.faceWorkerRunning() });
+});
+
+// What a big release does to crypto, forex, stocks, the dollar, oil, gold and yields: scenarios
+// before it, the confirmation watch after it (providers/newsimpact.ts). A minute's cache around a
+// release (the watch reads 1-minute bars), ten otherwise.
+marketRouter.get("/macro/impact", async (req, res) => {
+  try {
+    const inputs = await macroengine.engineInputs();
+    const now = Date.now();
+    const near = inputs.releases.some((e) => Math.abs(Date.parse(e.date) - now) < 2 * 3_600_000 && macroengine.TARGETS.some((t) => t.title === e.title));
+    res.json(
+      await cached(near ? "macro:impact:live" : "macro:impact", near ? 60_000 : 10 * 60_000, () =>
+        // The engine's band (shared with /macro/engine's cache: it's the costlier half).
+        cached("macro:engine", 2 * 60_000, () => macroengine.engine(fedtranscript.latestFedSentiment())).then((engine) => newsimpact.impact(inputs, engine, now)),
+      ),
+    );
+  } catch (err) {
+    fail(req, res, err);
+  }
 });
 
 // How markets moved on each release and Fed broadcast, against the surprise, the engine's call and
