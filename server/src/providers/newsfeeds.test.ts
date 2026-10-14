@@ -24,7 +24,7 @@ describe("news wire parsing", () => {
 
   it("reads FinancialJuice's squawk without its name before every headline", () => {
     const fj = FEEDS.find((f) => f.id === "financialjuice")!;
-    expect(fj).toMatchObject({ category: "ECONOMIC", minIntervalMs: 180_000 });
+    expect(fj).toMatchObject({ category: "ECONOMIC", minIntervalMs: 60_000 });
     const xml = `<rss version="2.0"><channel><item><title>FinancialJuice: UKMTO: Container ship struck by projectile on October 13th </title>
       <link>https://www.financialjuice.com/News/9804963/UKMTO.aspx?xy=rss</link><description /><author>FinancialJuice</author>
       <pubDate>Thu, 24 Sep 2026 11:21:40 GMT</pubDate></item></channel></rss>`;

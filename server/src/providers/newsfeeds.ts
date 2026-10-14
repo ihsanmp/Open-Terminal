@@ -28,8 +28,9 @@ export const FEEDS: FeedDef[] = [
   { id: "ecb-press", name: "ECB Press", url: "https://www.ecb.europa.eu/rss/press.html", category: "REGULATORY", region: "EU", tier: 1 },
   { id: "boe-news", name: "Bank of England", url: "https://www.bankofengland.co.uk/rss/news", category: "REGULATORY", region: "UK", tier: 1 },
   // FinancialJuice: the macro squawk (data releases, central bankers' remarks, breaking market
-  // headlines) as it's said; read every few minutes, as its feed rate-limits.
-  { id: "financialjuice", name: "FinancialJuice", url: "https://www.financialjuice.com/feed.ashx?xy=rss", category: "ECONOMIC", region: "GLOBAL", tier: 1, minIntervalMs: 3 * 60_000 },
+  // headlines) as it's said; read once a minute and never sooner, as its feed rate-limits
+  // bursts (a minute apart it answers every time).
+  { id: "financialjuice", name: "FinancialJuice", url: "https://www.financialjuice.com/feed.ashx?xy=rss", category: "ECONOMIC", region: "GLOBAL", tier: 1, minIntervalMs: 60_000 },
   { id: "un-news", name: "UN News", url: "https://news.un.org/feed/subscribe/en/news/all/rss.xml", category: "GEOPOLITICS", region: "GLOBAL", tier: 1 },
 
   // Tier 2 — major financial and world media
