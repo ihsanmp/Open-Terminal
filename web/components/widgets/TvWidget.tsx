@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../../lib/api";
 import { useWidgetSetting } from "../../store/terminal";
 import NowcastPanel from "./NowcastPanel";
+import { SentimentBar, TranscriptPanel, useFedTranscript } from "./FedTranscript";
 
 // Live business-news channels as HLS straight from each broadcaster's own CDN (no YouTube, so
 // no embed or consent walls). Each was checked live — the playlist advancing and its segment
@@ -75,11 +76,12 @@ function FedPanel() {
   const now = useNow();
   const [picked, setPicked] = useState<string | null>(null);
   const [showStats, setShowStats] = useWidgetSetting("fedShowStats", false);
-  const [side, setSide] = useWidgetSetting<"schedule" | "nowcast">("fedSide", "schedule");
+  const [side, setSide] = useWidgetSetting<"schedule" | "nowcast" | "transcript">("fedSide", "schedule");
   const live = data?.live ?? [];
   const playing = live.find((l) => l.videoId === picked) ?? (picked ? data?.upcoming.find((u) => u.videoId === picked) : undefined) ?? live[0];
   const next = data?.upcoming[0];
   const schedule = (data?.schedule ?? []).filter((e) => showStats || e.type !== "Stat");
+  const transcript = useFedTranscript(playing?.videoId ?? null);
 
   return (
     <div className="flex flex-col lg:flex-row flex-1 min-h-0">
@@ -102,6 +104,7 @@ function FedPanel() {
               allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
               allowFullScreen
             />
+            <SentimentBar state={transcript} />
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gap-2 p-4 text-center">
@@ -137,13 +140,18 @@ function FedPanel() {
           <button className={side === "nowcast" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("nowcast")} title="Nowcast CPI/PCE dan GDP dibandingkan konsensus">
             Nowcast
           </button>
+          <button className={side === "transcript" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("transcript")} title="Transkrip live siaran dan Fed Sentiment Index">
+            Transkrip{playing?.status === "live" && <span className="down"> ●</span>}
+          </button>
           {side === "schedule" && (
             <label className="ml-auto flex items-center gap-1 dim cursor-pointer">
               <input type="checkbox" checked={showStats} onChange={(e) => setShowStats(e.target.checked)} /> rilis data
             </label>
           )}
         </div>
-        {side === "nowcast" ? (
+        {side === "transcript" ? (
+          <TranscriptPanel state={transcript} live={playing?.status === "live"} />
+        ) : side === "nowcast" ? (
           <div className="overflow-auto flex-1 min-h-0">
             <NowcastPanel />
           </div>
