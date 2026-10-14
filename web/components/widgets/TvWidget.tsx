@@ -40,7 +40,15 @@ function lagLabel(lag: Lag): string {
 
 // ---------------------------------------------------------------- the Fed on air
 
-type FedStream = { videoId: string; title: string; channel: string; status: "live" | "upcoming" | "ended"; start: string | null };
+type FedStream = {
+  videoId: string;
+  title: string;
+  channel: string;
+  status: "live" | "upcoming" | "ended";
+  start: string | null;
+  /** The Fed calendar's entries it carries (a speaker's slot in another host's broadcast). */
+  events?: Array<{ title: string; description: string; location: string; start: string }>;
+};
 type FedEvent = { title: string; description: string; location: string; type: string; start: string; allDay: boolean; videoId: string | null; link: string | null };
 type FedLive = { checkedAt: number; live: FedStream[]; upcoming: FedStream[]; schedule: FedEvent[] };
 
@@ -109,6 +117,81 @@ function LinkBox({ active, onPick, onClear }: { active: boolean; onPick: (id: st
   );
 }
 
+const when = (iso: string) => new Date(iso).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+type EconRelease = { title: string; country: string; region?: string; date: string; impact: string; forecast: string | null; previous: string | null; actual: string | null };
+
+/**
+ * The US data the market moves on (CPI, payrolls, retail sales…): the high-impact releases from
+ * three hours ago to four days ahead, from the economic calendar. Not the Fed's own broadcasts, but
+ * what its speakers will be asked about.
+ */
+function NextReleases({ now, limit = 8 }: { now: number; limit?: number }) {
+  const from = Math.floor((now - 3 * 3_600_000) / 3_600_000) * 3_600_000;
+  const to = from + 4 * 86_400_000;
+  const { data } = useQuery({
+    queryKey: ["econ-calendar", from, to],
+    queryFn: () => apiGet<EconRelease[]>(`/api/econ-calendar?from=${new Date(from).toISOString()}&to=${new Date(to).toISOString()}`),
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
+  const us = (data ?? [])
+    .filter((e) => e.impact === "High" && (e.region === "US" || e.country === "US" || e.country === "USD"))
+    // Data and decisions only: the Fed's speeches are the broadcasts above.
+    .filter((e) => !/speech|speaks|testimony/i.test(e.title))
+    .filter((e) => Date.parse(e.date) > now - 3 * 3_600_000)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, limit);
+  if (!us.length) return null;
+  // One heading per release time (CPI's MoM, core and YoY come out together), its countdown once.
+  const groups: Array<{ date: string; rows: EconRelease[] }> = [];
+  for (const e of us) {
+    const g = groups.at(-1);
+    if (g && g.date === e.date) g.rows.push(e);
+    else groups.push({ date: e.date, rows: [e] });
+  }
+  return (
+    <div className="w-full max-w-[620px] border border-[var(--border)] rounded-sm text-left text-fs-11">
+      <div className="px-2 py-1 bg-[#141414] font-bold text-[var(--text)]">📊 Rilis data AS berdampak besar (CPI, PPI, NFP, …)</div>
+      {groups.map((g) => {
+        const t = Date.parse(g.date);
+        const out = g.rows.some((e) => e.actual !== null);
+        return (
+          <div key={g.date} className="border-t border-[#1c1c1c]">
+            <div className="px-2 pt-1 flex items-center gap-2">
+              <span className="dim tabular-nums">{when(g.date)}</span>
+              <span className="ml-auto tabular-nums">
+                {out ? <span className="up">sudah rilis</span> : t > now ? <span className="amber font-bold">{countdown(t, now)}</span> : <span className="down">menunggu angka…</span>}
+              </span>
+            </div>
+            <table className="data-table">
+              <tbody>
+                {g.rows.map((e) => (
+                  <tr key={e.title}>
+                    <td className="!text-left text-[var(--text)]">{e.title}</td>
+                    <td className="tabular-nums">
+                      <span className="dim">aktual </span>
+                      <span className="text-[var(--text)] font-bold">{e.actual ?? "-"}</span>
+                    </td>
+                    <td className="tabular-nums">
+                      <span className="dim">konsensus </span>
+                      {e.forecast ?? "-"}
+                    </td>
+                    <td className="tabular-nums">
+                      <span className="dim">sebelumnya </span>
+                      {e.previous ?? "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 const TYPE_LABEL: Record<string, string> = { Speeches: "PIDATO", FOMC: "FOMC", Testimony: "TESTIMONY", Beige: "BEIGE BOOK", Stat: "RILIS DATA", Board: "BOARD", Conferences: "KONFERENSI", Other: "LAINNYA", events: "ACARA" };
 
 function FedPanel() {
@@ -152,7 +235,9 @@ function FedPanel() {
           <>
             <div className="flex items-center gap-2 px-2 py-1 text-fs-11 bg-[#111] border-b border-[var(--border)]">
               <span className={badge!.cls}>{badge!.text}</span>
-              <span className="text-[var(--text)] truncate">{playing.title}</span>
+              <span className="text-[var(--text)] truncate" title={playing.title}>
+                {playing.events?.[0] ? `${playing.events[0].title} · ${when(playing.events[0].start)}` : playing.title}
+              </span>
               <span className="dim shrink-0">· {playing.channel}</span>
               <a className="ml-auto term-btn shrink-0" href={`https://www.youtube.com/watch?v=${playing.videoId}`} target="_blank" rel="noreferrer" title="Buka di YouTube">
                 ↗ YouTube
@@ -175,19 +260,35 @@ function FedPanel() {
             {error && <div className="down">Gagal memeriksa: {(error as Error).message}</div>}
             {next && (
               <>
-                <div className="dim">Siaran berikutnya</div>
-                <div className="text-[var(--text)] max-w-[520px]">{next.title}</div>
-                <div className="dim text-fs-11">{next.channel}</div>
-                {next.start && (
-                  <div className="amber text-fs-18 font-bold tabular-nums">
-                    {countdown(Date.parse(next.start), now)} <span className="dim text-fs-11 font-normal">· {new Date(next.start).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
-                  </div>
+                <div className="dim">Siaran The Fed berikutnya</div>
+                {next.events?.[0] ? (
+                  <>
+                    <div className="text-[var(--text)] max-w-[520px]">{next.events[0].title}</div>
+                    <div className="dim text-fs-11 max-w-[520px]">{[next.events[0].description, next.events[0].location].filter(Boolean).join(" · ")}</div>
+                    <div className="amber text-fs-18 font-bold tabular-nums">
+                      {countdown(Date.parse(next.events[0].start), now)} <span className="dim text-fs-11 font-normal">· bicara {when(next.events[0].start)}</span>
+                    </div>
+                    <div className="dim text-fs-10 max-w-[520px]">
+                      Disiarkan di channel {next.channel} (“{next.title}”){next.start && next.start !== next.events[0].start ? `, siaran dibuka ${when(next.start)}` : ""}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-[var(--text)] max-w-[520px]">{next.title}</div>
+                    <div className="dim text-fs-11">{next.channel}</div>
+                    {next.start && (
+                      <div className="amber text-fs-18 font-bold tabular-nums">
+                        {countdown(Date.parse(next.start), now)} <span className="dim text-fs-11 font-normal">· {when(next.start)}</span>
+                      </div>
+                    )}
+                  </>
                 )}
                 <button className="term-btn" onClick={() => setPicked(next.videoId)}>
                   Buka ruang tunggu siaran
                 </button>
               </>
             )}
+            <NextReleases now={now} />
             <div className="dim text-fs-10 max-w-[520px]">
               Dicek setiap menit: channel YouTube The Fed (Board dan 11 Fed regional) serta siaran yang dicantumkan kalender resmi federalreserve.gov. Saat ada yang live, siarannya langsung diputar di sini.
             </div>
