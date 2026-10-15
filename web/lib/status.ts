@@ -8,7 +8,7 @@ import { apiGet } from "./api";
 
 export type Status = {
   ok: boolean;
-  providers: Array<{ name: string; ok: number; failed: number; lastLatencyMs: number | null }>;
+  providers: Array<{ name: string; ok: number; failed: number; lastLatencyMs: number | null; avgLatencyMs: number | null }>;
   ai: boolean;
 };
 

@@ -64,10 +64,21 @@ export default function TopBar() {
           ⧉ Window
         </button>
       </span>
-      <span className="dim ml-auto max-sm:hidden truncate min-w-0 shrink">
+      {/* Each source's average response time from the API (a rolling mean): a whole chart history
+          is one response, so it's not a network ping; the last single request alone swung with
+          whatever happened to be asked last. */}
+      <span
+        className="dim ml-auto max-sm:hidden truncate min-w-0 shrink"
+        title={
+          healthy.length > 0
+            ? healthy.map((p) => `${p.name}: rata-rata ${p.avgLatencyMs ?? "—"} ms, terakhir ${p.lastLatencyMs ?? "—"} ms (${p.ok} permintaan)`).join("\n") +
+              "\n\nWaktu respons server → sumber data, termasuk unduhan riwayat chart; bukan ping jaringan."
+            : undefined
+        }
+      >
         feeds:{" "}
         {healthy.length > 0
-          ? healthy.map((p) => `${p.name} ${p.lastLatencyMs ?? "—"}ms`).join(" · ")
+          ? healthy.map((p) => `${p.name} ${p.avgLatencyMs ?? p.lastLatencyMs ?? "—"}ms`).join(" · ")
           : "connecting…"}
       </span>
       {/* Only when the assistant is set up (an Anthropic key on the server); its menu item too. */}
