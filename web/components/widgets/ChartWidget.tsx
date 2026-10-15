@@ -40,12 +40,11 @@ import {
   type IndicatorResult,
   type Params,
 } from "../../lib/ta";
-import { barSpacing } from "../../lib/ta/core";
 import { movedBound, styledLevels, styleResult } from "../../lib/ta/style";
 import { BackgroundPrimitive, CountdownPrimitive, DrawingsPrimitive, FillPrimitive, type DrawingsSpec } from "../../lib/ta/chart-primitives";
 import { IndicatorTableView } from "../chart/IndicatorTableView";
 import { chartContext } from "../../lib/chart-context";
-import { INTERVAL_LABEL, INTERVAL_SECONDS, INTERVAL_SOURCE, RANGE_PRESETS, isRangeInterval, latestBarsView, loadRange, orderedFavorites, presetStart, resolveInterval, type ChartInterval } from "../../lib/chart-intervals";
+import { INTERVAL_LABEL, INTERVAL_SECONDS, INTERVAL_SOURCE, RANGE_PRESETS, isRangeInterval, futureTimes, latestBarsView, loadRange, orderedFavorites, presetStart, resolveInterval, type ChartInterval } from "../../lib/chart-intervals";
 import { groupDays, groupHours, rangeBars } from "../../lib/chart-aggregate";
 import { TimeGridPrimitive, zonedTimes } from "../../lib/chart-grid";
 import { priceDigits } from "../../lib/watchlist";
@@ -79,6 +78,10 @@ type ChartType = (typeof CHART_TYPES)[number];
 
 /** Axis font size; the countdown label is stacked by the height it gives the price label. */
 const AXIS_FONT_SIZE = fontPx(10);
+/** Blank bars past the last one the chart opens with, and the most it grows to (a guard: some 550
+ *  years of daily bars, or 140 days of 1-minute ones). */
+const FUTURE_BARS = 500;
+const MAX_FUTURE_BARS = 200_000;
 
 type PreparedPlot = { values: number[]; colors?: Color[] };
 
@@ -129,27 +132,6 @@ const shownOn = (it: { inst: IndicatorInstance; error?: string }, intervalSecond
 function valuePrecision(def: IndicatorDef, style: IndicatorStyle | undefined, pricePrecision: number): number {
   if (style?.precision !== undefined) return style.precision;
   return def.overlay && !def.volumeOverlay ? Math.max(def.precision ?? 2, pricePrecision) : def.precision ?? 2;
-}
-
-/** Future bar times so positive offsets (Ichimoku cloud, Alligator) can be drawn. */
-function futureTimes(time: number[], count: number): number[] {
-  if (count <= 0 || time.length === 0) return [];
-  const spacing = barSpacing(time);
-  // Skip weekends only for markets that don't trade them (crypto bars include Sat/Sun).
-  const tradesWeekends = time.slice(-30).some((t) => [0, 6].includes(new Date(t * 1000).getUTCDay()));
-  const daily = spacing >= 20 * 3600 && spacing <= 2 * 86_400 && !tradesWeekends;
-  const out: number[] = [];
-  let t = time[time.length - 1];
-  while (out.length < count) {
-    t += spacing;
-    if (daily) {
-      const day = new Date(t * 1000).getUTCDay();
-      if (day === 6) t += 2 * 86_400;
-      else if (day === 0) t += 86_400;
-    }
-    out.push(t);
-  }
-  return out;
 }
 
 function shifted<T>(values: T[], offset: number, total: number, empty: T): T[] {
@@ -672,12 +654,21 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       // Dragging pans, dragging an axis stretches it and double-clicking it resets it; the wheel is
       // handled below, the way TradingView does it.
       handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
-      handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true } },
+      handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: false, price: true } },
     });
 
     // ---- main price series (with optional barcolor from an indicator) ----
     const barColors = [...items].reverse().find((it) => shownOn(it, intervalSeconds) && it.result.barColors)?.result.barColors;
-    const future = times.slice(candles.length).map((time) => ({ time }));
+    // The time axis runs on past the last bar without end, as TradingView's does: blank bars (past
+    // any indicator's forward offset too), and more of them whenever the view nears their end
+    // (growAxis below). Its own copy, as it grows: `times` is shared with the next build.
+    const axis = [...(times as number[])];
+    const candleTimes = (times as number[]).slice(0, candles.length);
+    // Far enough to take back a view saved further out (the chart is rebuilt as new bars come in).
+    const saved = savedRange.current?.key === viewKey ? savedRange.current.range : null;
+    const wantFuture = Math.min(MAX_FUTURE_BARS, Math.max(FUTURE_BARS, saved ? Math.ceil(saved.to + 2 * (saved.to - saved.from)) - candles.length : 0));
+    axis.push(...futureTimes(candleTimes, Math.max(0, wantFuture - (axis.length - candles.length)), axis[axis.length - 1]));
+    let mainData: Array<{ time: UTCTimestamp }>;
     let main: ISeriesApi<SeriesType>;
     if (chartType === "candles" || chartType === "bars") {
       // An indicator's barcolor wins; otherwise "Color bars based on previous close" when it's on.
@@ -693,18 +684,26 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         chartType === "candles"
           ? chart.addSeries(CandlestickSeries, { ...candleOptions(chartStyle), priceFormat: mainFormat })
           : chart.addSeries(BarSeries, { upColor: chartStyle.borders.up, downColor: chartStyle.borders.down, priceFormat: mainFormat });
-      main.setData([...data, ...future]);
+      mainData = data;
     } else {
       main =
         chartType === "line"
           ? chart.addSeries(LineSeries, { color: "#ff9900", lineWidth: 1, priceFormat: mainFormat, crosshairMarkerVisible: false })
           : chart.addSeries(AreaSeries, { lineColor: "#ff9900", topColor: "rgba(255,153,0,0.25)", bottomColor: "rgba(255,153,0,0)", priceFormat: mainFormat, crosshairMarkerVisible: false });
-      main.setData([...candles.map((c) => ({ time: c.time as UTCTimestamp, value: c.close })), ...future]);
+      mainData = candles.map((c) => ({ time: c.time as UTCTimestamp, value: c.close }));
     }
+    // The chart scrolls no further right than a screen past its last bar with a value, blank ones
+    // not counted: an unseen point at the axis's end (on a scale of its own) lets it reach the end.
+    const axisEnd = chart.addSeries(LineSeries, { visible: false, priceScaleId: "axis-end", lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
+    const setMain = () => {
+      main.setData([...mainData, ...axis.slice(candles.length).map((time) => ({ time: time as UTCTimestamp }))]);
+      axisEnd.setData(axis.length > candles.length ? [{ time: axis[axis.length - 1] as UTCTimestamp, value: candles[candles.length - 1].close }] : []);
+    };
+    setMain();
 
     // The vertical grid, after the interval (lib/chart-grid): on the price pane, and on each
     // indicator pane as it is made below.
-    const zoned = zonedTimes(times as number[], timezone);
+    const zoned = zonedTimes(axis, timezone);
     const gridPanes = new Set<number>([0]);
     if (chartStyle.vertGrid.visible) main.attachPrimitive(new TimeGridPrimitive(zoned, intervalSeconds, chartStyle.vertGrid.color));
 
@@ -892,7 +891,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     if (preset && preset.interval === interval) {
       // A date-range button: its span, from where it starts to the latest bar.
       pendingPreset.current = null;
-      chart.timeScale().setVisibleLogicalRange({ from: presetStart(times as number[], preset.span) - 0.5, to: candles.length + 1 });
+      chart.timeScale().setVisibleLogicalRange({ from: presetStart(candleTimes, preset.span) - 0.5, to: candles.length + 1 });
     } else if (savedRange.current?.key === viewKey) chart.timeScale().setVisibleLogicalRange(savedRange.current.range);
     // The latest bars in view; the rest of the loaded history sits to the left.
     else chart.timeScale().setVisibleLogicalRange(latestBarsView(candles.length, el.clientWidth * 0.94));
@@ -976,10 +975,33 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       overPriceAxis,
       showSpan: (span: number | "ytd" | "all") => {
         autoOn();
-        ts.setVisibleLogicalRange({ from: presetStart(times as number[], span) - 0.5, to: candles.length + 1 });
+        ts.setVisibleLogicalRange({ from: presetStart(candleTimes, span) - 0.5, to: candles.length + 1 });
       },
     };
-    const onRange = (r: LogicalRange | null) => setAwayFromLatest(Boolean(r && r.to < candles.length - 2));
+    // More blank bars once the view comes within a screen of their end: the arrays the grid and the
+    // drawings read grow in place, and the view stays where it is.
+    let growing = false;
+    const growAxis = (r: LogicalRange) => {
+      const span = r.to - r.from;
+      if (growing || r.to < axis.length - 1 - span || axis.length - candles.length >= MAX_FUTURE_BARS) return;
+      growing = true;
+      requestAnimationFrame(() => {
+        growing = false;
+        if (disposed) return;
+        const now = visible();
+        const want = Math.min(MAX_FUTURE_BARS - (axis.length - candles.length), Math.max(FUTURE_BARS, Math.ceil(((now?.to ?? r.to) - axis.length) + 3 * span)));
+        if (want <= 0) return;
+        const more = futureTimes(candleTimes, want, axis[axis.length - 1]);
+        axis.push(...more);
+        zoned.push(...zonedTimes(more, timezone));
+        setMain();
+        if (now) ts.setVisibleLogicalRange(now);
+      });
+    };
+    const onRange = (r: LogicalRange | null) => {
+      setAwayFromLatest(Boolean(r && r.to < candles.length - 2));
+      if (r) growAxis(r);
+    };
     ts.subscribeVisibleLogicalRangeChange(onRange);
     onRange(visible());
 
@@ -1065,7 +1087,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
         preview: null,
         selected: drawStateRef.current.selected,
         hidden: drawHiddenRef.current,
-        times: times as number[],
+        times: axis,
         interval: intervalSeconds,
         formatPrice: (v) => fmt(v, precision),
         formatTime: (t) => formatChartTime(t, intraday, timezone),
@@ -1085,7 +1107,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     }
     layerRef.current = layer;
     layersRef.current = paneLayers.map((p) => p.layer);
-    const drawingHandle = attachDrawing(el, chart, paneLayers, times as number[], intervalSeconds, candles, {
+    const drawingHandle = attachDrawing(el, chart, paneLayers, axis, intervalSeconds, candles, {
       state: () => drawStateRef.current,
       placing: placingRef,
       onAdd: (d) => setDrawingsRef.current((list) => [...list, d]),
@@ -1109,6 +1131,13 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     el.addEventListener("pointermove", onPointerMove, { capture: true });
     window.addEventListener("pointerup", onPointerUp);
     el.addEventListener("dblclick", onPointerUp);
+    // Double-clicking the time axis brings back the latest bars (the library's own reset would line
+    // the view up with the far end of the blank future).
+    const onAxisDoubleClick = (e: MouseEvent) => {
+      const rect = el.getBoundingClientRect();
+      if (e.clientY >= rect.bottom - ts.height() && e.clientX < rect.right - priceScale.width()) ts.setVisibleLogicalRange(latestBarsView(candles.length, el.clientWidth * 0.94));
+    };
+    el.addEventListener("dblclick", onAxisDoubleClick);
     el.addEventListener("wheel", onWheel, { capture: true, passive: false });
 
     return () => {
@@ -1128,6 +1157,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       el.removeEventListener("pointermove", onPointerMove, { capture: true });
       window.removeEventListener("pointerup", onPointerUp);
       el.removeEventListener("dblclick", onPointerUp);
+      el.removeEventListener("dblclick", onAxisDoubleClick);
       el.removeEventListener("wheel", onWheel, { capture: true });
       cancelAnimationFrame(raf);
       clearInterval(countdownTimer);

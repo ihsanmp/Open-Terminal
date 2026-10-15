@@ -4,6 +4,8 @@
 // interval (parseIntervalInput), and the date-range buttons under it pick an interval and a span
 // together, as TradingView's do (RANGE_PRESETS).
 
+import { barSpacing } from "./ta/core";
+
 export const INTERVALS = [
   "1m", "5m", "15m", "30m",
   "1h", "2h", "4h", "6h",
@@ -142,4 +144,34 @@ export function presetStart(times: readonly number[], span: number | "ytd" | "al
     else hi = mid;
   }
   return lo;
+}
+
+/** Future bar times after `from` (the last bar's by default), at the bars' spacing: for positive
+ *  offsets (Ichimoku cloud, Alligator) and for the time axis that runs on past the last bar. */
+export function futureTimes(time: number[], count: number, from = time[time.length - 1]): number[] {
+  if (count <= 0 || time.length === 0) return [];
+  const spacing = barSpacing(time);
+  // Skip weekends only for markets that don't trade them (crypto bars include Sat/Sun).
+  const tradesWeekends = time.slice(-30).some((t) => [0, 6].includes(new Date(t * 1000).getUTCDay()));
+  const daily = spacing >= 20 * 3600 && spacing <= 2 * 86_400 && !tradesWeekends;
+  // Monthly bars open on the 1st: step by calendar months, not 30.4 days, or the dates drift.
+  const monthly = spacing >= 27 * 86_400 && spacing <= 32 * 86_400;
+  const out: number[] = [];
+  let t = from;
+  while (out.length < count) {
+    if (monthly) {
+      const d = new Date(t * 1000);
+      t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes()) / 1000;
+      out.push(t);
+      continue;
+    }
+    t += spacing;
+    if (daily) {
+      const day = new Date(t * 1000).getUTCDay();
+      if (day === 6) t += 2 * 86_400;
+      else if (day === 0) t += 86_400;
+    }
+    out.push(t);
+  }
+  return out;
 }
