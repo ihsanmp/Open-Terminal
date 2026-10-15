@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { apiDelete, apiGet, apiPost, fmt, fmtBig } from "../../lib/api";
 import { usePoll } from "../../lib/refresh";
 import { useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
@@ -14,7 +14,6 @@ import { useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../st
 // ---------------------------------------------------------------- the posts
 
 type Platform = "x" | "telegram" | "bluesky" | "truthsocial";
-type Tier = "A1" | "Tokoh" | "KOL";
 type Trust = "domain" | "verified" | "known" | "paid" | "unverified";
 type Link = { text: string; url: string };
 type Confirmation = { publisher: string; title: string; link: string; time: number };
@@ -41,7 +40,7 @@ type Post = {
   confirmedBy: Confirmation[];
   onChain: boolean;
 };
-type Source = { id: string; platform: Platform; ref: string; name: string; tier: Tier; builtIn: boolean; status: { ok: boolean; error: string | null; at: number; count: number } | null };
+type Source = { id: string; platform: Platform; ref: string; name: string; builtIn: boolean; status: { ok: boolean; error: string | null; at: number; count: number } | null };
 type Feed = { sources: Source[]; posts: Post[] };
 
 const PLATFORM: Record<Platform, string> = { x: "X", telegram: "Telegram", bluesky: "Bluesky", truthsocial: "Truth Social" };
@@ -53,8 +52,6 @@ const TRUST: Record<Trust, { text: string; cls: string; title: string }> = {
   paid: { text: "centang berbayar", cls: "amber", title: "Centang biru X yang dibeli: bukan bukti identitas" },
   unverified: { text: "tak terverifikasi", cls: "down", title: "Identitas akun ini tidak bisa dipastikan" },
 };
-
-const TIER_CLS: Record<Tier, string> = { A1: "amber border-[var(--amber)]", Tokoh: "text-[#5aa9ff] border-[#5aa9ff]", KOL: "dim border-[var(--border)]" };
 
 function ago(ms: number, now = Date.now()): string {
   const s = Math.max(0, Math.round((now - ms) / 1000));
@@ -120,7 +117,7 @@ function Confirm({ post }: { post: Post }) {
   );
 }
 
-function PostCard({ post, tier, onRemove }: { post: Post; tier: Tier | null; onRemove?: () => void }) {
+function PostCard({ post, onRemove }: { post: Post; onRemove?: () => void }) {
   const trust = TRUST[post.trust];
   return (
     <article className="flex gap-2 px-2 py-2 border-b border-[var(--border)]">
@@ -131,7 +128,6 @@ function PostCard({ post, tier, onRemove }: { post: Post; tier: Tier | null; onR
         <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
           <span className="font-bold text-[var(--text)]">{post.author}</span>
           <span className="dim">@{post.handle}</span>
-          {tier && <span className={`text-fs-9 px-1 border ${TIER_CLS[tier]}`}>{tier}</span>}
           <span className={`text-fs-10 ${trust.cls}`} title={trust.title}>
             {trust.text}
           </span>
@@ -202,7 +198,6 @@ function Posts({ symbol }: { symbol: string }) {
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
   const [follow, setFollow] = useState("");
-  const [followTier, setFollowTier] = useState<Tier>("KOL");
   const [followMsg, setFollowMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [shown, setShown] = useState(80);
 
@@ -230,7 +225,7 @@ function Posts({ symbol }: { symbol: string }) {
     setBusy(true);
     setFollowMsg(null);
     try {
-      const s = await apiPost<Source>("/api/social/sources", { input: follow, tier: followTier });
+      const s = await apiPost<Source>("/api/social/sources", { input: follow });
       setFollowMsg({ ok: true, text: `${s.name} diikuti` });
       setFollow("");
       refresh();
@@ -242,7 +237,6 @@ function Posts({ symbol }: { symbol: string }) {
   };
 
   const sources = data?.sources ?? [];
-  const tierOf = useMemo(() => new Map(sources.map((s) => [s.id, s.tier])), [sources]);
   const mention = onlySymbol ? mentionsOf(symbol) : null;
   const posts = (data?.posts ?? []).filter((p) => {
     if (filter === "x" ? p.via !== "manual" : filter !== "all" && p.sourceId !== filter) return false;
@@ -281,11 +275,6 @@ function Posts({ symbol }: { symbol: string }) {
                 onChange={(e) => setFollow(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && submitFollow()}
               />
-              <select value={followTier} onChange={(e) => setFollowTier(e.target.value as Tier)}>
-                <option value="A1">A1</option>
-                <option value="Tokoh">Tokoh</option>
-                <option value="KOL">KOL</option>
-              </select>
               <button className="term-btn" disabled={busy || !follow.trim()} onClick={submitFollow}>
                 Ikuti
               </button>
@@ -344,7 +333,6 @@ function Posts({ symbol }: { symbol: string }) {
           <PostCard
             key={p.id}
             post={p}
-            tier={p.sourceId ? tierOf.get(p.sourceId) ?? null : null}
             onRemove={
               p.via === "manual"
                 ? async () => {
