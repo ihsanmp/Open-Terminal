@@ -9,6 +9,8 @@ import { allStats } from "./providers/registry.js";
 import { requireApiKey } from "./auth.js";
 import { rateLimit } from "./rateLimit.js";
 import { startArchive } from "./news/archive.js";
+import { startSocialCollector } from "./providers/socialfeed.js";
+import { socialRouter } from "./routes/social.js";
 import { startEngineWatch } from "./providers/macroengine.js";
 import { latestFedSentiment } from "./providers/fedtranscript.js";
 import { impact } from "./providers/newsimpact.js";
@@ -47,6 +49,7 @@ app.use("/api/portfolios", requireApiKey, express.json({ limit: "40mb" }), portf
 app.use(express.json());
 
 app.use("/api/research", researchRouter);
+app.use("/api/social", requireApiKey, socialRouter);
 app.use("/api", marketRouter);
 // The paid AI endpoint requires a shared secret; see auth.ts.
 app.use(
@@ -75,6 +78,7 @@ const server = app.listen(PORT, HOST, () => {
 });
 // Headlines are kept for the news recap while the app runs.
 startArchive();
+startSocialCollector();
 // The macro engine keeps its band from 30 minutes before each release, and the news-impact read
 // its H-30 conclusion, without anyone looking; both are scored after the release.
 startEngineWatch(latestFedSentiment, (engine, inputs) => impact(inputs, engine));
