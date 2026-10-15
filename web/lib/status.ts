@@ -13,7 +13,14 @@ export type Status = {
 };
 
 export function useStatus() {
-  return useQuery({ queryKey: ["status"], queryFn: () => apiGet<Status>("/api/status"), refetchInterval: 60_000 });
+  return useQuery({
+    queryKey: ["status"],
+    queryFn: () => apiGet<Status>("/api/status"),
+    // Asked again every couple of seconds until a feed has answered: at start the server has
+    // asked none yet, and the top bar said "connecting…" for up to a minute after the charts had
+    // their data. Then once a minute.
+    refetchInterval: (q) => (q.state.data?.providers.some((p) => p.ok > 0) ? 60_000 : 2_000),
+  });
 }
 
 /** Whether the AI assistant works: the server has an Anthropic key. Unknown (false) until it says. */
