@@ -24,7 +24,6 @@ export type WidgetType =
   | "calendar"
   | "insider"
   | "tv"
-  | "recap"
   | "indices"
   | "research"
   | "astrocal";
@@ -160,7 +159,6 @@ const SIZE_BY_TYPE: Record<WidgetType, { w: number; h: number }> = {
   calendar: { w: 12, h: 11 },
   insider: { w: 7, h: 9 },
   tv: { w: 6, h: 11 },
-  recap: { w: 5, h: 12 },
   indices: { w: 5, h: 14 },
   research: { w: 7, h: 16 },
   astrocal: { w: 12, h: 16 },
@@ -250,13 +248,18 @@ function rememberWindowTab(id: string) {
 }
 
 /** Pages and widgets that became others: v2 the Options page US Bonds, v3 Macro Watcher Guru,
- *  v4 Quote Money Flow. */
+ *  v4 Quote Money Flow, v5 News Recap a part of News (its two views the News page's RECAP and
+ *  MARKET). */
 const RENAMED: Array<[version: number, from: string, to: string, keepsSymbol?: boolean]> = [
   [2, "options", "bonds"],
   [3, "macro", "watcher"],
   // Money Flow is about the symbol shown, as Quote was: it keeps it.
   [4, "quote", "moneyflow", true],
+  [5, "recap", "news"],
 ];
+
+/** What News Recap showed (its "tab": the news recap or the market's), as News's mode. */
+const recapMode = (w: { settings?: Record<string, unknown> }) => ({ ...w.settings, mode: w.settings?.tab === "market" ? "market" : "recap" });
 
 /** Saved tabs from an older version, with the pages and widgets renamed since. */
 function upgrade(saved: unknown, version: number): unknown {
@@ -265,14 +268,35 @@ function upgrade(saved: unknown, version: number): unknown {
   const to = (type: string) => renames.reduce((t, [, from, into]) => (t === from ? into : t), type);
   const keeps = (type: string) => renames.some(([, from, , keepsSymbol]) => from === type && keepsSymbol);
   const s = (saved ?? {}) as { tabs?: TabData[] };
-  const rename = <T extends { type: string }>(w: T): T =>
-    to(w.type) === w.type ? w : keeps(w.type) ? { ...w, type: to(w.type) } : { ...w, type: to(w.type), symbol: undefined, linked: true };
+  const rename = <T extends { type: string; settings?: Record<string, unknown> }>(w: T): T => {
+    if (to(w.type) === w.type) return w;
+    const moved = w.type === "recap" ? { ...w, settings: recapMode(w) } : w;
+    return keeps(w.type) ? { ...moved, type: to(w.type) } : { ...moved, type: to(w.type), symbol: undefined, linked: true };
+  };
+  // A tab with a News page and a News Recap page keeps the News one, opened on the recap if that
+  // was the page in view.
+  const pagesOf = (t: TabData) => {
+    const pages = t.pages ?? [];
+    const news = pages.find((p) => p.type === "news");
+    const isRecap = (p: { type: string }) => p.type === "recap";
+    if (!news || !pages.some(isRecap)) return pages.map(rename);
+    const recap = pages.find(isRecap)!;
+    return pages
+      .filter((p) => !isRecap(p))
+      .map((p) => {
+        if (p !== news) return rename(p);
+        // The recap's own choices (day or week, a sector) come along.
+        const { tab: _tab, ...recapSettings } = recap.settings ?? {};
+        const settings = { ...recapSettings, ...p.settings };
+        return { ...p, settings: (t.view as string) === "recap" ? { ...settings, mode: recapMode(recap).mode } : settings };
+      });
+  };
   return {
     ...s,
     tabs: s.tabs?.map((t) => ({
       ...t,
       view: to(t.view as string) as View,
-      pages: t.pages?.map(rename) ?? [],
+      pages: renames.some(([, from]) => from === "recap") ? pagesOf(t) : t.pages?.map(rename) ?? [],
       widgets: t.widgets?.map(rename) ?? [],
     })),
   };
@@ -406,8 +430,9 @@ export const useTerminal = create<TerminalState>()(
       // Saved per tab, so windows editing different tabs can't overwrite each other.
       storage: createWorkspaceStorage() as PersistStorage<unknown> | undefined,
       // v1: tabs; v2: the Options page became US Bonds; v3: Macro became Watcher Guru; v4: Quote
-      // became Money Flow. The window's own tab and the transient UI aren't saved.
-      version: 4,
+      // became Money Flow; v5: News Recap went into News. The window's own tab and the transient UI
+      // aren't saved.
+      version: 5,
       partialize: (st) => ({ tabs: st.tabs, watchlist: st.watchlist, favoriteIntervals: st.favoriteIntervals, recentSymbols: st.recentSymbols }),
       migrate: (saved, version) => {
         if (version >= 1) return upgrade(saved, version) as TerminalState;
@@ -565,7 +590,7 @@ export function followOtherWindows(): () => void {
 
 /** What a tab is called on the tab bar: its name, or its symbol and page. */
 /** Pages whose name isn't their id capitalized. */
-const PAGE_LABELS: Record<string, string> = { workspace: "Workspace", astrocal: "Astro Calendar", moneyflow: "Money Flow", recap: "News Recap", calendar: "Macro" };
+const PAGE_LABELS: Record<string, string> = { workspace: "Workspace", astrocal: "Astro Calendar", moneyflow: "Money Flow", calendar: "Macro" };
 
 export function tabLabel(tab: TabData): string {
   if (tab.title) return tab.title;

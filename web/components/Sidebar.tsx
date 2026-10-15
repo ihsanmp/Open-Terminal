@@ -22,7 +22,6 @@ export const MENU: Array<{ type: WidgetType; label: string }> = [
   { type: "astrocal", label: "ASTRO CALENDAR" },
   { type: "insider", label: "INSIDER" },
   { type: "tv", label: "LIVE TV" },
-  { type: "recap", label: "NEWS RECAP" },
 ];
 
 /** The menu as shown: AI ASSIST only once the server has an AI key (it can't answer without). */

@@ -2,10 +2,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { apiGet, fmt, pctClass } from "../../lib/api";
-import { useTerminal, useWidgetSetting } from "../../store/terminal";
+import { useTerminal } from "../../store/terminal";
 import Flash from "../Flash";
 import { sessionRefreshMs, usePoll } from "../../lib/refresh";
-import NewsRecap, { Bilingual } from "./NewsRecap";
+import { Bilingual } from "./NewsRecap";
 
 type RecapRow = { symbol: string; name: string; changePercent: number | null };
 type RecapIndex = { symbol: string; label: string; price: number | null; changePercent: number | null };
@@ -25,25 +25,8 @@ type Recap = {
   news: RecapNews[];
 };
 
-export default function RecapWidget() {
-  // The news recap first: the page is News Recap; the market's day is the other tab.
-  const [tab, setTab] = useWidgetSetting<"market" | "news">("tab", "news");
-  return (
-    <div>
-      <div className="flex gap-1 p-1">
-        <button className={`term-btn ${tab === "news" ? "active" : ""}`} onClick={() => setTab("news")} title="Recap berita per sektor, harian dan mingguan">
-          NEWS
-        </button>
-        <button className={`term-btn ${tab === "market" ? "active" : ""}`} onClick={() => setTab("market")} title="Rangkuman pasar hari ini: indeks, sektor, top gainer/loser">
-          MARKET
-        </button>
-      </div>
-      {tab === "news" ? <NewsRecap /> : <MarketRecap />}
-    </div>
-  );
-}
-
-function MarketRecap() {
+/** The market's day: indexes, sectors, the biggest movers and the headlines (News → MARKET). */
+export default function MarketRecap() {
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
   const poll = usePoll(sessionRefreshMs(60_000, 600_000));
   const { data, error } = useQuery({

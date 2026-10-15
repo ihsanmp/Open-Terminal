@@ -7,6 +7,8 @@ import { useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../st
 import { usePoll } from "../../lib/refresh";
 import { CATEGORY_COLOR, NEWS_CATEGORIES } from "../../lib/news-categories";
 import { MARKET_LABEL, newsImpact, type Market, type NewsImpact } from "../../lib/news-impact";
+import MarketRecap from "./MarketRecap";
+import NewsRecap from "./NewsRecap";
 
 type NewsItem = { title: string; link: string; publisher: string; publishedAt: string | null };
 
@@ -226,9 +228,13 @@ function SymbolNews({ symbol }: { symbol: string }) {
   );
 }
 
+type Mode = "wire" | "symbol" | "recap" | "market";
+
+// Every view of the news in one place: the live wire, the symbol's own news, the recap of the
+// day's or the week's news by sector, and the market's day (News Recap was a page of its own).
 export default function NewsWidget({ widget }: { widget: WidgetInstance }) {
   const symbol = useWidgetSymbol(widget);
-  const [mode, setMode] = useWidgetSetting<"wire" | "symbol">("mode", "wire");
+  const [mode, setMode] = useWidgetSetting<Mode>("mode", "wire");
 
   return (
     <div>
@@ -239,8 +245,14 @@ export default function NewsWidget({ widget }: { widget: WidgetInstance }) {
         <button className={`term-btn ${mode === "symbol" ? "active" : ""}`} onClick={() => setMode("symbol")}>
           {symbol}
         </button>
+        <button className={`term-btn ${mode === "recap" ? "active" : ""}`} onClick={() => setMode("recap")} title="Recap berita per sektor, harian dan mingguan">
+          RECAP
+        </button>
+        <button className={`term-btn ${mode === "market" ? "active" : ""}`} onClick={() => setMode("market")} title="Rangkuman pasar hari ini: indeks, sektor, top gainer/loser">
+          MARKET
+        </button>
       </div>
-      {mode === "wire" ? <LiveWire /> : <SymbolNews symbol={symbol} />}
+      {mode === "wire" ? <LiveWire /> : mode === "symbol" ? <SymbolNews symbol={symbol} /> : mode === "recap" ? <NewsRecap /> : <MarketRecap />}
     </div>
   );
 }

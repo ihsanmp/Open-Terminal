@@ -116,6 +116,35 @@ describe("saved workspace", () => {
     expect(migrated.watchlist).toEqual(["NVDA"]);
   });
 
+  it("moves News Recap into News (v5): its page, its widgets, and what each showed", () => {
+    type Saved = { tabs: Array<{ view: string; pages: Array<{ id: string; type: string; settings?: Record<string, unknown> }>; widgets: Array<{ type: string; settings?: Record<string, unknown> }> }> };
+    const saved = {
+      tabs: [
+        // A tab on the recap page, with a News page too: one News page, opened on the recap.
+        {
+          id: "a",
+          activeSymbol: "AAPL",
+          view: "recap",
+          pages: [
+            { id: "n", type: "news", linked: true, settings: { category: "ENERGY" } },
+            { id: "r", type: "recap", linked: true, settings: { tab: "news", newsRecapKind: "week" } },
+          ],
+          widgets: [{ id: "w", type: "recap", linked: true, settings: { tab: "market" } }],
+          layout: [],
+        },
+        // A tab with only the recap page: it becomes the News page.
+        { id: "b", activeSymbol: "AAPL", view: "chart", pages: [{ id: "r2", type: "recap", linked: true }], widgets: [], layout: [] },
+      ],
+    };
+    const out = options.migrate!(saved, 4) as unknown as Saved;
+    const [a, b] = out.tabs;
+    expect(a.view).toBe("news");
+    expect(a.pages.map((p) => [p.id, p.type])).toEqual([["n", "news"]]);
+    expect(a.pages[0].settings).toEqual({ category: "ENERGY", newsRecapKind: "week", mode: "recap" });
+    expect(a.widgets[0]).toMatchObject({ type: "news", settings: { mode: "market" } });
+    expect(b.pages[0]).toMatchObject({ id: "r2", type: "news", settings: { mode: "recap" } });
+  });
+
   it("saves the tabs but not which one this window shows, and stays on it when reloaded", () => {
     const b = st().duplicateTab();
     st().setActiveSymbol("SOL-USD");
