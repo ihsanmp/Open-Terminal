@@ -1,0 +1,124 @@
+// The market accounts the user listed (KOL_Pasar_Crypto_Saham_Forex.xlsx, compiled 15 Oct 2026): who
+// they are, what they post, and the caveats noted for each. Those that post the same in the open
+// where their identity can be checked are followed in the Insider tab (followedVia, a source id of
+// server/src/providers/socialfeed.ts); the rest are on X alone, read by pasting a post's link.
+// The news outlets among them are in the News tab instead (media).
+
+export type KolAccount = {
+  name: string;
+  /** On X, without the "@" (null when the list has none yet). */
+  handle: string | null;
+  market: string;
+  category: string;
+  info: string;
+  /** Caveats: biases, past mistakes, what to check. */
+  note: string | null;
+  /** How sure the list is of the handle: "recheck" and "unknown" ones need checking first. */
+  handleCheck: "ok" | "recheck" | "unknown";
+  followedVia?: string;
+  media?: boolean;
+};
+
+export const KOL_ACCOUNTS: KolAccount[] = [
+  {"name": "Walter Bloomberg", "handle": "DeItaone", "market": "Lintas pasar", "category": "Headline / breaking", "info": "Headline ala terminal (makro, saham, geopolitik)", "note": "Bukan afiliasi Bloomberg. Pernah ikut menyebar headline tarif palsu (Apr 2025) yg menggerakkan pasar ±US$2,5 T — selalu konfirmasi ke sumber primer.", "handleCheck": "ok"},
+  {"name": "First Squawk", "handle": "FirstSquawk", "market": "Lintas pasar", "category": "Headline / breaking", "info": "Headline makro, data ekonomi, bank sentral", "note": "Format singkat all-caps; bagus untuk parser otomatis.", "handleCheck": "ok"},
+  {"name": "LiveSquawk", "handle": "LiveSquawk", "market": "Lintas pasar", "category": "Headline / breaking", "info": "Squawk makro/FX, data rilis", "note": "Fokus Eropa/US session.", "handleCheck": "ok", "followedVia": "bluesky:livesquawknews.bsky.social"},
+  {"name": "FinancialJuice", "handle": "financialjuice", "market": "Lintas pasar", "category": "Headline / breaking", "info": "Headline makro, FX, komoditas", "note": "Juga punya squawk audio murah; alternatif retail untuk terminal.", "handleCheck": "ok", "media": true},
+  {"name": "PiQ Suite", "handle": "PiQSuite", "market": "Lintas pasar", "category": "Headline / breaking", "info": "Breaking news + meme", "note": "Campur hiburan; filter jika dipakai untuk sentimen.", "handleCheck": "ok"},
+  {"name": "zerohedge", "handle": "zerohedge", "market": "Lintas pasar", "category": "Headline / breaking", "info": "Makro, likuiditas, headline", "note": "Bias framing cenderung bearish/sensasional — pakai sebagai sinyal sentimen, bukan fakta.", "handleCheck": "ok", "media": true},
+  {"name": "The Kobeissi Letter", "handle": "KobeissiLetter", "market": "Lintas pasar", "category": "Headline / breaking", "info": "Ringkasan makro & pasar, chart", "note": "Viral di retail; sering jadi pemicu narasi.", "handleCheck": "ok"},
+  {"name": "Polymarket", "handle": "Polymarket", "market": "Lintas pasar", "category": "Headline / breaking", "info": "Probabilitas pasar prediksi (politik, makro)", "note": "Odds = proksi ekspektasi pasar; sangat berguna untuk event risk.", "handleCheck": "ok", "followedVia": "bluesky:polymarket.com"},
+  {"name": "Donald Trump", "handle": "realDonaldTrump", "market": "Lintas pasar", "category": "Market mover (figur)", "info": "Kebijakan tarif, crypto, Fed", "note": "Posting utama sering di Truth Social dulu; pantau keduanya.", "handleCheck": "ok", "followedVia": "truthsocial:107780257626128497"},
+  {"name": "Elon Musk", "handle": "elonmusk", "market": "Lintas pasar", "category": "Market mover (figur)", "info": "Tesla, DOGE, AI, politik", "note": "Penggerak memecoin & TSLA.", "handleCheck": "ok"},
+  {"name": "Federal Reserve", "handle": "federalreserve", "market": "Lintas pasar", "category": "Bank sentral / resmi", "info": "Rilis resmi FOMC, pidato", "note": "Sumber konfirmasi utama untuk FOMC.", "handleCheck": "ok", "followedVia": "bluesky:federalreserve.gov"},
+  {"name": "SEC", "handle": "SECGov", "market": "Lintas pasar", "category": "Bank sentral / resmi", "info": "Rilis regulasi, ETF, enforcement", "note": "Konfirmasi keputusan ETF/kasus.", "handleCheck": "ok"},
+  {"name": "Tree News", "handle": "TreeNewsFeed", "market": "Crypto / Web3", "category": "News cepat", "info": "Headline crypto tercepat (listing, hack, regulasi)", "note": "Turunan Tree of Alpha; terminal berbayar lebih cepat dari X.", "handleCheck": "recheck"},
+  {"name": "Tree of Alpha", "handle": "Tree_of_Alpha", "market": "Crypto / Web3", "category": "News cepat", "info": "Headline & alpha crypto", "note": "Pendiri Tree News; sering lebih dulu dari media.", "handleCheck": "recheck"},
+  {"name": "db", "handle": "tier10k", "market": "Crypto / Web3", "category": "News cepat", "info": "Breaking news crypto & makro", "note": "Favorit trader futures untuk speed.", "handleCheck": "ok"},
+  {"name": "Wu Blockchain (Colin Wu)", "handle": "WuBlockchain", "market": "Crypto / Web3", "category": "News cepat", "info": "Berita Asia/China, exchange, mining", "note": "Jurnalis; kuat untuk info Binance/OKX/Asia sebelum media Barat.", "handleCheck": "ok", "followedVia": "telegram:wublockchainenglish"},
+  {"name": "Watcher.Guru", "handle": "WatcherGuru", "market": "Crypto / Web3", "category": "News cepat", "info": "Breaking crypto & finansial", "note": "Cepat tapi kadang tanpa konteks; akun sempat diretas Okt 2025 — waspada posting aneh.", "handleCheck": "ok", "followedVia": "bluesky:watcher.guru"},
+  {"name": "Bitcoin Archive", "handle": "BTC_Archive", "market": "Crypto / Web3", "category": "News cepat", "info": "Berita BTC, ETF, adopsi institusi", "note": "Bias bullish BTC.", "handleCheck": "ok"},
+  {"name": "Eleanor Terrett", "handle": "EleanorTerrett", "market": "Crypto / Web3", "category": "News cepat", "info": "Regulasi crypto AS (SEC, Kongres)", "note": "Jurnalis regulasi — scoop soal RUU & SEC.", "handleCheck": "ok"},
+  {"name": "The Block", "handle": "TheBlock__", "market": "Crypto / Web3", "category": "News cepat", "info": "Berita & riset industri", "note": "Media; bagus untuk konfirmasi.", "handleCheck": "ok", "media": true},
+  {"name": "CoinDesk", "handle": "CoinDesk", "market": "Crypto / Web3", "category": "News cepat", "info": "Berita industri", "note": "Media; konfirmasi.", "handleCheck": "ok", "media": true},
+  {"name": "Cointelegraph", "handle": "Cointelegraph", "market": "Crypto / Web3", "category": "News cepat", "info": "Berita industri", "note": "Volume tinggi, kualitas campur.", "handleCheck": "ok", "media": true},
+  {"name": "Laura Shin", "handle": "laurashin", "market": "Crypto / Web3", "category": "News cepat", "info": "Jurnalisme investigasi, podcast Unchained", "note": "Konteks mendalam, bukan speed.", "handleCheck": "ok"},
+  {"name": "Eric Balchunas", "handle": "EricBalchunas", "market": "Crypto / Web3", "category": "ETF & institusi", "info": "Analis ETF Bloomberg — approval, flows", "note": "Prediksi probabilitas approval ETF sering menggerakkan altcoin.", "handleCheck": "ok"},
+  {"name": "James Seyffart", "handle": "JSeyff", "market": "Crypto / Web3", "category": "ETF & institusi", "info": "Analis ETF Bloomberg — filing & deadline", "note": "Pasangan Balchunas; tracker kalender filing.", "handleCheck": "ok"},
+  {"name": "Farside Investors", "handle": "FarsideUK", "market": "Crypto / Web3", "category": "ETF & institusi", "info": "Data harian arus dana ETF BTC/ETH", "note": "Data flow ETF; cocok jadi input kuantitatif.", "handleCheck": "ok"},
+  {"name": "Michael Saylor", "handle": "saylor", "market": "Crypto / Web3", "category": "ETF & institusi", "info": "Pembelian BTC Strategy (MSTR)", "note": "Kode 'tracker' tiap Minggu = sinyal pembelian Senin.", "handleCheck": "ok"},
+  {"name": "Matt Hougan", "handle": "Matt_Hougan", "market": "Crypto / Web3", "category": "ETF & institusi", "info": "CIO Bitwise — tesis institusi", "note": "Perspektif institusi.", "handleCheck": "ok"},
+  {"name": "Lookonchain", "handle": "lookonchain", "market": "Crypto / Web3", "category": "On-chain / whale", "info": "Pergerakan whale, smart money, fund, ICO", "note": "Narasi on-chain paling mudah dicerna; label wallet kadang salah — cek di explorer.", "handleCheck": "ok"},
+  {"name": "Spot On Chain", "handle": "spotonchain", "market": "Crypto / Web3", "category": "On-chain / whale", "info": "Whale, insider, smart money", "note": "Mirip Lookonchain; sering duluan untuk token baru.", "handleCheck": "ok"},
+  {"name": "EmberCN", "handle": "EmberCN", "market": "Crypto / Web3", "category": "On-chain / whale", "info": "On-chain (bahasa Mandarin)", "note": "Sering paling cepat untuk whale Asia; perlu terjemah.", "handleCheck": "ok"},
+  {"name": "Ai 姨", "handle": "ai_9684xtpa", "market": "Crypto / Web3", "category": "On-chain / whale", "info": "On-chain (bahasa Mandarin)", "note": "Tracking whale & Hyperliquid positions.", "handleCheck": "ok"},
+  {"name": "Onchain Lens", "handle": "OnchainLens", "market": "Crypto / Web3", "category": "On-chain / whale", "info": "Whale & memecoin wallet", "note": "Banyak alert memecoin.", "handleCheck": "recheck"},
+  {"name": "Whale Alert", "handle": "whale_alert", "market": "Crypto / Web3", "category": "On-chain / whale", "info": "Transfer besar (raw)", "note": "Data mentah tanpa konteks; pemicu investigasi, bukan sinyal trade.", "handleCheck": "ok", "followedVia": "bluesky:whale-alert.io"},
+  {"name": "Arkham", "handle": "arkham", "market": "Crypto / Web3", "category": "On-chain / whale", "info": "Identitas entitas wallet", "note": "Punya fitur pelacak wallet KOL — berguna cek apakah KOL dump.", "handleCheck": "recheck"},
+  {"name": "Bubblemaps", "handle": "bubblemaps", "market": "Crypto / Web3", "category": "On-chain / whale", "info": "Distribusi holder, cluster insider", "note": "Bagus untuk deteksi rug/insider supply.", "handleCheck": "ok"},
+  {"name": "ZachXBT", "handle": "zachxbt", "market": "Crypto / Web3", "category": "On-chain / whale", "info": "Investigasi scam, hack, KOL pump & dump", "note": "Eksposnya bisa menjatuhkan token/KOL. Cek sebelum percaya KOL kecil.", "handleCheck": "ok", "followedVia": "telegram:investigations"},
+  {"name": "Ki Young Ju (CryptoQuant)", "handle": "ki_young_ju", "market": "Crypto / Web3", "category": "On-chain analitik", "info": "Exchange flow, miner, on-chain makro", "note": null, "handleCheck": "ok"},
+  {"name": "Glassnode", "handle": "glassnode", "market": "Crypto / Web3", "category": "On-chain analitik", "info": "Metrik on-chain siklus", "note": null, "handleCheck": "ok"},
+  {"name": "Checkmate", "handle": "_Checkmatey_", "market": "Crypto / Web3", "category": "On-chain analitik", "info": "Analisis on-chain BTC", "note": null, "handleCheck": "ok"},
+  {"name": "CoinGlass", "handle": "coinglass_com", "market": "Crypto / Web3", "category": "Derivatif data", "info": "Likuidasi, funding, OI", "note": "Data derivatif; cocok untuk sistemmu (alternatif API).", "handleCheck": "recheck"},
+  {"name": "Arthur Hayes", "handle": "CryptoHayes", "market": "Crypto / Web3", "category": "KOL makro-crypto", "info": "Tesis likuiditas global, esai panjang", "note": "Sangat berpengaruh; posisi pribadi kadang berubah cepat.", "handleCheck": "ok"},
+  {"name": "Raoul Pal", "handle": "RaoulGMI", "market": "Crypto / Web3", "category": "KOL makro-crypto", "info": "Makro & siklus crypto", "note": "Bias bullish struktural.", "handleCheck": "ok"},
+  {"name": "Anthony Pompliano", "handle": "APompliano", "market": "Crypto / Web3", "category": "KOL makro-crypto", "info": "Narasi BTC & bisnis", "note": "Audiens retail besar.", "handleCheck": "ok"},
+  {"name": "Ansem", "handle": "blknoiz06", "market": "Crypto / Web3", "category": "KOL trader", "info": "Solana, memecoin, narasi", "note": "Satu tweet bisa pump token kecil — sinyal sentimen kuat.", "handleCheck": "ok"},
+  {"name": "Hsaka", "handle": "HsakaTrades", "market": "Crypto / Web3", "category": "KOL trader", "info": "Trading & sentimen market", "note": null, "handleCheck": "ok"},
+  {"name": "Pentoshi", "handle": "Pentosh1", "market": "Crypto / Web3", "category": "KOL trader", "info": "Swing trading, makro crypto", "note": null, "handleCheck": "ok"},
+  {"name": "Murad", "handle": "MustStopMurad", "market": "Crypto / Web3", "category": "KOL trader", "info": "Narasi memecoin supercycle", "note": "Penggerak narasi memecoin; on-chain holding dipantau publik.", "handleCheck": "ok"},
+  {"name": "Andrew Kang", "handle": "Rewkang", "market": "Crypto / Web3", "category": "KOL trader", "info": "Trading, tesis kontra", "note": null, "handleCheck": "ok"},
+  {"name": "CryptoKaleo", "handle": "CryptoKaleo", "market": "Crypto / Web3", "category": "KOL trader", "info": "TA & sentimen retail", "note": null, "handleCheck": "ok"},
+  {"name": "Il Capo of Crypto", "handle": "CryptoCapo_", "market": "Crypto / Web3", "category": "KOL trader", "info": "TA", "note": "Track record kontroversial — bagus sebagai indikator sentimen kontrarian.", "handleCheck": "ok"},
+  {"name": "Credible Crypto", "handle": "CredibleCrypto", "market": "Crypto / Web3", "category": "KOL TA / edukasi", "info": "TA, Elliott Wave", "note": null, "handleCheck": "ok"},
+  {"name": "CryptoCred", "handle": "CryptoCred", "market": "Crypto / Web3", "category": "KOL TA / edukasi", "info": "Edukasi trading", "note": "Edukasi, bukan sinyal.", "handleCheck": "ok"},
+  {"name": "Daan Crypto Trades", "handle": "DaanCrypto", "market": "Crypto / Web3", "category": "KOL TA / edukasi", "info": "Ringkasan market, likuiditas", "note": null, "handleCheck": "ok"},
+  {"name": "Skew", "handle": "52kskew", "market": "Crypto / Web3", "category": "KOL TA / edukasi", "info": "Order flow, derivatif", "note": null, "handleCheck": "ok"},
+  {"name": "Rekt Capital", "handle": "rektcapital", "market": "Crypto / Web3", "category": "KOL TA / edukasi", "info": "TA siklus BTC/altcoin", "note": null, "handleCheck": "ok"},
+  {"name": "Benjamin Cowen", "handle": "intocryptoverse", "market": "Crypto / Web3", "category": "KOL TA / edukasi", "info": "Analisis data siklus", "note": null, "handleCheck": "ok"},
+  {"name": "Miles Deutscher", "handle": "milesdeutscher", "market": "Crypto / Web3", "category": "KOL riset / DeFi", "info": "Narasi & sektor", "note": "Audiens besar; narasinya sering jadi tren.", "handleCheck": "ok"},
+  {"name": "DefiIgnas", "handle": "DefiIgnas", "market": "Crypto / Web3", "category": "KOL riset / DeFi", "info": "Riset DeFi, airdrop", "note": null, "handleCheck": "ok"},
+  {"name": "Route 2 FI", "handle": "Route2FI", "market": "Crypto / Web3", "category": "KOL riset / DeFi", "info": "DeFi & yield", "note": null, "handleCheck": "ok"},
+  {"name": "Hasu", "handle": "hasufl", "market": "Crypto / Web3", "category": "KOL riset / DeFi", "info": "Riset struktur pasar, MEV", "note": null, "handleCheck": "ok"},
+  {"name": "CZ", "handle": "cz_binance", "market": "Crypto / Web3", "category": "Market mover (figur)", "info": "Binance ecosystem, BNB", "note": "Tweet tentang token/BNB chain bisa pump langsung.", "handleCheck": "ok"},
+  {"name": "Vitalik Buterin", "handle": "VitalikButerin", "market": "Crypto / Web3", "category": "Market mover (figur)", "info": "Roadmap Ethereum", "note": null, "handleCheck": "ok", "followedVia": "bluesky:vitalik.ca"},
+  {"name": "Unusual Whales", "handle": "unusual_whales", "market": "Saham (US)", "category": "News & flow", "info": "Options flow, trading Kongres, breaking", "note": null, "handleCheck": "ok", "followedVia": "bluesky:unusualwhales.bsky.social"},
+  {"name": "Stock Market News (Evan)", "handle": "StockMKTNewz", "market": "Saham (US)", "category": "News & flow", "info": "Berita saham, earnings", "note": null, "handleCheck": "ok"},
+  {"name": "Quiver Quantitative", "handle": "QuiverQuant", "market": "Saham (US)", "category": "News & flow", "info": "Data alternatif: transaksi Kongres, lobi", "note": null, "handleCheck": "ok"},
+  {"name": "Earnings Whispers", "handle": "eWhispers", "market": "Saham (US)", "category": "News & flow", "info": "Kalender & ekspektasi earnings", "note": null, "handleCheck": "ok"},
+  {"name": "SpotGamma", "handle": "spotgamma", "market": "Saham (US)", "category": "News & flow", "info": "Gamma/options positioning", "note": null, "handleCheck": "ok"},
+  {"name": "Liz Ann Sonders", "handle": "LizAnnSonders", "market": "Saham (US)", "category": "Makro-ekuitas", "info": "Strategis Schwab — data makro & breadth", "note": null, "handleCheck": "ok"},
+  {"name": "Charlie Bilello", "handle": "charliebilello", "market": "Saham (US)", "category": "Makro-ekuitas", "info": "Statistik pasar & chart", "note": null, "handleCheck": "ok"},
+  {"name": "Jim Bianco", "handle": "biancoresearch", "market": "Saham (US)", "category": "Makro-ekuitas", "info": "Bond, Fed, makro", "note": null, "handleCheck": "ok"},
+  {"name": "Mohamed El-Erian", "handle": "elerianm", "market": "Saham (US)", "category": "Makro-ekuitas", "info": "Makro global", "note": null, "handleCheck": "ok", "followedVia": "bluesky:elerianm.bsky.social"},
+  {"name": "Aswath Damodaran", "handle": "AswathDamodaran", "market": "Saham (US)", "category": "Makro-ekuitas", "info": "Valuasi", "note": "Edukasi valuasi.", "handleCheck": "ok"},
+  {"name": "Muddy Waters", "handle": "muddywatersre", "market": "Saham (US)", "category": "Short seller / aktivis", "info": "Laporan short", "note": "Laporan bisa jatuhkan saham target dalam menit.", "handleCheck": "ok"},
+  {"name": "Citron Research", "handle": "CitronResearch", "market": "Saham (US)", "category": "Short seller / aktivis", "info": "Short/long call", "note": null, "handleCheck": "ok"},
+  {"name": "Michael Burry", "handle": "michaeljburry", "market": "Saham (US)", "category": "Short seller / aktivis", "info": "Posisi kontrarian", "note": "Posting jarang & sering dihapus; tetap jadi headline.", "handleCheck": "recheck"},
+  {"name": "Peter Brandt", "handle": "PeterLBrandt", "market": "Saham (US)", "category": "Trader", "info": "Chart klasik, komoditas, BTC", "note": null, "handleCheck": "ok"},
+  {"name": "Nick Timiraos", "handle": "NickTimiraos", "market": "Forex / Makro", "category": "Fed whisperer", "info": "WSJ — bocoran arah FOMC", "note": "Artikelnya sebelum FOMC sering dianggap sinyal semi-resmi Fed.", "handleCheck": "ok", "followedVia": "bluesky:nicktimiraos.bsky.social"},
+  {"name": "ForexLive", "handle": "ForexLive", "market": "Forex / Makro", "category": "News FX", "info": "Headline & analisis FX", "note": "Cek apakah brand/handle sudah berubah (ada kabar rebranding).", "handleCheck": "recheck", "media": true},
+  {"name": "FXStreet", "handle": "FXStreetNews", "market": "Forex / Makro", "category": "News FX", "info": "Berita & kalender FX", "note": null, "handleCheck": "ok", "media": true},
+  {"name": "Kathy Lien", "handle": "kathylienfx", "market": "Forex / Makro", "category": "Analis FX", "info": "Analisis FX G10", "note": null, "handleCheck": "ok"},
+  {"name": "Brent Donnelly", "handle": "donnelly_brent", "market": "Forex / Makro", "category": "Analis FX", "info": "Spectra Markets — FX & positioning", "note": null, "handleCheck": "ok"},
+  {"name": "Michael Brown", "handle": "MrMBrown", "market": "Forex / Makro", "category": "Analis FX", "info": "Pepperstone — makro & FX", "note": null, "handleCheck": "recheck"},
+  {"name": "Joseph Wang (Fed Guy)", "handle": "FedGuy12", "market": "Forex / Makro", "category": "Makro", "info": "Likuiditas, operasi Fed", "note": null, "handleCheck": "ok"},
+  {"name": "Lyn Alden", "handle": "LynAldenContact", "market": "Forex / Makro", "category": "Makro", "info": "Makro, dolar, BTC", "note": null, "handleCheck": "ok"},
+  {"name": "Joe Weisenthal", "handle": "TheStalwart", "market": "Forex / Makro", "category": "Makro", "info": "Bloomberg — makro & pasar", "note": null, "handleCheck": "ok", "followedVia": "bluesky:weisenthal.bsky.social"},
+  {"name": "Ole Hansen", "handle": "Ole_S_Hansen", "market": "Forex / Makro", "category": "Komoditas / emas", "info": "Saxo — komoditas, emas (XAUUSD)", "note": "Relevan untuk sistem XAUUSD-mu.", "handleCheck": "ok"},
+  {"name": "Tavi Costa", "handle": "TaviCosta", "market": "Forex / Makro", "category": "Komoditas / emas", "info": "Makro, komoditas, emas", "note": null, "handleCheck": "ok"},
+  {"name": "Kitco News", "handle": "KitcoNewsNOW", "market": "Forex / Makro", "category": "Komoditas / emas", "info": "Berita logam mulia", "note": null, "handleCheck": "ok", "media": true},
+  {"name": "Coinvestasi", "handle": "coinvestasi", "market": "Indonesia", "category": "Media crypto", "info": "Berita & edukasi crypto Indonesia", "note": "Juga merilis laporan industri bersama ICN.", "handleCheck": "recheck", "media": true},
+  {"name": "Indodax", "handle": "indodax", "market": "Indonesia", "category": "Exchange resmi", "info": "Listing & pengumuman exchange", "note": "Pengumuman listing = event harga lokal.", "handleCheck": "recheck"},
+  {"name": "Tokocrypto", "handle": "tokocrypto", "market": "Indonesia", "category": "Exchange resmi", "info": "Pengumuman & riset pasar", "note": null, "handleCheck": "recheck"},
+  {"name": "CNBC Indonesia", "handle": "cnbcindonesia", "market": "Indonesia", "category": "Media pasar", "info": "IHSG, makro RI, BI", "note": null, "handleCheck": "recheck", "media": true},
+  {"name": "Kontan", "handle": "KontanNews", "market": "Indonesia", "category": "Media pasar", "info": "Berita saham & emiten", "note": null, "handleCheck": "recheck", "media": true},
+  {"name": "Kapten Saham 707", "handle": null, "market": "Indonesia", "category": "KOL trader", "info": "Bias market harian, momentum", "note": "Disebut di blog MEXC sebagai KOL trader retail; handle X belum diverifikasi.", "handleCheck": "unknown"},
+  {"name": "Niki Sekar Dewayani", "handle": null, "market": "Indonesia", "category": "Edukasi / komunitas", "info": "Literasi & komunitas crypto", "note": "Disebut di blog MEXC; pengaruh edukasi, bukan sinyal.", "handleCheck": "unknown"},
+];
+
+const BY_HANDLE = new Map(KOL_ACCOUNTS.filter((a) => a.handle).map((a) => [a.handle!.toLowerCase(), a]));
+
+/** The listed account behind an X handle, if it's one of them. */
+export const kolOf = (handle: string): KolAccount | undefined => BY_HANDLE.get(handle.toLowerCase());

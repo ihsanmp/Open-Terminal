@@ -72,6 +72,9 @@ describe("reading the accounts", () => {
     expect(posts[0]).toMatchObject({ images: ["https://cdn/full.jpg"], url: "https://bsky.app/profile/whale-alert.io/post/3abc", trust: "domain" });
     expect(sf.bskyTrust("someone.bsky.social", undefined, null)).toBe("unverified");
     expect(sf.bskyTrust("someone.bsky.social", "valid", null)).toBe("verified");
+    // Linked from the owner's own site, or checked by hand for the list.
+    expect(sf.bskyTrust("livesquawknews.bsky.social", undefined, "bluesky:livesquawknews.bsky.social")).toBe("site");
+    expect(sf.bskyTrust("unusualwhales.bsky.social", undefined, "bluesky:unusualwhales.bsky.social")).toBe("known");
   });
 
   it("drops Truth Social posts from an id that no longer belongs to the known account", () => {

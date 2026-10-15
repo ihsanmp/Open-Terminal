@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useState, type ReactNode } from "react";
 import { apiDelete, apiGet, apiPost, fmt, fmtBig } from "../../lib/api";
+import { KOL_ACCOUNTS, kolOf, type KolAccount } from "../../lib/kol-list";
 import { usePoll } from "../../lib/refresh";
 import { useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 
@@ -14,7 +15,7 @@ import { useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../st
 // ---------------------------------------------------------------- the posts
 
 type Platform = "x" | "telegram" | "bluesky" | "truthsocial";
-type Trust = "domain" | "verified" | "known" | "paid" | "unverified";
+type Trust = "domain" | "verified" | "site" | "known" | "paid" | "unverified";
 type Link = { text: string; url: string };
 type Confirmation = { publisher: string; title: string; link: string; time: number };
 type Post = {
@@ -48,6 +49,7 @@ const PLATFORM: Record<Platform, string> = { x: "X", telegram: "Telegram", blues
 const TRUST: Record<Trust, { text: string; cls: string; title: string }> = {
   domain: { text: "✓ akun asli", cls: "up", title: "Handle Bluesky-nya adalah domain milik akun ini sendiri: hanya pemilik domain yang bisa memakainya" },
   verified: { text: "✓ terverifikasi", cls: "up", title: "Diverifikasi platformnya sendiri (X: akun pemerintah/bisnis; Truth Social; Telegram)" },
+  site: { text: "✓ akun resmi", cls: "up", title: "Ditautkan dari situs web resmi pemiliknya sendiri" },
   known: { text: "✓ akun dikenal", cls: "up", title: "Keaslian akun diperiksa manual untuk daftar ini" },
   paid: { text: "centang berbayar", cls: "amber", title: "Centang biru X yang dibeli: bukan bukti identitas" },
   unverified: { text: "tak terverifikasi", cls: "down", title: "Identitas akun ini tidak bisa dipastikan" },
@@ -117,8 +119,12 @@ function Confirm({ post }: { post: Post }) {
   );
 }
 
+/** The listed accounts by the source that follows them, for their notes on posts read elsewhere. */
+const KOL_BY_SOURCE = new Map(KOL_ACCOUNTS.filter((a) => a.followedVia).map((a) => [a.followedVia!, a]));
+
 function PostCard({ post, onRemove }: { post: Post; onRemove?: () => void }) {
   const trust = TRUST[post.trust];
+  const kol = post.platform === "x" ? kolOf(post.handle) : post.sourceId ? KOL_BY_SOURCE.get(post.sourceId) : undefined;
   return (
     <article className="flex gap-2 px-2 py-2 border-b border-[var(--border)]">
       <div className="w-7 h-7 shrink-0 rounded-full bg-[var(--panel-2)] overflow-hidden flex items-center justify-center dim text-fs-10">
@@ -128,6 +134,11 @@ function PostCard({ post, onRemove }: { post: Post; onRemove?: () => void }) {
         <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
           <span className="font-bold text-[var(--text)]">{post.author}</span>
           <span className="dim">@{post.handle}</span>
+          {kol?.note && post.via !== "manual" && (
+            <span className="text-[#c9a227] cursor-help" title={`Catatan dari daftar akun Anda: ${kol.note}`}>
+              ⓘ
+            </span>
+          )}
           <span className={`text-fs-10 ${trust.cls}`} title={trust.title}>
             {trust.text}
           </span>
@@ -135,6 +146,12 @@ function PostCard({ post, onRemove }: { post: Post; onRemove?: () => void }) {
             · {PLATFORM[post.platform]} · {ago(post.time)}
           </span>
         </div>
+        {/* A pasted post is judged one at a time: its account's note in full. */}
+        {kol?.note && post.via === "manual" && (
+          <div className="text-fs-10 text-[#c9a227]" title="Catatan dari daftar akun Anda">
+            Catatan: {kol.note}
+          </div>
+        )}
         {post.repostOf && <div className="dim text-fs-10">membagikan ulang @{post.repostOf}</div>}
         {post.text ? (
           <p className="whitespace-pre-wrap break-words leading-snug mt-0.5">
@@ -200,6 +217,7 @@ function Posts({ symbol }: { symbol: string }) {
   const [follow, setFollow] = useState("");
   const [followMsg, setFollowMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [shown, setShown] = useState(80);
+  const [listing, setListing] = useWidgetSetting<boolean>("insiderList", false);
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["social"] });
   const submitPaste = async () => {
@@ -249,9 +267,9 @@ function Posts({ symbol }: { symbol: string }) {
   return (
     <div className="flex flex-col h-full min-h-0 text-fs-11">
       <div className="p-1 border-b border-[var(--border)] flex flex-col gap-1">
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1 [&>button]:whitespace-nowrap">
           <input
-            className="flex-1 min-w-0"
+            className="flex-1 min-w-[200px]"
             placeholder="Tempel link postingan X (x.com/…/status/…), bisa beberapa sekaligus"
             value={paste}
             onChange={(e) => setPaste(e.target.value)}
@@ -263,13 +281,16 @@ function Posts({ symbol }: { symbol: string }) {
           <button className={`term-btn ${adding ? "active" : ""}`} onClick={() => setAdding((a) => !a)} title="Ikuti akun lain (Telegram, Bluesky, Truth Social)">
             + Akun
           </button>
+          <button className={`term-btn ${listing ? "active" : ""}`} onClick={() => setListing((l) => !l)} title="Daftar akun pasar Anda: cara tiap akun dipantau, link X-nya, dan catatannya">
+            Daftar akun ({KOL_ACCOUNTS.length})
+          </button>
         </div>
         {pasteMsg && <div className={`text-fs-10 ${pasteMsg.ok ? "up" : "down"}`}>{pasteMsg.text}</div>}
         {adding && (
           <div className="flex flex-col gap-1 p-1 border border-[var(--border)]">
-            <div className="flex gap-1">
+            <div className="flex flex-wrap gap-1">
               <input
-                className="flex-1 min-w-0"
+                className="flex-1 min-w-[200px]"
                 placeholder="t.me/<channel>, bsky.app/profile/<handle>, atau truth:<id akun>"
                 value={follow}
                 onChange={(e) => setFollow(e.target.value)}
@@ -325,6 +346,9 @@ function Posts({ symbol }: { symbol: string }) {
           </label>
         </div>
       </div>
+      {listing ? (
+        <KolList sources={data ? sources : null} />
+      ) : (
       <div className="flex-1 min-h-0 overflow-auto">
         {error && <div className="p-2 down">Gagal memuat: {(error as Error).message}</div>}
         {isLoading && <div className="p-2 dim">Membaca akun-akun…</div>}
@@ -353,6 +377,82 @@ function Posts({ symbol }: { symbol: string }) {
           ⚠ belum dikonfirmasi = belum tentu hoaks, tapi belum terbukti. Tidak ada saringan yang bisa menjamin 100% bebas hoaks.
         </div>
       </div>
+      )}
+    </div>
+  );
+}
+
+const MARKETS = ["Lintas pasar", "Crypto / Web3", "Saham (US)", "Forex / Makro", "Indonesia"];
+
+/** How a listed account is read here: followed (and where), a news outlet, or on X alone. */
+function followedBy(a: KolAccount, sources: Source[] | null): ReactNode {
+  if (a.followedVia) {
+    if (!sources) return <span className="dim">…</span>;
+    const s = sources.find((x) => x.id === a.followedVia);
+    if (s) return <span className="up">✓ otomatis via {PLATFORM[s.platform]}</span>;
+    return <span className="dim">dihapus dari feed</span>;
+  }
+  if (a.media) return <span className="dim" title="Media berita: beritanya ada di tab News">media → News</span>;
+  return (
+    <span className="dim" title="X tidak bisa dibaca otomatis tanpa login: buka akunnya, lalu tempel link postingannya di kolom atas">
+      hanya di X
+    </span>
+  );
+}
+
+function KolList({ sources }: { sources: Source[] | null }) {
+  const [market, setMarket] = useWidgetSetting<string>("insiderListMarket", "all");
+  const rows = KOL_ACCOUNTS.filter((a) => market === "all" || a.market === market);
+  const auto = sources ? KOL_ACCOUNTS.filter((a) => a.followedVia && sources.some((s) => s.id === a.followedVia)).length : null;
+  return (
+    <div className="flex-1 min-h-0 overflow-auto">
+      <div className="flex flex-wrap gap-1 p-1 items-center">
+        {["all", ...MARKETS].map((m) => (
+          <button key={m} className={`term-btn ${market === m ? "active" : ""}`} onClick={() => setMarket(m)}>
+            {m === "all" ? "Semua" : m}
+          </button>
+        ))}
+        <span className="dim text-fs-10 ml-auto">
+          {auto === null ? "memuat…" : `${auto} dari ${KOL_ACCOUNTS.length} dipantau otomatis`}
+        </span>
+      </div>
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th className="!text-left">Akun</th>
+            <th className="!text-left">Pasar · jenis</th>
+            <th className="!text-left">Dipantau</th>
+            <th className="!text-left">Catatan</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((a) => (
+            <tr key={`${a.name}-${a.handle}`}>
+              <td className="!text-left whitespace-nowrap">
+                <span className="text-[var(--text)]">{a.name}</span>{" "}
+                {a.handle ? (
+                  <a href={`https://x.com/${a.handle}`} target="_blank" rel="noreferrer" className="amber hover:underline">
+                    @{a.handle}
+                  </a>
+                ) : (
+                  <span className="down">handle belum ada</span>
+                )}
+                {a.handleCheck !== "ok" && a.handle && (
+                  <span className="down" title="Handle ini belum dipastikan di daftar Anda: periksa profilnya sebelum mempercayai postingannya">
+                    {" "}
+                    ⚠
+                  </span>
+                )}
+              </td>
+              <td className="!text-left dim">
+                {a.market} · {a.category}
+              </td>
+              <td className="!text-left whitespace-nowrap">{followedBy(a, sources)}</td>
+              <td className="!text-left dim min-w-[240px] !whitespace-normal">{a.note ?? a.info}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
