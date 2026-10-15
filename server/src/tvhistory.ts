@@ -87,19 +87,60 @@ async function tokenCandidates(symbol: string): Promise<string[]> {
   return (await offBoardPair(base)).filter((t) => tvchart.SYMBOL_RE.test(t));
 }
 
+/** A bar's length, for how many bars have closed since the last one kept. */
+const BAR_SECONDS: Record<Interval, number> = {
+  "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14_400, "1D": 86_400, "1W": 604_800, "1M": 2_592_000,
+};
+
+/**
+ * Histories read in full, kept with the listing chosen: a refresh asks that listing for only the
+ * bars since (a handful), not every listing for all of it (up to 20,000 bars each, a megabyte). The
+ * choice is made again in full every six hours.
+ */
+const known = new Map<string, { ticker: string; bars: tvchart.TvBar[]; at: number }>();
+const REPICK_MS = 6 * 3_600_000;
+const MAX_KNOWN = 300;
+
+const toCandles = (bars: tvchart.TvBar[]): Candle[] =>
+  bars
+    .filter((b) => [b.open, b.high, b.low, b.close].every(Number.isFinite))
+    .map((b) => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume ?? 0 }));
+
 export async function tvHistory(symbol: string, interval: Interval, fetchBars = tvchart.bars, tokenPairOf = tokenCandidates): Promise<Candle[]> {
+  // Only TradingView's own feed is refreshed this way (tests pass their own).
+  const live = fetchBars === tvchart.bars;
+  const key = `${symbol}|${interval}`;
+  const kept = live ? known.get(key) : undefined;
+  if (kept && Date.now() - kept.at < REPICK_MS && kept.bars.length) {
+    const behind = Math.ceil((Date.now() / 1000 - kept.bars[kept.bars.length - 1].time) / BAR_SECONDS[interval]) + 3;
+    if (behind < 500) {
+      const fresh = (await fetchBars([kept.ticker], TV_RESOLUTION[interval], behind, 10_000))[kept.ticker];
+      if (fresh?.length) {
+        const byTime = new Map(kept.bars.map((b) => [b.time, b]));
+        for (const b of fresh) byTime.set(b.time, b);
+        kept.bars = [...byTime.values()].sort((x, y) => x.time - y.time).slice(-TV_DEPTH[interval]);
+        return toCandles(kept.bars);
+      }
+    }
+  }
   const candidates = tvCandidates(symbol);
   if (candidates.length === 0) throw new Error(`tradingview: no ticker for ${symbol}`);
   // A token off the ranked board is charted on its own pair first: on the big exchanges its
   // ticker may belong to another token, and the chart must be of the token the quote is.
   const own = await tokenPairOf(symbol);
   let best: tvchart.TvBar[] | null = null;
+  let ticker: string | null = null;
   for (const list of own.length ? [own, candidates] : [candidates]) {
-    best = pickLongest(list, await fetchBars(list, TV_RESOLUTION[interval], TV_DEPTH[interval], 10_000), cryptoBase(symbol) !== null);
+    const found = await fetchBars(list, TV_RESOLUTION[interval], TV_DEPTH[interval], 10_000);
+    best = pickLongest(list, found, cryptoBase(symbol) !== null);
+    ticker = list.find((t) => found[t] === best) ?? null;
     if (best) break;
   }
   if (!best) throw new Error(`tradingview: no bars for ${symbol}`);
-  return best
-    .filter((b) => [b.open, b.high, b.low, b.close].every(Number.isFinite))
-    .map((b) => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume ?? 0 }));
+  if (live && ticker) {
+    known.delete(key);
+    known.set(key, { ticker, bars: best, at: Date.now() });
+    if (known.size > MAX_KNOWN) known.delete(known.keys().next().value!);
+  }
+  return toCandles(best);
 }

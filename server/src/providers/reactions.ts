@@ -76,10 +76,16 @@ const refreshing = new Map<string, Promise<Record<string, TvBar[]>>>();
 
 async function refreshStore(resolution: string, store: Store, now: number): Promise<Record<string, TvBar[]>> {
   const file = join(dir, `bars-${resolution}.json`);
+  // Once every instrument has a history, only the bars since its last one (and a few before, for
+  // the last bar's final close) are asked for, not thousands each again.
+  const barSeconds = resolution === "1D" ? 86_400 : Number(resolution) * 60;
+  const oldest = Math.min(...INSTRUMENTS.map((i) => store.bars[i.symbol]?.at(-1)?.time ?? 0));
+  const full = resolution === "1D" ? 3000 : 20000;
+  const count = oldest > 0 ? Math.min(full, Math.ceil((now / 1000 - oldest) / barSeconds) + 10) : full;
   const fresh = await bars(
     INSTRUMENTS.map((i) => i.symbol),
     resolution,
-    resolution === "1D" ? 3000 : 20000,
+    count,
     40_000,
   ).catch(() => ({}) as Record<string, TvBar[] | null>);
   for (const i of INSTRUMENTS) {
