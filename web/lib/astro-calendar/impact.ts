@@ -383,6 +383,46 @@ export function trackRecord(event: AstroEvent, byKey: Map<string, number[]>, eve
   return { calls, right };
 }
 
+export type Outcome = {
+  /** Trading days since the event that have closed, of its horizon. */
+  days: number;
+  horizon: number;
+  /** The price's move from the close the day before the event (%). */
+  movePct: number;
+  /** The whole horizon is over: the verdict can be judged. */
+  done: boolean;
+  /** Bullish and it rose, or Bearish and it fell (null for a neutral verdict). */
+  right: boolean | null;
+};
+
+/**
+ * What the price has done since an event that's begun: from the close the day before it (when the
+ * verdict was final) to the latest close, or to the end of its horizon once that's over.
+ */
+export function outcomeOf(event: AstroEvent, impact: Impact): Outcome | null {
+  const s = prepare(impact.asset).s;
+  const eventDay = Math.floor(event.time / DAY);
+  const i = indexOnOrBefore(s, eventDay - 1);
+  if (i < 0 || s.days[s.days.length - 1] < eventDay) return null;
+  const end = Math.min(s.close.length - 1, i + impact.horizon);
+  const days = end - i;
+  if (days < 1) return null;
+  const movePct = pct(Math.log(s.close[end] / s.close[i]));
+  const done = days >= impact.horizon;
+  const right = impact.verdict === "Netral" || movePct === 0 ? null : impact.verdict === "Bullish" ? movePct > 0 : movePct < 0;
+  return { days, horizon: impact.horizon, movePct, done, right };
+}
+
+/**
+ * The verdicts tested walk-forward on every event from 2018 to October 2026 (each verdict as of its
+ * H-1, from the prices up to then; neutral ones aside): how often the price then moved the way it
+ * said. astro-calendar.test.ts recomputes these from the bundled prices.
+ */
+export const WALK_FORWARD: Record<Asset, { calls: number; right: number }> = {
+  GOLD: { calls: 861, right: 441 },
+  BTC: { calls: 734, right: 384 },
+};
+
 /** "naik kuat, di atas rata-rata 50 hari" and so on, for the market's state. */
 export function describeState(state: MarketState | null): string {
   if (!state) return "belum cukup data";

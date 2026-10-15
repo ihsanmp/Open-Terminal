@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { apiGet, type Candle } from "../../lib/api";
 import { buildEvents, type AstroEvent, type EventKind } from "../../lib/astro-calendar/events";
-import { ASSETS, describeKey, describeState, extendSeries, impactOf, indexByKey, MIN_SAMPLES, pricesVersion, trackRecord, verdictTrail, type Asset, type Impact, type Verdict } from "../../lib/astro-calendar/impact";
+import { ASSETS, describeKey, describeState, extendSeries, impactOf, indexByKey, MIN_SAMPLES, outcomeOf, pricesVersion, trackRecord, verdictTrail, WALK_FORWARD, type Asset, type Impact, type Outcome, type Verdict } from "../../lib/astro-calendar/impact";
 import { useWidgetSetting } from "../../store/terminal";
 
 // The astrology calendar: the month's sky events, each with its offline verdict on GOLD and BTC
@@ -117,7 +117,20 @@ function Trail({ trail }: { trail: TrailPoint[] }) {
   );
 }
 
-function ImpactRow({ impact, trail, record }: { impact: Impact; trail: TrailPoint[]; record: { calls: number; right: number } }) {
+/** What the price did after the event: over its whole horizon (judged), or so far. */
+function OutcomeLine({ outcome, verdict }: { outcome: Outcome; verdict: Verdict }) {
+  const mark = outcome.right === null ? "" : outcome.right ? " ✓ sesuai kesimpulan" : " ✗ tidak sesuai kesimpulan";
+  return (
+    <div className="px-4 pb-2 -mt-1 text-fs-11">
+      <span className="dim">{outcome.done ? `Hasil ${outcome.horizon} hari bursa setelahnya:` : `Berjalan (${outcome.days} dari ${outcome.horizon} hari bursa):`}</span>{" "}
+      <b className={outcome.movePct >= 0 ? "up" : "down"}>{signed(outcome.movePct)}</b>
+      {outcome.done && verdict !== "Netral" && <span className={outcome.right ? "up" : "down"}>{mark}</span>}
+      {!outcome.done && verdict !== "Netral" && <span className="dim"> (dinilai setelah {outcome.horizon} hari bursa)</span>}
+    </div>
+  );
+}
+
+function ImpactRow({ impact, trail, record, outcome }: { impact: Impact; trail: TrailPoint[]; record: { calls: number; right: number }; outcome: Outcome | null }) {
   const [open, setOpen] = useState(false);
   const enough = impact.n >= MIN_SAMPLES;
   return (
@@ -131,6 +144,7 @@ function ImpactRow({ impact, trail, record }: { impact: Impact; trail: TrailPoin
           {open ? "Tutup" : "Lihat Detail"} {open ? "↑" : "→"}
         </button>
       </div>
+      {outcome && <OutcomeLine outcome={outcome} verdict={impact.verdict} />}
       {open && (
         <div className="px-4 pb-4 text-fs-11 space-y-2">
           {enough ? (
@@ -188,7 +202,11 @@ function ImpactRow({ impact, trail, record }: { impact: Impact; trail: TrailPoin
 
 function EventDialog({ event, events, byKey, version, onClose }: { event: AstroEvent; events: AstroEvent[]; byKey: Map<string, number[]>; version: number; onClose: () => void }) {
   const rows = useMemo(
-    () => ASSETS.map((a) => ({ impact: impactOf(event, byKey, a), trail: verdictTrail(event, byKey, a), record: trackRecord(event, byKey, events, a) })),
+    () =>
+      ASSETS.map((a) => {
+        const impact = impactOf(event, byKey, a);
+        return { impact, trail: verdictTrail(event, byKey, a), record: trackRecord(event, byKey, events, a), outcome: outcomeOf(event, impact) };
+      }),
     [event, events, byKey, version] // eslint-disable-line react-hooks/exhaustive-deps
   );
   const final = rows.every((r) => r.impact.final);
@@ -238,6 +256,10 @@ function EventDialog({ event, events, byKey, version, onClose }: { event: AstroE
             Kesimpulan per data {fmtUtcDay(asOf)}
             {final ? " · final (H-1)" : ` · sementara, ikut berubah dengan harga terbaru sampai H-1 (${fmtUtcDay(Math.floor(event.time / DAY) - 1)})`}
           </div>
+          <div className="text-fs-10 px-1 amber">
+            Uji pada semua kejadian 2018–2026 (kesimpulan H-1, hanya data sampai hari itu): arah harga sesuai kesimpulan{" "}
+            {ASSETS.map((a) => `${ASSET_LABEL[a]} ${Math.round((WALK_FORWARD[a].right / WALK_FORWARD[a].calls) * 100)}%`).join(", ")}: setara lempar koin. Pakai sebagai catatan pola historis, bukan sinyal trading.
+          </div>
           {info && (
             <div className="text-fs-11 dim px-1 space-y-1">
               <p>
@@ -253,7 +275,7 @@ function EventDialog({ event, events, byKey, version, onClose }: { event: AstroE
               </p>
               <p>
                 Ini pola masa lalu, bukan ramalan: astrologi belum terbukti bisa memprediksi pasar, dan sebagian pola bisa muncul karena kebetulan. Diuji
-                pada kejadian lampau (kesimpulan H-1 tiap kejadian, hanya dengan data sampai hari itu), tepatnya sekitar 50% untuk gold dan 54% untuk BTC.
+                pada kejadian lampau sejak 2018 (kesimpulan H-1 tiap kejadian, hanya dengan data sampai hari itu): {WALK_FORWARD.GOLD.right} dari {WALK_FORWARD.GOLD.calls} benar untuk gold, {WALK_FORWARD.BTC.right} dari {WALK_FORWARD.BTC.calls} untuk BTC. Menyaring hanya jenis kejadian yang dulu sering benar juga tidak menolong: yang dulu benar tidak terus benar.
               </p>
             </div>
           )}
