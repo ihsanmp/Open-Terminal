@@ -8,7 +8,7 @@ import { buildEvents, type AstroEvent, type EventKind } from "../../lib/astro-ca
 import { ASSETS, describeKey, describeState, extendSeries, impactOf, indexByKey, MIN_SAMPLES, outcomeOf, pricesVersion, trackRecord, verdictTrail, WALK_FORWARD, type Asset, type Impact, type Outcome, type Verdict } from "../../lib/astro-calendar/impact";
 import { useWidgetSetting } from "../../store/terminal";
 
-// The astrology calendar: the month's sky events, each with its offline verdict on GOLD and BTC
+// The astrology calendar: the month's sky events, each with its offline verdict on GOLD, BTC and DXY
 // (lib/astro-calendar). Clicking an event opens its details: what happens, and the impact with
 // the statistics behind it. The verdict follows the latest close until the day before the event,
 // so it is recomputed whenever the prices change.
@@ -29,7 +29,7 @@ const VERDICT_STYLE: Record<Verdict, string> = {
   Bearish: "bg-[#6b1d1d] text-[#ffb3b3]",
   Netral: "bg-[#2a2a2a] text-[#a8a8a8]",
 };
-const ASSET_LABEL: Record<Asset, string> = { GOLD: "GOLD", BTC: "BTC" };
+const ASSET_LABEL: Record<Asset, string> = { GOLD: "GOLD", BTC: "BTC", DXY: "DXY" };
 
 // The whole catalogue is computed once (under a second) and shared by every calendar.
 let catalogue: { events: AstroEvent[]; byKey: Map<string, number[]> } | null = null;
@@ -54,6 +54,12 @@ const fmtTime = (time: number) => new Date(time * 1000).toLocaleTimeString("id-I
 const signed = (v: number, digits = 2) => `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%`;
 
 function AssetIcon({ asset }: { asset: Asset }) {
+  if (asset === "DXY")
+    return (
+      <span className="w-8 h-8 rounded-full bg-[#1f6f3f] flex items-center justify-center shrink-0 text-white font-bold text-fs-15" aria-hidden>
+        $
+      </span>
+    );
   return asset === "GOLD" ? (
     <span className="w-8 h-8 rounded-full bg-[#f3efe4] flex items-center justify-center shrink-0" aria-hidden>
       <svg width="20" height="14" viewBox="0 0 20 14">
@@ -263,7 +269,7 @@ function EventDialog({ event, events, byKey, version, onClose }: { event: AstroE
           {info && (
             <div className="text-fs-11 dim px-1 space-y-1">
               <p>
-                Dihitung offline dari riwayat harga (gold sejak 1990, BTC sejak 2011): untuk setiap kejadian yang sama di masa lalu, diukur pergerakan harga
+                Dihitung offline dari riwayat harga (gold dan DXY sejak 1990, BTC sejak 2011): untuk setiap kejadian yang sama di masa lalu, diukur pergerakan harga
                 beberapa hari bursa sesudahnya (dari penutupan H-1), lalu dibandingkan dengan pergerakan pasar pada hari-hari biasa yang kondisinya dan
                 masanya sama (ditimbang dengan cara yang sama), jadi yang dinilai hanya bagian &quot;dari kejadian astro&quot;. Bullish/Bearish bila bagian itu cukup
                 konsisten (t ≥ 1), selain itu Netral. Kejadian yang jendelanya tumpang-tindih tidak dihitung dua kali.
@@ -275,7 +281,7 @@ function EventDialog({ event, events, byKey, version, onClose }: { event: AstroE
               </p>
               <p>
                 Ini pola masa lalu, bukan ramalan: astrologi belum terbukti bisa memprediksi pasar, dan sebagian pola bisa muncul karena kebetulan. Diuji
-                pada kejadian lampau sejak 2018 (kesimpulan H-1 tiap kejadian, hanya dengan data sampai hari itu): {WALK_FORWARD.GOLD.right} dari {WALK_FORWARD.GOLD.calls} benar untuk gold, {WALK_FORWARD.BTC.right} dari {WALK_FORWARD.BTC.calls} untuk BTC. Menyaring hanya jenis kejadian yang dulu sering benar juga tidak menolong: yang dulu benar tidak terus benar.
+                pada kejadian lampau sejak 2018 (kesimpulan H-1 tiap kejadian, hanya dengan data sampai hari itu): {WALK_FORWARD.GOLD.right} dari {WALK_FORWARD.GOLD.calls} benar untuk gold, {WALK_FORWARD.BTC.right} dari {WALK_FORWARD.BTC.calls} untuk BTC, {WALK_FORWARD.DXY.right} dari {WALK_FORWARD.DXY.calls} untuk DXY. Menyaring hanya jenis kejadian yang dulu sering benar juga tidak menolong: yang dulu benar tidak terus benar.
               </p>
             </div>
           )}
@@ -322,11 +328,13 @@ export default function AstroCalendarWidget() {
   const live = { staleTime: 10 * 60_000, refetchInterval: 15 * 60_000, retry: 0 } as const;
   const gold = useQuery({ queryKey: ["astro-prices", "GOLD"], queryFn: () => apiGet<Candle[]>("/api/history/XAUUSD=X?range=1Y&interval=1D"), ...live });
   const btc = useQuery({ queryKey: ["astro-prices", "BTC"], queryFn: () => apiGet<Candle[]>("/api/history/BTC-USD?range=1Y&interval=1D"), ...live });
+  const dxy = useQuery({ queryKey: ["astro-prices", "DXY"], queryFn: () => apiGet<Candle[]>("/api/history/DX-Y.NYB?range=1Y&interval=1D"), ...live });
   useEffect(() => {
     if (gold.data) extendSeries("GOLD", gold.data);
     if (btc.data) extendSeries("BTC", btc.data);
+    if (dxy.data) extendSeries("DXY", dxy.data);
     setVersion(pricesVersion());
-  }, [gold.data, btc.data]);
+  }, [gold.data, btc.data, dxy.data]);
 
   const first = new Date(month.y, month.m, 1);
   const lead = (first.getDay() + 6) % 7; // weeks start on Monday
@@ -374,7 +382,7 @@ export default function AstroCalendarWidget() {
           </span>
         </div>
         <div className="flex items-center gap-3 dim text-fs-10">
-          <span>Titik: GOLD · BTC —</span>
+          <span>Titik: GOLD · BTC · DXY —</span>
           <span className="flex items-center gap-1">
             <span className="w-[6px] h-[6px] rounded-full bg-[#2ecc8f]" /> Bullish
           </span>

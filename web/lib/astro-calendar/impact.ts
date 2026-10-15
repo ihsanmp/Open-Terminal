@@ -39,8 +39,10 @@
 import bundled from "./prices.json";
 import type { AstroEvent } from "./events";
 
-export type Asset = "GOLD" | "BTC";
-export const ASSETS: Asset[] = ["GOLD", "BTC"];
+// The dollar index beside gold and bitcoin: the yardstick both are priced in, usually moving the
+// other way to gold, so the three verdicts can be told apart.
+export type Asset = "GOLD" | "BTC" | "DXY";
+export const ASSETS: Asset[] = ["GOLD", "BTC", "DXY"];
 export const MIN_SAMPLES = 8;
 /** How fast older events lose weight. */
 export const HALF_LIFE_YEARS = 8;
@@ -62,7 +64,8 @@ function unpack(p: Packed): Series {
   return { days, close: Float64Array.from(p.c) };
 }
 
-const BUNDLED: Record<Asset, Series> = { GOLD: unpack((bundled as unknown as Record<Asset, Packed>).GOLD), BTC: unpack((bundled as unknown as Record<Asset, Packed>).BTC) };
+const packed = bundled as unknown as Record<Asset, Packed>;
+const BUNDLED: Record<Asset, Series> = { GOLD: unpack(packed.GOLD), BTC: unpack(packed.BTC), DXY: unpack(packed.DXY) };
 let current: Record<Asset, Series> = BUNDLED;
 let version = 0;
 /** Changes whenever the prices do, for recomputing what depends on them. */
@@ -111,7 +114,7 @@ function indexOnOrBefore(s: Series, day: number): number {
   return lo - 1;
 }
 
-/** Whether the asset trades on a UTC day: BTC every day, gold on weekdays. */
+/** Whether the asset trades on a UTC day: BTC every day, gold and the dollar index on weekdays. */
 const tradesOn = (asset: Asset, day: number) => asset === "BTC" || ![0, 6].includes((day + 4) % 7);
 
 type Prepared = {
@@ -421,6 +424,7 @@ export function outcomeOf(event: AstroEvent, impact: Impact): Outcome | null {
 export const WALK_FORWARD: Record<Asset, { calls: number; right: number }> = {
   GOLD: { calls: 861, right: 441 },
   BTC: { calls: 734, right: 384 },
+  DXY: { calls: 672, right: 336 },
 };
 
 /** "naik kuat, di atas rata-rata 50 hari" and so on, for the market's state. */
