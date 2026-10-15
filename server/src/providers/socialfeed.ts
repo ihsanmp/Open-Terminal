@@ -26,10 +26,11 @@ export type Tier = "A1" | "Tokoh" | "KOL";
 /**
  * How an account's identity is known: "domain", a Bluesky handle that is its own web domain (only
  * the domain's owner can take it); "verified", the platform's own check (X's for governments and
- * businesses, Truth Social's, Telegram's); "known", an account checked by hand for this list;
+ * businesses, Truth Social's, Telegram's); "site", an account the owner's own website links to;
+ * "known", an account checked by hand for this list;
  * "paid", X's bought blue check; "unverified", nothing.
  */
-export type Trust = "domain" | "verified" | "known" | "paid" | "unverified";
+export type Trust = "domain" | "verified" | "site" | "known" | "paid" | "unverified";
 export type SocialSource = { id: string; platform: Platform; ref: string; name: string; tier: Tier; builtIn: boolean };
 export type SocialLink = { text: string; url: string };
 export type SocialPost = {
@@ -69,11 +70,27 @@ export const BUILT_IN: Array<Omit<SocialSource, "id" | "builtIn">> = [
   { platform: "bluesky", ref: "whale-alert.io", name: "Whale Alert", tier: "A1" },
   { platform: "bluesky", ref: "nicktimiraos.bsky.social", name: "Nick Timiraos", tier: "A1" },
   { platform: "truthsocial", ref: "107780257626128497", name: "Donald J. Trump", tier: "Tokoh" },
+  // From the user's list of market accounts (KOL_Pasar_Crypto_Saham_Forex.xlsx), those that post
+  // the same in the open where who they are can be checked; the rest are on X alone.
+  { platform: "bluesky", ref: "federalreserve.gov", name: "Federal Reserve", tier: "A1" },
+  { platform: "bluesky", ref: "livesquawknews.bsky.social", name: "LiveSquawk", tier: "A1" },
+  { platform: "telegram", ref: "wublockchainenglish", name: "Wu Blockchain", tier: "A1" },
+  { platform: "telegram", ref: "investigations", name: "ZachXBT", tier: "A1" },
+  { platform: "bluesky", ref: "unusualwhales.bsky.social", name: "Unusual Whales", tier: "A1" },
+  { platform: "bluesky", ref: "polymarket.com", name: "Polymarket", tier: "KOL" },
+  { platform: "bluesky", ref: "vitalik.ca", name: "Vitalik Buterin", tier: "KOL" },
+  { platform: "bluesky", ref: "elerianm.bsky.social", name: "Mohamed El-Erian", tier: "KOL" },
+  { platform: "bluesky", ref: "weisenthal.bsky.social", name: "Joe Weisenthal", tier: "KOL" },
 ];
+/** Linked from the owner's own website (checked 2026-10-15): livesquawk.com links its Bluesky,
+ *  wublockchain.xyz its Telegram channel. */
+const LINKED = new Set(["bluesky:livesquawknews.bsky.social", "telegram:wublockchainenglish"]);
 /** Checked by hand: Nick Timiraos's Bluesky (since 2023, 72k followers, shares his WSJ pieces);
  *  @realDonaldTrump's Truth Social id. (A "Walter Bloomberg" Telegram channel couldn't be confirmed
  *  as his: no verification, a fraction of his following, so it isn't followed.) */
-const KNOWN = new Set(["bluesky:nicktimiraos.bsky.social", "truthsocial:107780257626128497"]);
+/** Unusual Whales's Bluesky (since 2023, 115k followers, its bio links its own Discord and site);
+ *  ZachXBT's "Investigations" channel (109k subscribers; his other channel points to it). */
+const KNOWN = new Set(["bluesky:nicktimiraos.bsky.social", "truthsocial:107780257626128497", "bluesky:unusualwhales.bsky.social", "telegram:investigations"]);
 /** The username a known account must still have, or its posts are dropped (a changed hands id). */
 const KNOWN_USERNAME: Record<string, string> = { "truthsocial:107780257626128497": "realDonaldTrump" };
 
@@ -122,7 +139,7 @@ export const store = db.transaction((posts: SocialPost[]) => {
   prune.run(Date.now() - KEEP_DAYS * 86_400_000);
 });
 
-export function stored(limit = 300): SocialPost[] {
+export function stored(limit = 600): SocialPost[] {
   const rows = db.prepare("SELECT json, via FROM social_posts ORDER BY time DESC LIMIT ?").all(limit) as Array<{ json: string; via: SocialPost["via"] }>;
   return rows.map((r) => ({ ...(JSON.parse(r.json) as SocialPost), via: r.via }));
 }
@@ -179,7 +196,7 @@ function httpsText(url: string, timeoutMs = 12_000): Promise<string> {
 export function parseTelegram(html: string, channel: string, src: string | null): { name: string; posts: SocialPost[] } {
   const name = decode(/<meta property="og:title" content="([^"]*)"/.exec(html)?.[1] ?? channel);
   const avatar = /<meta property="og:image" content="([^"]*)"/.exec(html)?.[1] ?? null;
-  const trust: Trust = /tgme_channel_info_header_title[\s\S]{0,400}verified-icon/.test(html) ? "verified" : src && KNOWN.has(src) ? "known" : "unverified";
+  const trust: Trust = /tgme_channel_info_header_title[\s\S]{0,400}verified-icon/.test(html) ? "verified" : src && LINKED.has(src) ? "site" : src && KNOWN.has(src) ? "known" : "unverified";
   const posts: SocialPost[] = [];
   const parts = html.split(/<div class="tgme_widget_message_wrap/).slice(1);
   for (const part of parts) {
@@ -245,6 +262,7 @@ function bskyLinks(record: BskyPost["record"]): SocialLink[] {
 export function bskyTrust(handle: string, verifiedStatus: string | undefined, src: string | null): Trust {
   if (!/\.bsky\.social$/i.test(handle)) return "domain";
   if (verifiedStatus === "valid") return "verified";
+  if (src && LINKED.has(src)) return "site";
   return src && KNOWN.has(src) ? "known" : "unverified";
 }
 
@@ -470,7 +488,7 @@ export async function follow(input: string, tier: Tier): Promise<SocialSource> {
   if (!read.posts.length) throw new Error("akun ditemukan tapi belum ada postingan yang bisa dibaca");
   // Only accounts whose identity can be checked: an impostor channel is how a hoax gets in.
   const trust = read.posts[0].trust;
-  if (trust !== "domain" && trust !== "verified" && trust !== "known")
+  if (trust !== "domain" && trust !== "verified" && trust !== "site" && trust !== "known")
     throw new Error("akun ini tidak terverifikasi (bukan handle domain, tanpa centang resmi platform), jadi tidak diikuti agar akun palsu tidak masuk");
   db.prepare(
     `INSERT INTO social_sources (id, platform, ref, name, tier, built_in, hidden, added_at) VALUES (?, ?, ?, ?, ?, 0, 0, ?)
@@ -517,7 +535,11 @@ export function collect(): Promise<void> {
   running = (async () => {
     for (const s of sources()) {
       try {
-        const { posts } = await readSource(s.platform, s.ref, s.id);
+        // t.me now and then drops a connection outright: once more after a pause before failing.
+        const { posts } = await readSource(s.platform, s.ref, s.id).catch(async () => {
+          await new Promise((r) => setTimeout(r, 3_000));
+          return readSource(s.platform, s.ref, s.id);
+        });
         store(posts);
         status.set(s.id, { ok: true, error: null, at: Date.now(), count: posts.length });
       } catch (e) {
@@ -535,7 +557,7 @@ export type FeedPost = SocialPost & { confirmedBy: Confirmation[]; onChain: bool
 
 /** The feed as asked for by the app: read first when nothing has been yet, then from storage, each
  *  post with the outlets that have reported the same. */
-export async function feed(limit = 300): Promise<{ sources: Array<SocialSource & { status: SourceStatus | null }>; posts: FeedPost[] }> {
+export async function feed(limit = 600): Promise<{ sources: Array<SocialSource & { status: SourceStatus | null }>; posts: FeedPost[] }> {
   lastAsked = Date.now();
   if (!lastRun) await collect();
   else if (Date.now() - lastRun > 40_000) void collect();
@@ -587,6 +609,9 @@ export function keywords(text: string): Set<string> {
 
 export type Headline = Confirmation & { words: Set<string> };
 
+/** Pages written for search, not news ("PancakeSwap (CAKE) Price Prediction: 2025, 2026, 2030"). */
+const EVERGREEN = /price prediction|promo code|coupon|\bhow to\b|^what is\b/i;
+
 /** The outlets' headlines from `from` on (the News tab's archive, wires and papers, not blogs). */
 function headlines(from: number): Headline[] {
   let rows: Array<{ title: string; summary: string; link: string; publisher: string; published_at: string }>;
@@ -596,15 +621,18 @@ function headlines(from: number): Headline[] {
     return []; // no archive yet
   }
   // Headlines alone: a summary's extra words matched posts about something else.
-  return rows.map((r) => ({ publisher: r.publisher, title: r.title, link: r.link, time: Date.parse(r.published_at), words: keywords(r.title) }));
+  return rows
+    .filter((r) => !EVERGREEN.test(r.title))
+    .map((r) => ({ publisher: r.publisher, title: r.title, link: r.link, time: Date.parse(r.published_at), words: keywords(r.title) }));
 }
 
 /** Within this window around a post an outlet's report counts as being about the same thing. */
 const BEFORE_MS = 6 * 3600_000;
 const AFTER_MS = 36 * 3600_000;
 
-/** A figure that says something: 3.7%, 81000, 2027 (not a lone digit). */
-const isFigure = (w: string) => /^\d/.test(w);
+/** A figure that says something: 3.7%, 81000, 1.2, 315 (not a year, which every headline about the
+ *  next one shares, nor a bare two-digit number like 25 basis points). */
+export const isFigure = (w: string) => /^\d/.test(w) && !/^(19|20)\d\d$/.test(w) && (/[.%]/.test(w) || w.length >= 3);
 
 /**
  * Whether a headline reports what a post says, from the words they share, each weighed by how rare
@@ -614,10 +642,18 @@ const isFigure = (w: string) => /^\d/.test(w);
  * posts that only share a name with a story ("Elon Musk … SpaceX" about something else, Larry Fink
  * on rates against Fink on data centres) don't pass; "US inflation rises to 3.7%" does.
  */
-export function sameStory(shared: string[], score: number, headlineScore: number, postScore: number): boolean {
+/** How much of a post is matched, and how well a second outlet must match next to the best. */
+const HEAD_CHARS = 300;
+const RUNNER_UP = 0.6;
+
+export function sameStory(shared: string[], score: number, headlineScore: number, postScore: number, rare = 2): boolean {
   const ofHeadline = headlineScore > 0 ? score / headlineScore : 0;
   const ofPost = postScore > 0 ? score / postScore : 0;
-  if (score >= 14 && ((shared.length >= 4 && ofHeadline >= 0.3) || (shared.length >= 3 && ofHeadline >= 0.5))) return true;
+  // Words few headlines use (a name, "laundering", "circuit breaker"), not "White House", "rise",
+  // "September", "ahead of the midterms" that any story of the week shares.
+  const named = rare >= 2 || (rare >= 1 && shared.length >= 4 && ofHeadline >= 0.4);
+  // Four words at least: three were often just who spoke (ECB's Lane on rates, and Lane on AI).
+  if (score >= 14 && named && shared.length >= 4 && ofHeadline >= 0.3) return true;
   return score >= 9 && shared.length >= 2 && shared.some(isFigure) && (ofHeadline >= 0.4 || ofPost >= 0.4);
 }
 
@@ -637,13 +673,16 @@ export function corroborate(posts: SocialPost[], news?: Headline[]): Map<string,
   const df = new Map<string, number>();
   for (const h of list) for (const w of h.words) df.set(w, (df.get(w) ?? 0) + 1);
   const idf = (w: string) => Math.log((list.length + 1) / ((df.get(w) ?? 0) + 1));
+  // A word in at most a handful of the headlines (one in five hundred).
+  const rareDf = Math.max(3, Math.ceil(list.length * 0.002));
   for (const p of posts) {
     if (onChain(p)) continue;
-    const words = keywords(`${p.text} ${p.quoted?.text ?? ""}`);
+    // What a post says up front (a headline, then the story under it): its tail added chance matches.
+    const words = keywords(`${p.text.slice(0, HEAD_CHARS)} ${p.quoted?.text.slice(0, HEAD_CHARS) ?? ""}`);
     if (words.size < 2) continue;
     let postScore = 0;
     for (const w of words) postScore += idf(w);
-    const found: Array<Confirmation & { score: number }> = [];
+    const found: Array<Confirmation & { score: number; shared: string[] }> = [];
     for (const h of list) {
       if (h.time < p.time - BEFORE_MS || h.time > p.time + AFTER_MS) continue;
       const shared: string[] = [];
@@ -656,13 +695,17 @@ export function corroborate(posts: SocialPost[], news?: Headline[]): Map<string,
         shared.push(w);
         score += x;
       }
-      if (sameStory(shared, score, headlineScore, postScore)) found.push({ publisher: h.publisher, title: h.title, link: h.link, time: h.time, score });
+      if (sameStory(shared, score, headlineScore, postScore, shared.filter((w) => (df.get(w) ?? 0) <= rareDf).length)) found.push({ publisher: h.publisher, title: h.title, link: h.link, time: h.time, score, shared });
     }
     found.sort((a, b) => b.score - a.score);
+    // Other outlets count when they match about as well as the best one, not on a few shared words.
+    // and on the same words: "US CPI 3.7%" and "French inflation rises in September" don't agree.
+    const lead = new Set(found[0]?.shared ?? []);
+    const strong = found.filter((f, i) => i === 0 || (f.score >= RUNNER_UP * found[0].score && f.shared.filter((w) => lead.has(w)).length * 2 >= f.shared.length));
     // One per outlet, the best match first.
     const seen = new Set<string>();
-    const best = found.filter((f) => !seen.has(f.publisher) && seen.add(f.publisher)).slice(0, 3);
-    if (best.length) out.set(p.id, best.map(({ score: _s, ...c }) => c));
+    const best = strong.filter((f) => !seen.has(f.publisher) && seen.add(f.publisher)).slice(0, 3);
+    if (best.length) out.set(p.id, best.map(({ score: _s, shared: _w, ...c }) => c));
   }
   return out;
 }
