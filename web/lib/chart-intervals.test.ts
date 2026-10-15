@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { INTERVALS, INTERVAL_GROUPS, INTERVAL_LABEL, INTERVAL_SOURCE, MIN_VISIBLE_BARS, RANGE_PRESETS, latestBarsView, loadRange, orderedFavorites, parseIntervalInput, presetStart, resolveInterval } from "./chart-intervals";
+import { INTERVALS, INTERVAL_GROUPS, INTERVAL_LABEL, INTERVAL_SOURCE, MIN_VISIBLE_BARS, RANGE_PRESETS, futureTimes, latestBarsView, loadRange, orderedFavorites, parseIntervalInput, presetStart, resolveInterval } from "./chart-intervals";
 
 describe("chart intervals", () => {
   it("labels intervals as TradingView's toolbar does and groups every one in the menu", () => {
@@ -74,5 +74,30 @@ describe("intervals typed on the chart and the range buttons", () => {
     expect(times[presetStart(times, "ytd")]).toBe(Date.UTC(new Date(times[times.length - 1] * 1000).getUTCFullYear(), 0, 1) / 1000);
     expect(presetStart([], 30)).toBe(0);
     expect(RANGE_PRESETS.map((p) => p.label)).toEqual(["1D", "5D", "1M", "3M", "6M", "YTD", "1Y", "5Y", "All"]);
+  });
+});
+
+describe("futureTimes", () => {
+  const d = (s: string) => Date.parse(s) / 1000;
+  const iso = (t: number) => new Date(t * 1000).toISOString().slice(0, 10);
+
+  it("steps monthly bars by calendar months, so the axis stays on the 1st", () => {
+    const monthly = ["2026-07-01", "2026-08-01", "2026-09-01", "2026-10-01"].map(d);
+    const out = futureTimes(monthly, 15).map(iso);
+    expect(out.slice(0, 4)).toEqual(["2026-11-01", "2026-12-01", "2027-01-01", "2027-02-01"]);
+    expect(out.at(-1)).toBe("2028-01-01");
+  });
+
+  it("skips weekends after weekday daily bars, and goes on from a later time when asked", () => {
+    const daily = ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"].map(d);
+    expect(futureTimes(daily, 3).map(iso)).toEqual(["2026-10-19", "2026-10-20", "2026-10-21"]);
+    expect(futureTimes(daily, 2, d("2026-10-23")).map(iso)).toEqual(["2026-10-26", "2026-10-27"]);
+  });
+
+  it("keeps weekends for markets that trade them", () => {
+    const crypto = ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17", "2026-10-18"].map(d);
+    expect(futureTimes(crypto, 2).map(iso)).toEqual(["2026-10-19", "2026-10-20"]);
+    // With no weekend among the bars yet, the weekday rule holds.
+    expect(futureTimes(crypto.slice(0, 3), 2).map(iso)).toEqual(["2026-10-19", "2026-10-20"]);
   });
 });
