@@ -130,7 +130,7 @@ export const TITLES: Record<string, string> = {
   moneyflow: "Money Flow", chart: "Chart", watchlist: "Watchlist", news: "News",
   heatmap: "Heatmap", screener: "Screener", crypto: "Crypto",
   watcher: "Watcher Guru", bonds: "US Bonds", portfolio: "Portfolio", ai: "AI Assistant",
-  calendar: "Macro", insider: "Insider Transactions", tv: "Live TV", recap: "News Recap",
+  calendar: "Macro", insider: "Insider", tv: "Live TV", recap: "News Recap",
   indices: "World Indices", research: "Equity Research",
 };
 
