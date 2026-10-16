@@ -8,6 +8,17 @@ describe("the listed market accounts", () => {
     expect(kolOf("nobody_here")).toBeUndefined();
   });
 
+  it("include the OG sheet, and give an account on both sheets both notes", () => {
+    expect(kolOf("IOHK_Charles")).toMatchObject({ market: "OG Crypto", og: { since: "2011" } });
+    expect(kolOf("IOHK_Charles")?.note).toContain("ADA");
+    const cz = kolOf("cz_binance")!;
+    expect(cz.market).toBe("Crypto / Web3");
+    expect(cz.og?.group).toBe("Pendiri exchange & infrastruktur");
+    expect(cz.note).toContain("BNB chain");
+    expect(cz.note).toContain("diampuni");
+    expect(KOL_ACCOUNTS.filter((a) => a.handle?.toLowerCase() === "cz_binance")).toHaveLength(1);
+  });
+
   it("name each followed account's source once, and don't follow the news outlets", () => {
     const via = KOL_ACCOUNTS.flatMap((a) => (a.followedVia ? [a.followedVia] : []));
     expect(new Set(via).size).toBe(via.length);

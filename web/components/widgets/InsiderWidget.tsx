@@ -382,7 +382,7 @@ function Posts({ symbol }: { symbol: string }) {
   );
 }
 
-const MARKETS = ["Lintas pasar", "Crypto / Web3", "Saham (US)", "Forex / Makro", "Indonesia"];
+const MARKETS = ["Lintas pasar", "Crypto / Web3", "Saham (US)", "Forex / Makro", "Indonesia", "OG Crypto"];
 
 /** How a listed account is read here: followed (and where), a news outlet, or on X alone. */
 function followedBy(a: KolAccount, sources: Source[] | null): ReactNode {
@@ -402,7 +402,8 @@ function followedBy(a: KolAccount, sources: Source[] | null): ReactNode {
 
 function KolList({ sources }: { sources: Source[] | null }) {
   const [market, setMarket] = useWidgetSetting<string>("insiderListMarket", "all");
-  const rows = KOL_ACCOUNTS.filter((a) => market === "all" || a.market === market);
+  // OG Crypto: the OG sheet's people, also those listed under a market (CZ, Vitalik, Hayes).
+  const rows = KOL_ACCOUNTS.filter((a) => market === "all" || (market === "OG Crypto" ? Boolean(a.og) : a.market === market));
   const auto = sources ? KOL_ACCOUNTS.filter((a) => a.followedVia && sources.some((s) => s.id === a.followedVia)).length : null;
   return (
     <div className="flex-1 min-h-0 overflow-auto">
@@ -445,7 +446,17 @@ function KolList({ sources }: { sources: Source[] | null }) {
                 )}
               </td>
               <td className="!text-left dim">
-                {a.market} · {a.category}
+                {a.og ? (
+                  <span title={`Peran sekarang: ${a.og.role}`}>
+                    <span className="amber">OG</span> sejak {a.og.since} · {a.og.group}
+                    {a.market !== "OG Crypto" ? ` · ${a.market}` : ""}
+                    <span className="block text-fs-10">{a.og.role}</span>
+                  </span>
+                ) : (
+                  <>
+                    {a.market} · {a.category}
+                  </>
+                )}
               </td>
               <td className="!text-left whitespace-nowrap">{followedBy(a, sources)}</td>
               <td className="!text-left dim min-w-[240px] !whitespace-normal">{a.note ?? a.info}</td>
