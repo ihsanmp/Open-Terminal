@@ -16,8 +16,12 @@ import CryptoList from "./CryptoList";
 type ForexGroup = "major" | "minor" | "exotic" | "metal";
 type IndexRegion = "Americas" | "Europe" | "Asia-Pacific" | "Middle East & Africa";
 type FuturesGroup = "index" | "rates" | "currency" | "crypto" | "energy" | "metal" | "grain" | "soft" | "livestock";
+type EtfClass = "equity" | "bond" | "commodity" | "currency" | "alternative" | "allocation";
 type Category =
   | "mine"
+  | "etf-us"
+  | `etf-us-${EtfClass}`
+  | "etf-indonesia"
   | "crypto"
   | "fx-all"
   | `fx-${ForexGroup}`
@@ -43,6 +47,22 @@ const COMMODITIES: Array<[FuturesGroup, string]> = [
   ["livestock", "Ternak"],
 ];
 const FUTURES_LABEL = new Map([...FINANCIAL_FUTURES, ...COMMODITIES]);
+
+/** The US ETFs by asset class (TradingView's classes: the spot bitcoin ETFs are "currency"). */
+const ETF_CLASSES: Array<[EtfClass, string]> = [
+  ["equity", "Saham"],
+  ["bond", "Obligasi"],
+  ["commodity", "Komoditas (emas, perak, minyak…)"],
+  ["currency", "Crypto & mata uang (IBIT, ETHA…)"],
+  ["alternative", "Alternatif"],
+  ["allocation", "Multi-aset"],
+];
+
+/** The /api/etfs query for an ETF category. */
+function etfParams(category: string): Record<string, string> {
+  if (category === "etf-indonesia") return { market: "indonesia" };
+  return category === "etf-us" ? { market: "us" } : { market: "us", class: category.slice("etf-us-".length) };
+}
 type StockRow = { symbol: string; code: string; name: string; price: number | null; changePercent: number | null; marketCap: number | null; volume: number | null; sector: string | null; currency: string | null };
 type StockPage = { total: number; page: number; perPage: number; rows: StockRow[] };
 type IndexRow = { symbol: string; name: string; country: string; region: IndexRegion; price: number | null; changePercent: number | null; currency: string | null };
@@ -263,8 +283,16 @@ function AddButton({ symbol }: { symbol: string }) {
   );
 }
 
-/** Every stock of a market, biggest first, 100 at a time, or those a search finds. */
-function StockList({ market }: { market: string }) {
+/** What a list holds: stocks (by market cap, with their sector) or ETFs (by assets, with their category). */
+const LIST_KIND = {
+  stock: { noun: "saham", order: "urut kapitalisasi pasar", example: "mis. BBCA, bank", size: "MCap", group: "Sektor", loading: "Memuat saham…" },
+  etf: { noun: "ETF", order: "urut dana kelolaan (AUM)", example: "mis. SPY, gold, bitcoin", size: "AUM", group: "Kategori", loading: "Memuat ETF…" },
+};
+
+/** Every stock of a market (or ETF), biggest first, 100 at a time, or those a search finds. */
+function StockList({ path, params: extra, kind }: { path: string; params: Record<string, string>; kind: keyof typeof LIST_KIND }) {
+  const label = LIST_KIND[kind];
+  const extraKey = JSON.stringify(extra);
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
   const [page, setPage] = useState(1);
   const [input, setInput] = useState("");
@@ -276,13 +304,13 @@ function StockList({ market }: { market: string }) {
     }, 300);
     return () => clearTimeout(t);
   }, [input]);
-  useEffect(() => setPage(1), [market]);
+  useEffect(() => setPage(1), [extraKey]);
   const poll = usePoll(15_000);
-  const params = new URLSearchParams({ market, page: String(page) });
+  const params = new URLSearchParams({ ...extra, page: String(page) });
   if (query) params.set("q", query);
   const { data, error, isFetching } = useQuery({
-    queryKey: ["stocks", market, page, query],
-    queryFn: () => apiGet<StockPage>(`/api/stocks?${params}`),
+    queryKey: ["list", path, extraKey, page, query],
+    queryFn: () => apiGet<StockPage>(`${path}?${params}`),
     refetchInterval: poll,
     placeholderData: keepPreviousData,
   });
@@ -293,24 +321,24 @@ function StockList({ market }: { market: string }) {
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <div className="flex items-center gap-2 px-2 py-1 border-b border-[var(--border)]">
-        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Cari kode atau nama (mis. BBCA, bank)…" className="w-64" />
+        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={`Cari kode atau nama (${label.example})…`} className="w-64" />
         <span className="dim text-fs-10 ml-auto">
-          {data ? `${data.total.toLocaleString("id-ID")} saham${query ? ` cocok dengan “${query}”` : ""} · urut kapitalisasi pasar` : ""}
+          {data ? `${data.total.toLocaleString("id-ID")} ${label.noun}${query ? ` cocok dengan “${query}”` : ""} · ${label.order}` : ""}
         </span>
       </div>
       {error && !rows.length && <div className="p-2 down">Error: {(error as Error).message}</div>}
-      {!data && !error && <div className="p-2 dim">Memuat saham…</div>}
+      {!data && !error && <div className="p-2 dim">{label.loading}</div>}
       <div className="flex-1 min-h-0 overflow-auto">
         <table className="data-table">
           <thead>
             <tr>
               <th>#</th>
-              <th className="!text-left">Saham</th>
+              <th className="!text-left">{kind === "etf" ? "ETF" : "Saham"}</th>
               <th>Harga</th>
               <th>Chg%</th>
-              <th>MCap</th>
+              <th>{label.size}</th>
               <th>Vol</th>
-              <th className="!text-left">Sektor</th>
+              <th className="!text-left">{label.group}</th>
               <th></th>
             </tr>
           </thead>
@@ -338,7 +366,7 @@ function StockList({ market }: { market: string }) {
             {data && rows.length === 0 && !isFetching && (
               <tr>
                 <td colSpan={8} className="dim !text-left">
-                  Tidak ada saham yang cocok dengan “{query}”.
+                  Tidak ada {label.noun} yang cocok dengan “{query}”.
                 </td>
               </tr>
             )}
@@ -495,6 +523,15 @@ export default function WatchlistWidget() {
               </option>
             ))}
           </optgroup>
+          <optgroup label="ETF">
+            <option value="etf-us">ETF · AS semua</option>
+            {ETF_CLASSES.map(([c, label]) => (
+              <option key={c} value={`etf-us-${c}`}>
+                ETF · AS {label}
+              </option>
+            ))}
+            <option value="etf-indonesia">ETF · Indonesia (IDX)</option>
+          </optgroup>
           <optgroup label="Indeks">
             <option value="idx-all">Indeks · semua</option>
             {INDEX_REGIONS.map(([r, label]) => (
@@ -536,7 +573,9 @@ export default function WatchlistWidget() {
           <CryptoList />
         </div>
       ) : category.startsWith("stocks-") ? (
-        <StockList market={category.slice("stocks-".length)} />
+        <StockList path="/api/stocks" params={{ market: category.slice("stocks-".length) }} kind="stock" />
+      ) : category.startsWith("etf-") ? (
+        <StockList path="/api/etfs" params={etfParams(category)} kind="etf" />
       ) : category.startsWith("fut-") ? (
         <FuturesList
           groups={
