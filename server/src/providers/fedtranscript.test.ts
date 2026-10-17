@@ -43,7 +43,7 @@ describe("hawkish or dovish", () => {
 
   it("turns a phrase round after a negation, and keeps one phrase where two overlap", () => {
     expect(sides("we are not going to raise rates")).toEqual([["raise rates", -1]]);
-    expect(sides("policy is less restrictive now")).toEqual([["restrictive", -1]]);
+    expect(sides("policy is less restrictive now")).toEqual([["less restrictive", -1]]);
     expect(sides("fewer rate cuts this year")).toEqual([["rate cuts", 1]]);
     expect(sides("we are not yet confident")).toEqual([["not yet confident", 1]]);
     expect(sides("inflation is easing")).toEqual([["inflation is easing", -1]]);
@@ -51,7 +51,7 @@ describe("hawkish or dovish", () => {
       ["one more interest rate hike", 1],
       ["inflation will slow", -1],
     ]);
-    expect(sides("the Fed should not have been easing policy")).toEqual([["easing", 1]]);
+    expect(sides("the Fed should not have been easing policy")).toEqual([["easing policy", 1]]);
     expect(sides("we expect the tariff effects to be transitory; a one-time price increase")).toEqual([
       ["transitory", -1],
       ["one-time price increase", -1],
@@ -60,6 +60,23 @@ describe("hawkish or dovish", () => {
       ["inflation is persistent", 1],
       ["transitory", 1],
     ]);
+  });
+
+  it("reads the phrases the FOMC calibration found turned round (2016–2026 press conferences)", () => {
+    // Removing accommodation is raising rates.
+    expect(sides("we will continue removing policy accommodation")).toEqual([["removing policy accommodation", 1]]);
+    expect(sides("monetary policy remains accommodative")).toEqual([["accommodative", -1]]);
+    // A condition is not a reading.
+    expect(sides("we need to see inflation coming down")).toEqual([]);
+    expect(sides("inflation is coming down")).toEqual([["inflation is coming down", -1]]);
+    // Quiet inflation pressures are dovish.
+    expect(sides("inflation pressures remain muted")).toEqual([["inflation pressures remain muted", -1]]);
+    // Said either way: recessions, a bare "restrictive", an easing of financial conditions, waiting to see.
+    expect(sides("we are not trying to cause a recession")).toEqual([]);
+    expect(sides("policy is meaningfully restrictive")).toEqual([]);
+    expect(sides("an easing of financial conditions")).toEqual([]);
+    expect(sides("we can wait and see")).toEqual([]);
+    expect(sides("we will keep policy sufficiently restrictive")).toEqual([["keep policy sufficiently restrictive", 1]]);
   });
 
   it("damps the index toward zero when little has been said", () => {
