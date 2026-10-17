@@ -10,6 +10,7 @@ import { requireApiKey } from "./auth.js";
 import { rateLimit } from "./rateLimit.js";
 import { startArchive } from "./news/archive.js";
 import { startSocialCollector } from "./providers/socialfeed.js";
+import { startQuantForecasts } from "./quant/service.js";
 import { socialRouter } from "./routes/social.js";
 import { startEngineWatch } from "./providers/macroengine.js";
 import { latestFedSentiment } from "./providers/fedtranscript.js";
@@ -79,6 +80,7 @@ const server = app.listen(PORT, HOST, () => {
 // Headlines are kept for the news recap while the app runs.
 startArchive();
 startSocialCollector();
+startQuantForecasts();
 // The macro engine keeps its band from 30 minutes before each release, and the news-impact read
 // its H-30 conclusion, without anyone looking; both are scored after the release.
 startEngineWatch(latestFedSentiment, (engine, inputs) => impact(inputs, engine));

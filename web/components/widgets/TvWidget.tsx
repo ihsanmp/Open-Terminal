@@ -9,6 +9,7 @@ import NowcastPanel from "./NowcastPanel";
 import EnginePanel from "./EnginePanel";
 import ReactionsPanel from "./ReactionsPanel";
 import ImpactPanel from "./ImpactPanel";
+import QuantPanel from "./QuantPanel";
 import { SentimentBar, TranscriptPanel, useFedTranscript } from "./FedTranscript";
 import { FedWatchCard, FedWatchStrip } from "./FedWatchCard";
 import { youtubeId } from "../../lib/youtube";
@@ -203,7 +204,7 @@ function FedPanel() {
   const now = useNow();
   const [picked, setPicked] = useState<string | null>(null);
   const [showStats, setShowStats] = useWidgetSetting("fedShowStats", false);
-  const [side, setSide] = useWidgetSetting<"schedule" | "nowcast" | "transcript" | "fedwatch" | "reactions" | "impact">("fedSide", "schedule");
+  const [side, setSide] = useWidgetSetting<"schedule" | "nowcast" | "transcript" | "fedwatch" | "reactions" | "impact" | "quant">("fedSide", "schedule");
   const live = data?.live ?? [];
   // A pasted link plays instead of the Fed until cleared.
   const [custom, setCustom] = useWidgetSetting<string | null>("fedCustomVideo", null);
@@ -305,7 +306,7 @@ function FedPanel() {
         <FedWatchStrip />
       </div>
       <div className="lg:w-[440px] shrink-0 border-l border-[var(--border)] flex flex-col min-h-0 max-h-[50vh] lg:max-h-none">
-        <div className="flex items-center gap-3 px-2 py-1.5 border-b border-[var(--border)] text-fs-11">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1.5 border-b border-[var(--border)] text-fs-11 [&>button]:whitespace-nowrap">
           <button className={side === "schedule" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("schedule")}>
             Jadwal The Fed
           </button>
@@ -324,13 +325,20 @@ function FedPanel() {
           <button className={side === "impact" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("impact")} title="Dampak rilis besar ke crypto, forex, saham, DXY, minyak: skenario sebelum rilis dan konfirmasi setelahnya">
             Dampak
           </button>
+          <button className={side === "quant" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("quant")} title="Prakiraan quant: peluang naik 5/10/20 hari untuk crypto, forex, emas, minyak, saham, yield (dibaca juga oleh Astro Calendar)">
+            Prakiraan
+          </button>
           {side === "schedule" && (
             <label className="ml-auto flex items-center gap-1 dim cursor-pointer">
               <input type="checkbox" checked={showStats} onChange={(e) => setShowStats(e.target.checked)} /> rilis data
             </label>
           )}
         </div>
-        {side === "impact" ? (
+        {side === "quant" ? (
+          <div className="overflow-auto flex-1 min-h-0">
+            <QuantPanel />
+          </div>
+        ) : side === "impact" ? (
           <div className="overflow-auto flex-1 min-h-0">
             <ImpactPanel />
           </div>
