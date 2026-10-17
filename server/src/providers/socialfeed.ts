@@ -54,6 +54,8 @@ export type SocialPost = {
   repostOf?: string | null;
   /** How the author's identity is known (see Trust). */
   trust: Trust;
+  /** Posted by the organisation itself (an X government or business account): the source, not a report of it. */
+  official?: boolean;
   /** The text is cut short where it came from (a long X post): the rest is at `url`. */
   truncated?: boolean;
   likes?: number | null;
@@ -85,6 +87,24 @@ export const BUILT_IN: Array<Omit<SocialSource, "id" | "builtIn">> = [
 /** Linked from the owner's own website (checked 2026-10-15): livesquawk.com links its Bluesky,
  *  wublockchain.xyz its Telegram channel. */
 const LINKED = new Set(["bluesky:livesquawknews.bsky.social", "telegram:wublockchainenglish"]);
+/**
+ * What an account posts: "official", an institution's own announcements (the source itself, nothing
+ * to confirm); "relay", news as it breaks (Watcher Guru, LiveSquawk …: every post a report to
+ * confirm); "person", someone's own views and statements, a report only when it reads as one
+ * (BREAKING, "reportedly" …). Accounts added by hand are people until their posts say otherwise.
+ */
+export type SourceKind = "official" | "relay" | "person";
+const KIND: Record<string, SourceKind> = {
+  "bluesky:federalreserve.gov": "official",
+  "bluesky:watcher.guru": "relay",
+  "bluesky:whale-alert.io": "relay",
+  "bluesky:livesquawknews.bsky.social": "relay",
+  "telegram:wublockchainenglish": "relay",
+  "bluesky:unusualwhales.bsky.social": "relay",
+  "bluesky:polymarket.com": "relay",
+};
+export const kindOf = (sourceId: string | null): SourceKind => (sourceId ? KIND[sourceId] : undefined) ?? "person";
+
 /** Checked by hand: Nick Timiraos's Bluesky (since 2023, 72k followers, shares his WSJ pieces);
  *  @realDonaldTrump's Truth Social id. (A "Walter Bloomberg" Telegram channel couldn't be confirmed
  *  as his: no verification, a fraction of his following, so it isn't followed.) */
@@ -425,6 +445,7 @@ export function parseX(t: XTweet, via: SocialPost["via"], src: string | null = n
     quoted: q?.user ? { author: q.user.name, handle: q.user.screen_name, text: xText(q).text, url: `https://x.com/${q.user.screen_name}/status/${q.id_str}` } : null,
     truncated: Boolean(t.note_tweet),
     trust: xTrust(t.user),
+    official: t.user.verified_type === "Government" || t.user.verified_type === "Business",
     likes: t.favorite_count ?? null,
     replies: t.conversation_count ?? null,
     via,
@@ -553,7 +574,28 @@ export function collect(): Promise<void> {
   return running;
 }
 
-export type FeedPost = SocialPost & { confirmedBy: Confirmation[]; onChain: boolean };
+/** A post that reads as news about events, not a view: a flash ("BREAKING", "JUST IN", 🚨) or a
+ *  report at second hand ("reportedly", "according to", "sources say"). */
+export const READS_AS_NEWS = /^\W*(breaking|just in|just:|alert|urgent|developing|flash)\b|^\s*🚨|\b(reportedly|according to|sources? (say|said|tell)|people familiar|per (bloomberg|reuters|wsj|ft|cnbc|axios|the information))\b/i;
+
+/**
+ * Where a post stands: on the chain (a Whale Alert transfer), confirmed by an outlet, the official
+ * source itself, a report awaiting confirmation (its first six hours) or still unconfirmed, or a
+ * statement, someone's own view that no outlet would be expected to report.
+ */
+export type PostStatus = "onchain" | "confirmed" | "official" | "pending" | "unconfirmed" | "statement";
+
+export function postStatus(p: SocialPost, confirmed: boolean, now = Date.now()): PostStatus {
+  if (onChain(p)) return "onchain";
+  if (confirmed) return "confirmed";
+  const kind = kindOf(p.sourceId);
+  if (kind === "official" || p.official) return "official";
+  const news = kind === "relay" || READS_AS_NEWS.test(`${p.text} ${p.quoted?.text ?? ""}`);
+  if (!news) return "statement";
+  return now - p.time < 6 * 3600_000 ? "pending" : "unconfirmed";
+}
+
+export type FeedPost = SocialPost & { confirmedBy: Confirmation[]; onChain: boolean; status: PostStatus };
 
 /** The feed as asked for by the app: read first when nothing has been yet, then from storage, each
  *  post with the outlets that have reported the same. */
@@ -565,7 +607,10 @@ export async function feed(limit = 600): Promise<{ sources: Array<SocialSource &
   const confirmed = corroborate(posts);
   return {
     sources: sources().map((s) => ({ ...s, status: statusOf(s.id) })),
-    posts: posts.map((p) => ({ ...p, confirmedBy: confirmed.get(p.id) ?? [], onChain: onChain(p) })),
+    posts: posts.map((p) => {
+      const confirmedBy = confirmed.get(p.id) ?? [];
+      return { ...p, confirmedBy, onChain: onChain(p), status: postStatus(p, confirmedBy.length > 0) };
+    }),
   };
 }
 

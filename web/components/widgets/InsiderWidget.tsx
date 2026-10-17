@@ -40,6 +40,8 @@ type Post = {
   via: "feed" | "manual";
   confirmedBy: Confirmation[];
   onChain: boolean;
+  /** Where it stands (server: socialfeed.ts postStatus). */
+  status: "onchain" | "confirmed" | "official" | "pending" | "unconfirmed" | "statement";
 };
 type Source = { id: string; platform: Platform; ref: string; name: string; builtIn: boolean; status: { ok: boolean; error: string | null; at: number; count: number } | null };
 type Feed = { sources: Source[]; posts: Post[] };
@@ -107,13 +109,25 @@ function Confirm({ post }: { post: Post }) {
         )}
       </span>
     );
-  const fresh = Date.now() - post.time < 6 * 3600_000;
-  return fresh ? (
-    <span className="dim" title="Belum ada media resmi yang memberitakannya: diperiksa ulang tiap kali feed diperbarui">
+  if (post.status === "official")
+    return (
+      <span className="up" title="Akun resmi lembaga atau perusahaan itu sendiri: inilah sumber primernya, tak perlu dikonfirmasi media">
+        ✓ sumber resmi
+      </span>
+    );
+  // Someone's own view or statement: no outlet is expected to report it, so it isn't flagged.
+  if (post.status === "statement")
+    return (
+      <span className="dim" title="Opini atau pernyataan pemilik akun sendiri, bukan kabar tentang suatu peristiwa: tidak dicocokkan dengan media. Isinya tetap belum tentu benar.">
+        pernyataan langsung
+      </span>
+    );
+  return post.status === "pending" ? (
+    <span className="dim" title="Kabar ini belum diberitakan media resmi: diperiksa ulang tiap kali feed diperbarui">
       … menunggu konfirmasi media
     </span>
   ) : (
-    <span className="amber" title="Tidak ada media resmi yang memberitakan hal yang sama. Belum tentu hoaks, tapi perlakukan sebagai kabar yang belum terbukti.">
+    <span className="amber" title="Kabar tentang suatu peristiwa yang tidak diberitakan media resmi mana pun. Belum tentu hoaks, tapi perlakukan sebagai kabar yang belum terbukti.">
       ⚠ belum dikonfirmasi media resmi
     </span>
   );
@@ -258,7 +272,7 @@ function Posts({ symbol }: { symbol: string }) {
   const mention = onlySymbol ? mentionsOf(symbol) : null;
   const posts = (data?.posts ?? []).filter((p) => {
     if (filter === "x" ? p.via !== "manual" : filter !== "all" && p.sourceId !== filter) return false;
-    if (onlyConfirmed && !p.onChain && !p.confirmedBy.length) return false;
+    if (onlyConfirmed && !["onchain", "confirmed", "official"].includes(p.status)) return false;
     if (mention && !mention.test(`${p.text} ${p.quoted?.text ?? ""}`)) return false;
     return true;
   });
@@ -338,7 +352,7 @@ function Posts({ symbol }: { symbol: string }) {
               X (tempel) {manualCount}
             </button>
           )}
-          <label className="flex items-center gap-1 ml-auto cursor-pointer" title="Sembunyikan postingan yang belum diberitakan media resmi (transfer on-chain tetap tampil)">
+          <label className="flex items-center gap-1 ml-auto cursor-pointer" title="Hanya postingan yang terbukti: dikonfirmasi media resmi, dari sumber resminya sendiri, atau transfer on-chain">
             <input type="checkbox" checked={onlyConfirmed} onChange={(e) => setOnlyConfirmed(e.target.checked)} /> Hanya terkonfirmasi
           </label>
           <label className="flex items-center gap-1 cursor-pointer" title={`Hanya postingan yang menyebut ${symbol}`}>
@@ -374,7 +388,9 @@ function Posts({ symbol }: { symbol: string }) {
         )}
         <div className="p-2 dim text-fs-10 border-t border-[var(--border)]">
           Postingan langsung dari akunnya, bukan dari media berita (itu ada di tab News). ✓ dikonfirmasi = media resmi memberitakan hal yang sama sejak itu;
-          ⚠ belum dikonfirmasi = belum tentu hoaks, tapi belum terbukti. Tidak ada saringan yang bisa menjamin 100% bebas hoaks.
+          ✓ sumber resmi = akun lembaga/perusahaan itu sendiri; pernyataan langsung = opini atau pernyataan pemilik akun, tidak dicocokkan dengan media;
+          ⚠ belum dikonfirmasi = kabar tentang suatu peristiwa yang belum diberitakan media resmi: belum tentu hoaks, tapi belum terbukti. Tidak ada
+          saringan yang bisa menjamin 100% bebas hoaks.
         </div>
       </div>
       )}
