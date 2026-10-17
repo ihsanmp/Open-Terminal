@@ -16,7 +16,6 @@ export type WidgetType =
   | "news"
   | "heatmap"
   | "screener"
-  | "crypto"
   | "watcher"
   | "bonds"
   | "portfolio"
@@ -151,7 +150,6 @@ const SIZE_BY_TYPE: Record<WidgetType, { w: number; h: number }> = {
   news: { w: 5, h: 8 },
   heatmap: { w: 7, h: 10 },
   screener: { w: 12, h: 9 },
-  crypto: { w: 6, h: 9 },
   watcher: { w: 7, h: 12 },
   bonds: { w: 12, h: 14 },
   portfolio: { w: 7, h: 8 },
@@ -249,17 +247,25 @@ function rememberWindowTab(id: string) {
 
 /** Pages and widgets that became others: v2 the Options page US Bonds, v3 Macro Watcher Guru,
  *  v4 Quote Money Flow, v5 News Recap a part of News (its two views the News page's RECAP and
- *  MARKET). */
+ *  MARKET), v6 Crypto a part of the Watchlist (its "Crypto" category). */
 const RENAMED: Array<[version: number, from: string, to: string, keepsSymbol?: boolean]> = [
   [2, "options", "bonds"],
   [3, "macro", "watcher"],
   // Money Flow is about the symbol shown, as Quote was: it keeps it.
   [4, "quote", "moneyflow", true],
   [5, "recap", "news"],
+  [6, "crypto", "watchlist"],
 ];
 
-/** What News Recap showed (its "tab": the news recap or the market's), as News's mode. */
-const recapMode = (w: { settings?: Record<string, unknown> }) => ({ ...w.settings, mode: w.settings?.tab === "market" ? "market" : "recap" });
+/** Pages folded into another as one of its views: the settings that open it on that view, and
+ *  their own settings it doesn't keep. */
+const FOLDED: Record<string, { view: (w: { settings?: Record<string, unknown> }) => Record<string, unknown>; drop: string[] }> = {
+  // What News Recap showed (its "tab": the news recap or the market's), as News's mode.
+  recap: { view: (w) => ({ mode: w.settings?.tab === "market" ? "market" : "recap" }), drop: ["tab"] },
+  crypto: { view: () => ({ category: "crypto" }), drop: [] },
+};
+const keptSettings = (w: { type: string; settings?: Record<string, unknown> }) =>
+  Object.fromEntries(Object.entries(w.settings ?? {}).filter(([k]) => !FOLDED[w.type]?.drop.includes(k)));
 
 /** Saved tabs from an older version, with the pages and widgets renamed since. */
 function upgrade(saved: unknown, version: number): unknown {
@@ -270,33 +276,30 @@ function upgrade(saved: unknown, version: number): unknown {
   const s = (saved ?? {}) as { tabs?: TabData[] };
   const rename = <T extends { type: string; settings?: Record<string, unknown> }>(w: T): T => {
     if (to(w.type) === w.type) return w;
-    const moved = w.type === "recap" ? { ...w, settings: recapMode(w) } : w;
+    const folded = FOLDED[w.type];
+    const moved = folded ? { ...w, settings: { ...keptSettings(w), ...folded.view(w) } } : w;
     return keeps(w.type) ? { ...moved, type: to(w.type) } : { ...moved, type: to(w.type), symbol: undefined, linked: true };
   };
-  // A tab with a News page and a News Recap page keeps the News one, opened on the recap if that
-  // was the page in view.
+  // A tab with both pages (News and News Recap, Watchlist and Crypto) keeps the one it went into,
+  // with the other's settings, opened on its view if that was the page in view.
   const pagesOf = (t: TabData) => {
-    const pages = t.pages ?? [];
-    const news = pages.find((p) => p.type === "news");
-    const isRecap = (p: { type: string }) => p.type === "recap";
-    if (!news || !pages.some(isRecap)) return pages.map(rename);
-    const recap = pages.find(isRecap)!;
-    return pages
-      .filter((p) => !isRecap(p))
-      .map((p) => {
-        if (p !== news) return rename(p);
-        // The recap's own choices (day or week, a sector) come along.
-        const { tab: _tab, ...recapSettings } = recap.settings ?? {};
-        const settings = { ...recapSettings, ...p.settings };
-        return { ...p, settings: (t.view as string) === "recap" ? { ...settings, mode: recapMode(recap).mode } : settings };
-      });
+    let pages: WidgetInstance[] = t.pages ?? [];
+    for (const [, from, into] of renames) {
+      if (!FOLDED[from]) continue;
+      const target = pages.find((p) => p.type === into);
+      const gone = pages.find((p) => (p.type as string) === from);
+      if (!target || !gone) continue;
+      const settings = { ...keptSettings(gone), ...target.settings, ...((t.view as string) === from ? FOLDED[from].view(gone) : {}) };
+      pages = pages.filter((p) => p !== gone).map((p) => (p === target ? { ...p, settings } : p));
+    }
+    return pages.map(rename);
   };
   return {
     ...s,
     tabs: s.tabs?.map((t) => ({
       ...t,
       view: to(t.view as string) as View,
-      pages: renames.some(([, from]) => from === "recap") ? pagesOf(t) : t.pages?.map(rename) ?? [],
+      pages: pagesOf(t),
       widgets: t.widgets?.map(rename) ?? [],
     })),
   };
@@ -430,9 +433,9 @@ export const useTerminal = create<TerminalState>()(
       // Saved per tab, so windows editing different tabs can't overwrite each other.
       storage: createWorkspaceStorage() as PersistStorage<unknown> | undefined,
       // v1: tabs; v2: the Options page became US Bonds; v3: Macro became Watcher Guru; v4: Quote
-      // became Money Flow; v5: News Recap went into News. The window's own tab and the transient UI
-      // aren't saved.
-      version: 5,
+      // became Money Flow; v5: News Recap went into News; v6: Crypto went into the Watchlist. The
+      // window's own tab and the transient UI aren't saved.
+      version: 6,
       partialize: (st) => ({ tabs: st.tabs, watchlist: st.watchlist, favoriteIntervals: st.favoriteIntervals, recentSymbols: st.recentSymbols }),
       migrate: (saved, version) => {
         if (version >= 1) return upgrade(saved, version) as TerminalState;

@@ -14,7 +14,6 @@ import WatchlistWidget from "./widgets/WatchlistWidget";
 import NewsWidget from "./widgets/NewsWidget";
 import HeatmapWidget from "./widgets/HeatmapWidget";
 import ScreenerWidget from "./widgets/ScreenerWidget";
-import CryptoWidget from "./widgets/CryptoWidget";
 import WatcherWidget from "./widgets/WatcherWidget";
 import BondsWidget from "./widgets/BondsWidget";
 import PortfolioWidget from "./widgets/PortfolioWidget";
@@ -46,7 +45,6 @@ function WidgetContent({ widget }: { widget: WidgetInstance }) {
     case "news": return <NewsWidget widget={widget} />;
     case "heatmap": return <HeatmapWidget />;
     case "screener": return <ScreenerWidget />;
-    case "crypto": return <CryptoWidget />;
     case "watcher": return <WatcherWidget />;
     case "bonds": return <BondsWidget />;
     case "portfolio": return <PortfolioWidget />;
@@ -126,7 +124,7 @@ export function SymbolTag({ widget, activeSymbol }: { widget: WidgetInstance; ac
 
 export const TITLES: Record<string, string> = {
   moneyflow: "Money Flow", chart: "Chart", watchlist: "Watchlist", news: "News",
-  heatmap: "Heatmap", screener: "Screener", crypto: "Crypto",
+  heatmap: "Heatmap", screener: "Screener",
   watcher: "Watcher Guru", bonds: "US Bonds", portfolio: "Portfolio", ai: "AI Assistant",
   calendar: "Macro", insider: "Insider", tv: "Live TV",
   indices: "World Indices", research: "Equity Research",

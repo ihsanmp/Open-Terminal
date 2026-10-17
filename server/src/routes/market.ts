@@ -22,6 +22,8 @@ import * as tvchart from "../providers/tvchart.js";
 import * as newsfeeds from "../providers/newsfeeds.js";
 import * as treasurydirect from "../providers/treasurydirect.js";
 import * as watcherguru from "../providers/watcherguru.js";
+import * as forex from "../providers/forex.js";
+import { fxTickers } from "../providers/forex.js";
 import * as moneyflow from "../providers/moneyflow.js";
 import * as transfers from "../providers/transfers.js";
 import * as newsArchive from "../news/archive.js";
@@ -210,8 +212,9 @@ async function getQuotes(symbols: string[]): Promise<yahoo.Quote[]> {
   const tvSymbols = remaining.filter((s) => isYahooOnly(s));
   if (tvSymbols.length > 0) {
     try {
+      // Forex (EURUSD=X) too, in the same request: one Yahoo call per pair was the way before.
       const found = await tradingview.batchQuotes(tvSymbols, (s) =>
-        INDEX_TV_TICKER.has(s) ? [INDEX_TV_TICKER.get(s)!] : s === "DX-Y.NYB" ? ["TVC:DXY"] : tradingview.tvTickers(s)
+        INDEX_TV_TICKER.has(s) ? [INDEX_TV_TICKER.get(s)!] : s === "DX-Y.NYB" ? ["TVC:DXY"] : fxTickers(s) ?? tradingview.tvTickers(s)
       );
       for (const [s, q] of found) fetched.set(s, q);
     } catch {
@@ -715,6 +718,16 @@ marketRouter.get("/macro/history", async (req, res) => {
   try {
     const events = await cached(`macro:history:${country}`, 6 * 3_600_000, () => econcalendar.countryHistory(country));
     res.json(econcalendar.indicatorHistory(events, title));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// ---- forex: every pair brokers quote, and the metals, in one scanner request (providers/forex.ts) ----
+
+marketRouter.get("/forex", async (req, res) => {
+  try {
+    res.json(await forex.forexBoard());
   } catch (err) {
     fail(req, res, err);
   }

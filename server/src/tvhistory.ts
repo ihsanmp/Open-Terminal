@@ -7,6 +7,7 @@
 // longest history wins (the earlier candidate on a tie). For coins, only listings that report
 // volume compete while any does: TradingView's CRYPTO index reaches furthest back but has none.
 
+import { fxTickers } from "./providers/forex.js";
 import * as tvchart from "./providers/tvchart.js";
 import { offBoardPair, tvTickers } from "./providers/tradingview.js";
 import { INDEX_TV_TICKER } from "./indices.js";
@@ -60,8 +61,7 @@ export function tvCandidates(symbol: string): string[] {
     const tv = INDEX_TV_TICKER.get(s)!;
     out = [tv, `TVC:${tv.split(":")[1]}`];
   } else if (s.startsWith("^")) out = [`TVC:${s.slice(1)}`];
-  else if (/^[A-Z]{6}=X$/.test(s)) out = [`FX_IDC:${s.slice(0, 6)}`, `FX:${s.slice(0, 6)}`];
-  else if (/^[A-Z]{3}=X$/.test(s)) out = [`FX_IDC:USD${s.slice(0, 3)}`];
+  else if (fxTickers(s)) out = fxTickers(s)!;
   else if (s === "DX-Y.NYB") out = ["TVC:DXY"];
   else if (/=F$/.test(s)) out = FUTURES[s.slice(0, -2)] ? [FUTURES[s.slice(0, -2)]] : [];
   else out = tvTickers(s);

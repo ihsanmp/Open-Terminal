@@ -145,6 +145,31 @@ describe("saved workspace", () => {
     expect(b.pages[0]).toMatchObject({ id: "r2", type: "news", settings: { mode: "recap" } });
   });
 
+  it("moves Crypto into the Watchlist (v6), opened on its Crypto category", () => {
+    type Saved = { tabs: Array<{ view: string; pages: Array<{ id: string; type: string; settings?: Record<string, unknown> }>; widgets: Array<{ type: string; settings?: Record<string, unknown> }> }> };
+    const saved = {
+      tabs: [
+        {
+          id: "a",
+          activeSymbol: "AAPL",
+          view: "crypto",
+          pages: [
+            { id: "w", type: "watchlist", linked: true },
+            { id: "c", type: "crypto", linked: true },
+          ],
+          widgets: [{ id: "x", type: "crypto", linked: true }],
+          layout: [],
+        },
+        { id: "b", activeSymbol: "AAPL", view: "chart", pages: [{ id: "c2", type: "crypto", linked: true }], widgets: [], layout: [] },
+      ],
+    };
+    const [a, b] = (options.migrate!(saved, 5) as unknown as Saved).tabs;
+    expect(a.view).toBe("watchlist");
+    expect(a.pages.map((p) => [p.id, p.type, p.settings?.category])).toEqual([["w", "watchlist", "crypto"]]);
+    expect(a.widgets[0]).toMatchObject({ type: "watchlist", settings: { category: "crypto" } });
+    expect(b.pages[0]).toMatchObject({ id: "c2", type: "watchlist", settings: { category: "crypto" } });
+  });
+
   it("saves the tabs but not which one this window shows, and stays on it when reloaded", () => {
     const b = st().duplicateTab();
     st().setActiveSymbol("SOL-USD");

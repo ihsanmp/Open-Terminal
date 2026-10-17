@@ -120,7 +120,11 @@ export function marketOpen(symbol: string, marketState: string | null | undefine
  */
 export function priceDigits(symbol: string, price: number | null | undefined): number {
   const abs = Math.abs(price ?? 0);
-  if (sectionOf(symbol) === "forex") return abs >= 20 ? 3 : abs >= 0.5 ? 4 : 5;
+  if (sectionOf(symbol) === "forex") {
+    // Gold and the other metals to the cent and beyond; the rupiah, won, dong … in whole units.
+    if (/^X(AU|AG|PT|PD)/i.test(symbol)) return abs >= 20 ? 3 : 4;
+    return abs >= 1000 ? 0 : abs >= 20 ? 3 : abs >= 0.5 ? 4 : 5;
+  }
   if (abs === 0 || abs >= 1) return 2;
   if (abs >= 0.01) return 4;
   return Math.min(10, Math.ceil(-Math.log10(abs)) + 3);
