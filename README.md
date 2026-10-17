@@ -2,22 +2,20 @@
 
 # OpenTerminal
 
-**A Terminal‑style workspace for the rest of us — built entirely on free, public market data.**
+**A terminal‑style market workspace built entirely on free, public market data.**
 
 Dark. Dense. Keyboard‑driven. Zero paid API keys, zero subscriptions.
 
-[![Stack](https://img.shields.io/badge/stack-Next.js%20%2B%20Express%20%2B%20TypeScript-orange)](#tech-stack)
+[![Stack](https://img.shields.io/badge/stack-Next.js%20%2B%20Express%20%2B%20TypeScript-orange)](#-tech-stack)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
-[![No API Key Required](https://img.shields.io/badge/data-no%20API%20key%20required-brightgreen)](#data-sources)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg)](#contributing)
-
-<a href="https://trendshift.io/repositories/215916?utm_source=trendshift-badge&utm_medium=badge&utm_campaign=badge-trendshift-215916" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/215916/daily?language=TypeScript" alt="ErTasselli%2FOpenTerminal | Trendshift" width="250" height="55"/></a>
+[![No API Key Required](https://img.shields.io/badge/data-no%20API%20key%20required-brightgreen)](#%EF%B8%8F-data-sources)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg)](#-contributing)
 
 <br/>
 
 <img src="docs/screenshots/dashboard.png" alt="OpenTerminal dashboard — live chart, quote panel, watchlist, news and macro indexes" width="100%" />
 
-<sub>⭐ If this is useful to you, consider starring the repo — it genuinely helps other people find it.</sub>
+<sub>A fork of <a href="https://github.com/ErTasselli/OpenTerminal">ErTasselli/OpenTerminal</a>, grown into a full terminal: live TV and a Fed watcher, a macro engine, quant forecasts, an insider feed, money flow and more. ⭐ Star it if it's useful to you.</sub>
 
 </div>
 
@@ -25,67 +23,110 @@ Dark. Dense. Keyboard‑driven. Zero paid API keys, zero subscriptions.
 
 ## Why OpenTerminal?
 
-Real trading terminals cost **$2,000+ a month**. Most retail dashboards either lock the good stuff behind a paywall or run on a single flaky data source that breaks the moment you actually need it.
+Real trading terminals cost **$2,000+ a month**. Most retail dashboards either lock the good stuff behind a paywall or run on a single flaky data source that breaks the moment you need it.
 
-OpenTerminal takes a different approach: it stitches together several **free, publicly documented (or reverse‑engineered but widely used) market data endpoints** — the same ones that power major finance sites' own front ends — into one fast, keyboard‑first, widget‑based dashboard that runs entirely on your machine. Every data endpoint has an automatic fallback chain, so a single provider hiccup never takes the whole app down.
+OpenTerminal stitches together **free, public market‑data endpoints** (the same ones that power major finance sites' own front ends) into one fast, keyboard‑first workspace that runs entirely on your machine. Every endpoint has a fallback chain, so one provider's hiccup never takes the app down.
 
-No signup. No credit card. No rate‑limited demo tier. Clone it, `npm install`, and you have a live terminal in under a minute.
+No signup. No credit card. No rate‑limited demo tier. Clone it, `npm install`, and you have a live terminal in a minute.
 
 <br/>
 
 ## ✨ Features
 
-- 🖥️ **Widget-based workspace** — drag, resize, add, and remove panels (`react-grid-layout`); your layout is saved locally and restored on reload
-- ⌘K **global command palette** — instantly search stocks, ETFs, and crypto and jump straight to them
-- 📈 **Professional charting** (via [`lightweight-charts`](https://github.com/tradingview/lightweight-charts)) — candlesticks, bars, line, area, 8 timeframes (1D → MAX)
-- 🧮 **97 TradingView built-in indicators** — ported from Pine Script's `ta.*` semantics and checked value-for-value against TradingView's own numbers (RSI, MACD, Stochastic, ADX/DMI, Ichimoku, Supertrend, Parabolic SAR, Bollinger/Keltner/Donchian, VWAP with bands, all six Pivot Points types, ZigZag, and many more), plus rebuilt community scripts (ATR Z-Score, ALMA SD Bands, Adaptive Trend Envelope). Searchable picker, per-indicator settings, separate panes, cloud fills, signals and a TradingView-style legend
-- 💹 **Quote panel** — last / bid / ask / OHLC, volume, market cap, P/E, EPS, dividend yield, 52‑week range, beta, shares outstanding
-- 📰 **News feed** — aggregated and de‑duplicated from multiple RSS sources, per‑symbol or global
-- 🔎 **Full‑market screener** — filter by sector, market cap, % change, and volume across the entire US equity market, sortable on every column
-- 🗺️ **Live sector heatmap** — treemap sized by market cap, colored by daily % change, refreshing every few seconds
-- ⛓️ **Options chain** — calls and puts side‑by‑side with strike, bid/ask, volume, open interest, and ITM highlighting
-- 🪙 **Every crypto coin & token** — a ranked board of ~2,500 assets (paged, searchable, logos, BTC/ETH dominance) and a chart for any of them: Binance candles for its ~500 USDT pairs, CoinGecko for the rest. Symbols use the `BTC-USD` form so coins never collide with stock tickers
-- 🌍 **World indices** — ~40 benchmarks across the Americas, Europe, Asia‑Pacific and the Middle East (S&P 500, Nikkei 225, IHSG, Nifty 50, DAX…), searchable and chartable like any stock, alongside stocks from exchanges worldwide (`BBCA.JK`, `7203.T`, `0700.HK`)
-- 🔬 **Equity research** — multi‑year income statement, balance sheet and cash flow (global coverage), yearly ratios with DuPont breakdown, Piotroski F‑score, Altman Z‑score, Beneish M‑score, Graham number, an interactive DCF with CAPM defaults, analyst consensus and price targets (converted to the trading currency), and industry peers
-- 🏦 **Macro dashboard** — live US Treasury yield curve, VIX, and major index/commodity proxies
-- 💼 **Portfolio tracker** — log buy/sell transactions, track average cost, realized & unrealized P&L (persisted in SQLite)
-- 📅 **Calendar** — economic events (Fed, ECB, CPI, NFP and more) with consensus forecast, previous reading and, for the major US/EU releases, the actual outcome; plus a per‑watchlist earnings calendar with click‑through history showing forecast vs. actual EPS for the last several quarters and the stock's next‑day price move
-- 🏛️ **The Fed on air & macro engine** (Live TV → THE FED) — Fed broadcasts (Board and regional banks, US events only) played as they go live, with a live transcript from YouTube's captions and a Fed Sentiment Index in three layers: hawkish/dovish phrases, the main speaker's voice (pitch, pauses, fillers; voices told apart) and face (expressions, locked by lip sync). Beside it: CME-method FedWatch odds, the Cleveland Fed and GDPNow nowcasts against the consensus, our own P10/P50/P90 for the next CPI, PPI, payrolls, PCE, retail sales, GDP, claims and ISM (quantile gradient boosting on point-in-time data, with its walk-forward record shown), and how gold, bitcoin, S&P futures, the dollar and the 2-year yield actually moved on each release
-- 🤖 **AI assistant** (optional) — ask questions about the symbol you're looking at, powered by Claude, fully context‑aware of the terminal's current data
-- ⚡ **Near real‑time updates** — quotes and indexes refresh every second with a subtle flash on change, so you always know what just moved
-- ⌨️ **Keyboard shortcuts** everywhere — `⌘K` to search, `⌥1`–`⌥9` to add any widget
+Every page sits in the sidebar; any of them can also be opened as a widget, dragged, resized and stacked in a saved workspace.
+
+### Markets
+
+- 📈 **Chart** ([`lightweight-charts`](https://github.com/tradingview/lightweight-charts)): candles, bars, line and area at any interval, with as much history as TradingView holds.
+  - **163 indicators.** 125 are TradingView built‑ins ported from Pine Script's `ta.*` semantics, with the core ones checked value for value against TradingView's own numbers in the test suite. The other 38 are rebuilt community scripts. Every indicator has its own settings, panes, cloud fills, signals and a TradingView‑style legend.
+  - **78 drawing tools:** trend lines, channels, pitchforks, the Fib and Gann families, harmonic and Elliott patterns, long/short positions, anchored VWAP, fixed‑range volume profile, and more.
+- ⭐ **Watchlist:** your own list, plus one dropdown for browsing whole markets:
+  - every stock in 16 markets (the US, Indonesia, Japan, China, Hong Kong, Korea, Taiwan, India, the UK, Germany, Brazil…);
+  - US and Indonesian ETFs by asset class;
+  - the world's indices by region;
+  - futures and commodities by group;
+  - every ranked coin and token;
+  - 170+ forex pairs (major, minor, exotic) and the metals.
+- 💸 **Money Flow:** what went into and out of an asset over a day, week, month, quarter and year.
+  - Coins on Binance use their real buy and sell trades, streamed live.
+  - Everything else is estimated from its bars.
+  - The *Transfers* tab lists who moved what: named Bitcoin wallets, big exchange trades, US insiders, ETF flows, and treasury companies' 8‑K filings.
+- 🔎 **Screener** and 🗺️ **Heatmap:** the whole US market live, filterable and sortable, and as a treemap sized by market cap.
+- 🏦 **US Bonds:** the Treasury curve by tenor, each with its benchmark security's coupon, maturity and next auction (TreasuryDirect), the curve against where it stood, and the spreads.
+- 🔬 **Equity Research:**
+  - multi‑year statements (global coverage) and yearly ratios with a DuPont breakdown;
+  - Piotroski F, Altman Z and Beneish M scores, and the Graham number;
+  - an interactive DCF with CAPM defaults;
+  - analyst consensus and targets, and industry peers.
+- 💼 **Portfolio:** log trades in a journal, track average cost and realized/unrealized P&L (SQLite), and export to Excel.
+
+### News and people
+
+- 📰 **News:** headlines aggregated and de‑duplicated across many sources, by category and per symbol, with a market recap and a daily or weekly recap of the news.
+- 📣 **Insider:** what the accounts that move markets post first, from Bluesky, Telegram and Truth Social (X posts by pasting their link):
+  - Trump, the Fed, Nick Timiraos (WSJ), Watcher Guru, Whale Alert, and a curated list of KOLs.
+  - Only trusted sources are kept: the source's identity has to be confirmed, and unverified accounts are rejected.
+  - Each post shows whether a news outlet has reported the same thing since, so a rumour reads as one.
+  - A second tab lists company insiders' trades from their SEC Form 4 filings.
+- 🐕 **Watcher Guru:** the site's latest articles by section, readable in place.
+
+### Macro and the Fed
+
+- 📅 **Macro:**
+  - the economic calendar by day, each release with two years of its actuals against forecasts;
+  - flash headlines;
+  - FedWatch odds from fed funds futures, and the overnight funding rates (SOFR, TGCR, BGCR, ON RRP).
+- 📺 **Live TV:** ten business channels (Bloomberg US/Europe/Asia, Schwab Network, CNBC‑TV18, NDTV Profit, ausbiz, CNA, Euronews, CGTN) as HLS straight from each broadcaster's CDN. You can also paste any YouTube live link. Beside the player, **THE FED** has these panels:
+  - **Jadwal:** the Fed's broadcasts (the Board and the regional banks) as they go live.
+  - **Transkrip:** a live transcript from YouTube's captions and a **Fed Sentiment Index** in three layers: hawkish/dovish phrases, the main speaker's voice (pitch, pauses, fillers; voices told apart) and their face (expressions, locked by lip sync).
+  - **Nowcast:** the Cleveland Fed's inflation nowcast and GDPNow against the consensus. It also shows our own P10/P50/P90 for the next CPI, PPI, payrolls, PCE, retail sales, GDP, claims and ISM (quantile gradient boosting on point‑in‑time data, with its walk‑forward record).
+  - **Reaksi and Dampak:** how gold, bitcoin, S&P futures, the dollar and the 2‑year yield moved on each release and Fed broadcast, and what a hot or cool print has done to each asset before.
+  - **Prakiraan:** the quant forecasts (below).
+- 🔭 **Astro Calendar:** the month's sky events (retrogrades, eclipses, moon phases, ingresses and aspects) with the quant forecast for gold, bitcoin and the dollar over each event's span, and how it turned out. The astrology's own event study is kept beside it, labelled for what it is.
+- 🤖 **AI Assist** (optional): ask Claude about the symbol you're looking at, with the terminal's data as context.
+
+### Quant forecasts, and what they're worth
+
+A forecaster on the server gives each market's chance of a rise over 5, 10 and 20 trading days.
+
+- **Markets:** gold, WTI, bitcoin, ether, the S&P 500, the Nasdaq 100, DXY, EUR/USD, USD/JPY and the 10‑year yield.
+- **Inputs:**
+  - each market's own momentum, trend, volatility and range;
+  - the other markets, the VIX and the yield curve;
+  - US data surprises by release type (inflation read apart from 2021 on, jobs, ISM);
+  - the season.
+- **Model:** an L2 logistic regression per market and horizon, tested walk‑forward a year at a time from 2016.
+- **Ranges:** each market's P10–P90 range is widened when the span holds more CPI, NFP, ISM or FOMC days than usual.
+
+Honest results, shown in the app as well:
+
+- **Direction:** no market or horizon beats the plain bet on its usual side, so no Bullish/Bearish is shown. A side is called only when the walk‑forward record beats that bet (z ≥ 1.64 and Brier skill > 0).
+- **Ranges:** the calendar‑aware ranges are better calibrated than plain ones in 27 of 30 market‑horizons (moves inside P10–P90 closer to 80% in both busy and quiet spans).
+- **Fed Sentiment Index:** calibrated on the FOMC's 71 press conferences of 2016–2026. Its reading runs with the rate decision (r 0.52) and the 2‑year yield's next three months (r 0.38). It does not foretell the day's move: the decision is already priced.
+- **Macro engine:** roughly matches the consensus for most releases. Only GDPNow clearly beats the consensus on GDP.
+- **Astrology:** the astro event study is right about as often as a coin. The moon, eclipses and retrogrades were dropped from the model; only the season is kept, and it adds nothing reliable yet.
+
+Read them as context, not as trading signals.
 
 <br/>
 
 ## 📸 A closer look
 
+<sub>Screenshots are from an earlier version: the crypto board now lives in the Watchlist's dropdown.</sub>
+
 ### Charting
 
-Candlesticks, bars, line, or area — 8 timeframes, 97 TradingView built-in indicators, and a live legend under your cursor showing OHLC, volume, and every active indicator's value for the candle you're pointing at.
-
-<img src="docs/screenshots/chart.png" alt="Candlestick chart with SMA/RSI/MACD indicators and hover legend" width="100%" />
-
-<br/>
+<img src="docs/screenshots/chart.png" alt="Candlestick chart with indicators and hover legend" width="100%" />
 
 ### Live sector heatmap
 
-The whole US equity market as a treemap — sized by market cap, colored by daily % change, refreshing every few seconds so nothing you're watching ever goes stale.
-
 <img src="docs/screenshots/heatmap.png" alt="Live sector heatmap of the US equity market" width="100%" />
-
-<br/>
 
 ### Crypto
 
-Every ranked coin and token, paged and searchable, with market cap, 24h volume and BTC/ETH dominance — click through to full candlestick charting for any of them, same charting engine and indicators as stocks.
-
 <img src="docs/screenshots/crypto.png" alt="Crypto board with sparklines and dominance" width="100%" />
 
-<br/>
-
 ### News
-
-Headlines aggregated and de‑duplicated across multiple sources, filterable per‑symbol or global, so you're never digging through five tabs to catch up.
 
 <img src="docs/screenshots/news.png" alt="Per-symbol and global news feed, aggregated and de-duplicated" width="100%" />
 
@@ -93,37 +134,37 @@ Headlines aggregated and de‑duplicated across multiple sources, filterable per
 
 ## 🗂️ Data sources
 
-No paid API, no keys, and no single point of failure — every endpoint has a fallback chain, and results are cached with a stale‑while‑revalidate strategy so a temporary outage never blanks out the UI.
+No paid API and no keys. Every endpoint has a fallback chain, and results are cached with stale‑while‑revalidate (most also on disk), so an outage never blanks the UI.
 
 | Data | Primary source | Fallback |
 |---|---|---|
+| Chart history (stocks, indices, FX, futures, coins) | TradingView chart feed (websocket) | Nasdaq → Yahoo Finance → Stooq; Binance → CoinGecko for coins |
 | Quotes (US stocks/ETFs) | Nasdaq public quote API | Yahoo Finance → Stooq |
-| Quotes (indices, non‑US stocks) | TradingView scanner API (one batched request) | Yahoo Finance |
-| Fundamentals (P/E, EPS, beta, div yield) | TradingView scanner API | — |
-| Historical candles | Nasdaq chart API | Yahoo Finance → Stooq |
-| Symbol search | TradingView symbol search + built‑in index list + ranked coin universe | Yahoo Finance |
-| Full‑market screener / heatmap | TradingView scanner API (live, whole US market) | — |
-| Options chain | Nasdaq option‑chain API | Yahoo Finance |
-| News | Yahoo Finance RSS | Google News RSS |
-| Crypto board & quotes | TradingView coin scanner (~2,500 ranked assets) · Binance for its USDT pairs | CoinGecko → Yahoo Finance |
-| Crypto candles | Binance market‑data mirror (`data-api.binance.vision`, reachable where api.binance.com is ISP‑blocked) | CoinGecko OHLC → Yahoo Finance |
-| Financial statements | Yahoo Finance fundamentals time series | SEC EDGAR XBRL company facts (US filers) |
-| Company profile, analyst consensus, price targets, peers | TradingView scanner API | — |
-| Macro (Treasury yields, VIX) | FRED (Federal Reserve) | — |
-| Economic calendar (schedule, forecast, previous) | Forex Factory public feed | — |
-| Economic calendar (actual — Fed / ECB / CPI / NFP only) | FRED (Federal Reserve) | — |
-| Earnings calendar (next/last date, EPS estimate) | TradingView scanner API | — |
-| Earnings history (forecast vs. actual, surprise %) | Nasdaq earnings‑surprise API | — |
+| Quotes (indices, non‑US stocks, FX, futures, metals) | TradingView scanner (one batched request) | Yahoo Finance |
+| Market boards (stocks by market, ETFs, futures, forex), screener, heatmap | TradingView scanner | — |
+| Fundamentals, profile, analysts, peers | TradingView scanner | — |
+| Financial statements | Yahoo Finance fundamentals | SEC EDGAR XBRL company facts |
+| Crypto board and candles | TradingView coin scanner · Binance market‑data mirror (`data-api.binance.vision`) | CoinGecko → Yahoo Finance |
+| Live trades | Binance, Bybit, Bitget, Gate, HTX, BingX and Hyperliquid streams · TradingView quote stream for stocks | Bars |
+| News | Many RSS feeds (Yahoo Finance, Google News, outlets' own) | — |
+| Insider posts | Bluesky, Telegram public channels, Truth Social, X posts by link · SEC Form 4 | — |
+| Treasury curve, auctions | FRED · TreasuryDirect | — |
+| Economic calendar (actual, forecast, previous) | TradingView economic calendar | Forex Factory · FRED |
+| FedWatch | Fed funds futures (CBOT ZQ) via TradingView | — |
+| Nowcasts | Cleveland Fed inflation nowcast · Atlanta Fed GDPNow | — |
+| Funding rates | New York Fed (SOFR, TGCR, BGCR, ON RRP) | — |
+| Live TV | Broadcasters' own HLS streams · YouTube live captions | — |
+| Sky positions | [`astronomy-engine`](https://github.com/cosinekitty/astronomy) (computed locally) | — |
 
-> ⚠️ These are public endpoints, not officially licensed data feeds — treat prices as delayed/indicative, not execution‑grade. See [`server/src/providers/`](server/src/providers) — each provider is a small, isolated module, so swapping or adding a data source is a 30‑minute job.
+> ⚠️ These are public endpoints, not licensed data feeds. Treat prices as delayed or indicative, not execution‑grade. Each provider is a small module in [`server/src/providers/`](server/src/providers), so swapping or adding one is quick.
 
 <br/>
 
 ## 🚀 Quick start
 
 ```bash
-git clone https://github.com/ErTasselli/openterminal.git
-cd openterminal
+git clone https://github.com/ihsanmp/Open-Terminal.git
+cd Open-Terminal
 npm install
 npm run dev
 ```
@@ -131,23 +172,21 @@ npm run dev
 - Web UI → **http://localhost:3000**
 - API health → **http://localhost:4000/api/status**
 
-That's it — no `.env` file required to get a fully working terminal.
+No `.env` file is needed for a working terminal.
 
 ### Windows desktop app
-
-Prefer a double-click app over a terminal? Run the installer once:
 
 ```bash
 desktop\install.cmd
 ```
 
-It builds the project and adds an **OpenTerminal** shortcut to your Desktop and Start Menu. Opening it starts the API and web servers in the background, shows the terminal in its own window (Microsoft Edge or Chrome app mode), and stops the servers when you close that window.
+This builds the project and adds an **OpenTerminal** shortcut to your Desktop and Start Menu.
 
-On every launch it also checks GitHub: if `origin/main` has new commits it fast-forwards, reinstalls dependencies when `package.json` changed, and rebuilds before starting. Without network access (or with local edits in the way) it simply opens the current version. Logs are written to `data/logs/`; `desktop\uninstall.ps1` removes the shortcuts.
+- **Opening it** starts the API and web servers in the background and shows the terminal in its own window (Microsoft Edge or Chrome app mode). Closing that window stops the servers.
+- **On every launch** it checks GitHub. If `origin/main` has new commits, it fast‑forwards, reinstalls dependencies when `package.json` changed, and rebuilds whatever changed before starting. Without network access, or with local edits in the way, it simply opens the current version.
+- **Logs** go to `data/logs/`. `desktop\uninstall.ps1` removes the shortcuts.
 
 ### Macro engine from the terminal
-
-The macro engine also runs headless, from the same data store as the app:
 
 ```bash
 npm run engine -- --mode backtest                  # walk-forward record of every target
@@ -157,7 +196,7 @@ npm run engine -- --mode train                     # fit and save the models (da
 npm run engine -- --mode reactions                 # how markets moved on the surprises
 ```
 
-Build first (`npm run build`). The Fed watcher's voice and face layers need `ffmpeg` on the PATH (or `FFMPEG_PATH`); the panel's *Reguler* mode turns them off.
+Build first (`npm run build`). The Fed watcher's voice and face layers need `ffmpeg` on the PATH (or `FFMPEG_PATH`). The panel's *Reguler* mode turns them off.
 
 ### Optional: AI assistant
 
@@ -166,14 +205,14 @@ export ANTHROPIC_API_KEY=sk-ant-...
 npm run dev
 ```
 
-Without a key, everything else still works — the AI widget just shows a friendly "unavailable" message instead of failing.
+Without a key, everything else still works. The AI widget just says it's unavailable.
 
 ### Security defaults
 
-- The API binds to `127.0.0.1` and only accepts browser requests from `http://localhost:3000` by default — nothing else on your network can reach it out of the box.
-- The portfolio and AI endpoints require a shared secret. If you don't set `API_KEY` yourself, the API generates one on first run and saves it to `data/.api-key`; the bundled web app reads that file automatically, so local dev stays zero-config.
-- To expose this beyond your own machine, set `API_HOST=0.0.0.0`, `API_KEY=<a-strong-secret>` (on both the api and web processes), and `WEB_ORIGIN=<your actual origin>` explicitly. Don't do this without also keeping dependencies patched — see [Known limitations](#known-limitations) below.
-- The `/api/ai` rate limit (10 req/min) keys on `req.ip`. Calls made through the bundled web proxy all arrive from that proxy's own address, so by default every caller sharing it shares one bucket. If you're serving more than one real user through it, set `TRUST_PROXY=1` on the api process **only if** you also run your own reverse proxy in front of the web service that sets `X-Forwarded-For` from the real client and doesn't let visitors set it themselves — otherwise a caller can forge that header to dodge the limit.
+- **Local only by default.** The API binds to `127.0.0.1` and only accepts browser requests from `http://localhost:3000`.
+- **Shared secret.** The portfolio, workspace, insider and AI endpoints require one. If you don't set `API_KEY`, the API generates a key on first run and saves it to `data/.api-key`. The bundled web app reads that file, so local dev stays zero‑config.
+- **Exposing it beyond your machine.** Set `API_HOST=0.0.0.0`, `API_KEY=<a-strong-secret>` (on both the api and web processes) and `WEB_ORIGIN=<your origin>`, and keep dependencies patched.
+- **AI rate limit.** `/api/ai` allows 10 requests per minute, keyed on `req.ip`. Behind the bundled web proxy, every caller shares one bucket. Set `TRUST_PROXY=1` **only if** your own reverse proxy in front sets `X-Forwarded-For` from the real client and doesn't let visitors set it themselves.
 
 <br/>
 
@@ -183,7 +222,7 @@ Without a key, everything else still works — the AI widget just shows a friend
 docker compose up --build
 ```
 
-Portfolio data persists in the `terminal-data` volume (SQLite, WAL mode). Ports are published on `127.0.0.1` only by default; see [Security defaults](#security-defaults) to expose it deliberately.
+Data persists in the `terminal-data` volume (SQLite, WAL mode). Ports are published on `127.0.0.1` only. See [Security defaults](#security-defaults) to expose them deliberately.
 
 <br/>
 
@@ -192,9 +231,11 @@ Portfolio data persists in the `terminal-data` volume (SQLite, WAL mode). Ports 
 | Layer | Stack |
 |---|---|
 | Frontend | Next.js 15 · React 19 · TypeScript · Tailwind CSS 4 · Zustand · TanStack Query |
-| Charts | `lightweight-charts` (candles/indicators) · D3 (heatmap treemap) · Recharts (yield curve) |
-| Backend | Node.js · Express · TypeScript |
-| Database | SQLite (`better-sqlite3`, WAL mode) |
+| Charts | `lightweight-charts` · D3 (heatmap) · Recharts |
+| Video | `hls.js` (live TV) · `@vladmandic/face-api` (Fed watcher's face layer) |
+| Backend | Node.js · Express · TypeScript · Zod |
+| Database | SQLite (`better-sqlite3`, WAL mode) plus JSON stores on disk |
+| Sky | `astronomy-engine` |
 | AI | Anthropic Claude (optional) |
 
 <br/>
@@ -202,71 +243,75 @@ Portfolio data persists in the `terminal-data` volume (SQLite, WAL mode). Ports 
 ## 📁 Project structure
 
 ```
-├── server/                  # Express + TypeScript API
-│   └── src/
-│       ├── providers/       # nasdaq, tradingview, yahoo, stooq, fred, econcalendar, coingecko, binance, news
-│       ├── routes/          # market, portfolio, ai
-│       ├── cache.ts         # TTL cache with stale-while-revalidate fallback
-│       └── db.ts            # SQLite (better-sqlite3, WAL)
-└── web/                      # Next.js 15 + React 19 + Tailwind 4
-    ├── components/           # TopBar, Sidebar, Workspace, CommandPalette
-    ├── components/widgets/   # Chart, Quote, Watchlist, News, Screener, Heatmap, Crypto, Options, Macro, Portfolio, Calendar, AI
-    ├── lib/                  # API client
-    ├── lib/ta/               # indicator engine: Pine-style ta.* core, catalog, chart fill/bgcolor primitives
-    └── store/                # Zustand store (workspace layout, persisted)
+├── server/src/
+│   ├── providers/      # one module per data source: tradingview, tvchart, nasdaq, yahoo, fred, binance,
+│   │                   # socialfeed, moneyflow, transfers, macroengine, nowcast, fedwatch, fedtranscript…
+│   ├── quant/          # the quant forecaster: data, features (market, macro, season), model, bands
+│   ├── astro/          # the sky's events (kept identical to the web's by a test)
+│   ├── news/           # news ingestion and the recap
+│   ├── routes/         # market, research, portfolio, workspace, social, ai
+│   ├── cli/            # the macro engine's command line
+│   ├── cache.ts        # TTL cache with stale-while-revalidate and a disk fallback
+│   └── db.ts           # SQLite (better-sqlite3, WAL)
+├── web/
+│   ├── components/widgets/  # every page: Chart, Watchlist, Money Flow, News, Insider, Macro, Live TV…
+│   ├── components/chart/    # chart toolbars, drawing tools, indicator dialogs
+│   ├── lib/ta/              # indicator engine: Pine-style ta.* core and the catalog
+│   ├── lib/drawings/        # drawing tools
+│   └── store/               # Zustand store (workspace, persisted with migrations)
+└── desktop/            # Windows launcher, installer and auto-update
 ```
 
-Run tests with `npm test` (Vitest, no network calls). The indicator suite compares every supported value against a fixture captured from TradingView's scanner on the same daily candles, so a formula that drifts from TradingView fails CI. CI runs on every push — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+Run the tests with `npm test` (Vitest, no network calls, 1,000+ tests). The indicator suite compares values against a fixture captured from TradingView on the same candles, so a formula that drifts fails CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
 <br/>
 
 ## 🗺️ Roadmap
 
-- [ ] Chart drawing tools & multi‑asset comparison overlay
-- [ ] Black‑Scholes Greeks on the options chain
-- [ ] Price alerts with desktop notifications
+- [x] Chart drawing tools
+- [ ] Windows notifications: a Fed broadcast going live, the half hour before a release, a release's result and its first five minutes
+- [ ] Release and Fed‑broadcast markers on the price chart
+- [ ] Speech‑to‑text fallback for streams without captions
 - [ ] PostgreSQL as an alternative to SQLite
 
-Have an idea? [Open an issue](../../issues) — contributions are very welcome.
+Have an idea? [Open an issue](../../issues).
 
 <br/>
 
 ## 🙏 Acknowledgements
 
-The equity‑research, world‑indices and all‑crypto features were inspired by [FinceptTerminal](https://github.com/Fincept-Corporation/FinceptTerminal). No code was taken from it — it is AGPL‑3.0 and this project is MIT — the features were reimplemented independently on free public data sources.
+- **Original project.** OpenTerminal was started by [Andrea Tasselli](https://github.com/ErTasselli/OpenTerminal); this fork builds on that first version.
+- **Inspiration.** The equity‑research, world‑indices and all‑crypto features were inspired by [FinceptTerminal](https://github.com/Fincept-Corporation/FinceptTerminal). No code was taken from it: it is AGPL‑3.0 and this project is MIT, so the features were reimplemented independently on free data.
+- **Indicators.** The indicators rebuilt from [LuxAlgo](https://www.luxalgo.com/)'s published scripts (in `web/lib/ta/indicators/luxalgo*.ts`) keep those scripts' license, CC BY‑NC‑SA 4.0: free to use and adapt, not for commercial use.
 
 ## 🤝 Contributing
 
 Pull requests are welcome, especially:
-- New or more resilient data providers (`server/src/providers/`)
-- New widgets (`web/components/widgets/`)
-- Bug fixes and UI polish
 
-Please open an issue first for anything non‑trivial so we can align on approach before you invest the time.
+- new or more resilient data providers (`server/src/providers/`);
+- new widgets (`web/components/widgets/`);
+- bug fixes and UI polish.
+
+Please open an issue first for anything non‑trivial.
 
 <br/>
 
 ## Known limitations
 
-- `npm audit` still flags two dependency advisories this project doesn't force-fix: `fast-xml-parser`'s XMLBuilder injection (moderate) doesn't apply here — only `XMLParser` is used, never `XMLBuilder` — and `postcss`'s high-severity issue is bundled inside Next.js itself, only resolved by a Next 16 major upgrade. Both are tracked, neither is silently ignored.
-- If you deploy behind a reverse proxy or load balancer, set `API_HOST`/`WEB_ORIGIN` to match, and terminate TLS in front of it — this project doesn't handle HTTPS itself.
+- **`npm audit` advisories.** Two are not force‑fixed:
+  - `fast-xml-parser`'s XMLBuilder injection (moderate) doesn't apply here, since only `XMLParser` is used;
+  - `postcss`'s high‑severity issue is bundled inside Next.js and is only resolved by the Next 16 major upgrade.
+- **Reverse proxies.** Behind a reverse proxy or load balancer, set `API_HOST`/`WEB_ORIGIN` to match and terminate TLS in front: the project doesn't handle HTTPS itself.
+- **Blocked providers.** Some providers are blocked by some ISPs (Binance's main API, for one). The fallbacks cover them, sometimes with less detail.
 
 <br/>
 
 ## ⚖️ Disclaimer
 
-For personal and educational use only. Market data comes from public endpoints and may be delayed, incomplete, or occasionally wrong — **do not use this for real investment decisions**.
+For personal and educational use only. Market data comes from public endpoints and may be delayed, incomplete or wrong, and the forecasts above have no tested edge. **Do not use this for real investment decisions.**
 
-This project is not affiliated with, endorsed by, or sponsored by any of the data providers it connects to. It does not host or redistribute data to third parties — it's source code you run yourself, fetching data directly from the provider. Respect the terms of service of the underlying data providers; most free sources are licensed for personal/research use only and prohibit commercial redistribution.
+This project is not affiliated with, endorsed by or sponsored by any of the data providers it connects to. It doesn't host or redistribute data: it's source code you run yourself, fetching data directly from each provider. Respect their terms of service; most free sources are licensed for personal or research use only.
 
 ## License
 
-[MIT](LICENSE)
-
-<br/>
-
-<div align="center">
-
-**star the repo** ⭐ — it's the best way to support the project.
-
-</div>
+[MIT](LICENSE), except the LuxAlgo‑derived indicators noted above (CC BY‑NC‑SA 4.0).
