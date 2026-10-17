@@ -13,7 +13,7 @@ Dark. Dense. Keyboard‑driven. Zero paid API keys, zero subscriptions.
 
 <br/>
 
-<img src="docs/screenshots/dashboard.png" alt="OpenTerminal dashboard — live chart, quote panel, watchlist, news and macro indexes" width="100%" />
+<img src="docs/screenshots/dashboard.png" alt="OpenTerminal workspace: chart, money flow, watchlist, news and Watcher Guru side by side" width="100%" />
 
 <sub>A fork of <a href="https://github.com/ErTasselli/OpenTerminal">ErTasselli/OpenTerminal</a>, grown into a full terminal: live TV and a Fed watcher, a macro engine, quant forecasts, an insider feed, money flow and more. ⭐ Star it if it's useful to you.</sub>
 
@@ -112,23 +112,65 @@ Read them as context, not as trading signals.
 
 ## 📸 A closer look
 
-<sub>Screenshots are from an earlier version: the crypto board now lives in the Watchlist's dropdown.</sub>
+### Chart
 
-### Charting
+Any interval with TradingView's depth of history, 163 indicators and 78 drawing tools. Here: AAPL weekly with a 20-week SMA and a volume profile, the watchlist and the quote beside it.
 
-<img src="docs/screenshots/chart.png" alt="Candlestick chart with indicators and hover legend" width="100%" />
+<img src="docs/screenshots/chart.png" alt="Chart" width="100%" />
+
+### Watchlist: every market in one dropdown
+
+Every ranked coin with market cap, 24h volume and BTC/ETH dominance. The same dropdown lists stocks in 16 markets, ETFs, indices, futures and commodities.
+
+<img src="docs/screenshots/watchlist.png" alt="Watchlist: every market in one dropdown" width="100%" />
+
+### Forex
+
+172 pairs (major, minor, exotic) and the metals, live from TradingView's FX feed.
+
+<img src="docs/screenshots/forex.png" alt="Forex" width="100%" />
+
+### Money Flow
+
+What went into and out of an asset over a day, a week, a month, three months and a year, with every period's net and buy share.
+
+<img src="docs/screenshots/moneyflow.png" alt="Money Flow" width="100%" />
 
 ### Live sector heatmap
 
-<img src="docs/screenshots/heatmap.png" alt="Live sector heatmap of the US equity market" width="100%" />
+The whole US market as a treemap, sized by market cap and colored by the period's change.
 
-### Crypto
+<img src="docs/screenshots/heatmap.png" alt="Live sector heatmap" width="100%" />
 
-<img src="docs/screenshots/crypto.png" alt="Crypto board with sparklines and dominance" width="100%" />
+### Equity Research
 
-### News
+Valuation, profitability and growth, Piotroski, Altman, Beneish and Graham, with statements, ratios, a DCF, analysts and peers on the other tabs.
 
-<img src="docs/screenshots/news.png" alt="Per-symbol and global news feed, aggregated and de-duplicated" width="100%" />
+<img src="docs/screenshots/research.png" alt="Equity Research" width="100%" />
+
+### News: the market recap
+
+The day's recap beside the live wire: indexes, sector performance and the biggest movers, in English and Indonesian.
+
+<img src="docs/screenshots/news.png" alt="News: the market recap" width="100%" />
+
+### Macro
+
+The economic calendar by day with each release's history, flash headlines, FedWatch and the overnight funding rates.
+
+<img src="docs/screenshots/macro.png" alt="Macro" width="100%" />
+
+### Live TV and THE FED
+
+Fed broadcasts play here as they go live (none at this moment), with the next high-impact US releases. On the right: the quant forecasts, each market's chance of a rise and its calendar-aware range, with no Bullish/Bearish where the record shows no edge.
+
+<img src="docs/screenshots/livetv.png" alt="Live TV and THE FED" width="100%" />
+
+### Astro Calendar
+
+The month's sky events, each with the quant forecast over its span and how it turned out.
+
+<img src="docs/screenshots/astro.png" alt="Astro Calendar" width="100%" />
 
 <br/>
 
