@@ -135,7 +135,7 @@ async function buildResearch(symbol: string) {
       employees: prof.number_of_employees,
     },
     ttm: prof && {
-      marketCap: convert(prof.market_cap_basic, fundamentalToTrading), enterpriseValue: convert(prof.enterprise_value_fq, fundamentalToTrading),
+      marketCap: convert(prof.market_cap_basic, fundamentalToTrading), enterpriseValue: convert(prof.enterprise_value_current, fundamentalToTrading),
       pe: prof.price_earnings_ttm, pb: prof.price_book_fq, ps: prof.price_revenue_ttm, evEbitda: prof.enterprise_value_ebitda_ttm,
       grossMargin: prof.gross_margin_ttm, operatingMargin: prof.operating_margin_ttm, netMargin: prof.net_margin_ttm,
       roe: prof.return_on_equity_fq, roa: prof.return_on_assets_fq, roic: prof.return_on_invested_capital_fq,

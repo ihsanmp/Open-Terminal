@@ -328,7 +328,7 @@ export function tvTickers(symbol: string): string[] {
 
 const RESEARCH_COLUMNS = [
   "description", "exchange", "sector", "industry", "country", "number_of_employees", "fundamental_currency_code",
-  "currency", "close", "market_cap_basic", "enterprise_value_fq", "price_earnings_ttm", "price_book_fq",
+  "currency", "close", "market_cap_basic", "enterprise_value_current", "price_earnings_ttm", "price_book_fq",
   "price_revenue_ttm", "enterprise_value_ebitda_ttm", "gross_margin_ttm", "operating_margin_ttm", "net_margin_ttm",
   "return_on_equity_fq", "return_on_assets_fq", "return_on_invested_capital_fq", "total_revenue_yoy_growth_ttm",
   "earnings_per_share_diluted_yoy_growth_ttm", "dividends_yield_current", "dividend_payout_ratio_ttm", "beta_1_year",

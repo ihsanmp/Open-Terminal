@@ -402,7 +402,11 @@ marketRouter.get("/history/:symbol", async (req, res) => {
             ["fred", () => vixHistory(rangeKey)],
           ])
         : isYahooOnly(symbol)
-        ? withFallback([["yahoo", yahooHistory]])
+        ? // Yahoo has no metals as XAUUSD=X: TradingView's feed (OANDA/TVC) takes over.
+          withFallback([
+            ["yahoo", yahooHistory],
+            ["tradingview", () => tvHistory(symbol, rangeKey === "1D" ? "5m" : rangeKey === "5D" ? "15m" : rangeKey === "1M" ? "1h" : "1D")],
+          ])
         : INTRADAY_RANGES.has(rangeKey)
         ? // Nasdaq's chart API only returns daily bars, so an intraday range drawn from it
           // is a handful of stale daily candles. Yahoo serves real 5m/15m/1h bars.
