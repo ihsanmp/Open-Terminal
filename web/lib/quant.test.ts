@@ -9,7 +9,8 @@ const horizon = (pUp: number, proven: boolean): HorizonForecast => ({
   score: score(proven),
   without: { astro: score(false), macro: score(false) },
   drivers: [],
-  band: { p10: -3, p50: 0.2, p90: 3.5 },
+  band: { p10: -3, p50: 0.2, p90: 3.5, factor: 1 },
+  events: [],
 });
 const live: AssetForecast = {
   key: "xau", label: "Emas", symbol: "XAUUSD=X", group: "Komoditas", unit: "%", price: 4100, asOfDay: 20_740,

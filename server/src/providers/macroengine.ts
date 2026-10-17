@@ -53,6 +53,7 @@ const TITLES = new Set([
   "S&P Global Services PMI Flash",
   "Redbook YoY",
   "Michigan Consumer Sentiment Prel",
+  "Fed Interest Rate Decision",
 ]);
 /** The titles kept: a quarter read with another list is read again. */
 const TITLES_SIG = [...TITLES].sort().join("|");

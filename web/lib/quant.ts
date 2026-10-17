@@ -17,8 +17,13 @@ export type HorizonForecast = {
   score: QuantScore;
   without: { astro: QuantScore; macro: QuantScore };
   drivers: Array<{ name: string; group: "market" | "macro" | "astro"; pull: number }>;
-  band: { p10: number; p50: number; p90: number };
+  /** The span's move (P10/P50/P90), its spread scaled by `factor` for the big US days it holds. */
+  band: { p10: number; p50: number; p90: number; factor: number };
+  /** The big US days within the span. */
+  events: Array<{ day: number; kinds: QuantEventKind[] }>;
 };
+export type QuantEventKind = "cpi" | "nfp" | "ism" | "fomc";
+export type QuantSeason = "spring" | "summer" | "autumn" | "winter";
 export type AssetForecast = {
   key: string;
   label: string;
@@ -29,7 +34,10 @@ export type AssetForecast = {
   asOfDay: number;
   horizons: Record<QuantHorizon, HorizonForecast>;
 };
-export type QuantForecast = { at: number; asOfDay: number; assets: AssetForecast[] };
+export type QuantForecast = { at: number; asOfDay: number; season: QuantSeason; assets: AssetForecast[] };
+
+export const EVENT_LABEL: Record<QuantEventKind, string> = { cpi: "CPI", nfp: "NFP", ism: "ISM", fomc: "FOMC" };
+export const SEASON_LABEL: Record<QuantSeason, string> = { spring: "semi", summer: "panas", autumn: "gugur", winter: "dingin" };
 export type QuantHistory = { asOfDay: number; history: Record<QuantHorizon, Array<[number, number]>> };
 
 /** The forecasts, refreshed every ten minutes (the server works them out a few times a day). */
