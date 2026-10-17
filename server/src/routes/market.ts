@@ -25,6 +25,8 @@ import * as watcherguru from "../providers/watcherguru.js";
 import * as forex from "../providers/forex.js";
 import * as stocklist from "../providers/stocklist.js";
 import { fxTickers } from "../providers/forex.js";
+import * as futures from "../providers/futures.js";
+import { futuresTickers } from "../providers/futures.js";
 import * as moneyflow from "../providers/moneyflow.js";
 import * as transfers from "../providers/transfers.js";
 import * as newsArchive from "../news/archive.js";
@@ -215,7 +217,7 @@ async function getQuotes(symbols: string[]): Promise<yahoo.Quote[]> {
     try {
       // Forex (EURUSD=X) too, in the same request: one Yahoo call per pair was the way before.
       const found = await tradingview.batchQuotes(tvSymbols, (s) =>
-        INDEX_TV_TICKER.has(s) ? [INDEX_TV_TICKER.get(s)!] : s === "DX-Y.NYB" ? ["TVC:DXY"] : fxTickers(s) ?? tradingview.tvTickers(s)
+        INDEX_TV_TICKER.has(s) ? [INDEX_TV_TICKER.get(s)!] : s === "DX-Y.NYB" ? ["TVC:DXY"] : fxTickers(s) ?? futuresTickers(s) ?? tradingview.tvTickers(s)
       );
       for (const [s, q] of found) fetched.set(s, q);
     } catch {
@@ -733,6 +735,16 @@ marketRouter.get("/stocks", async (req, res) => {
   const q = typeof req.query.q === "string" ? req.query.q : "";
   try {
     res.json(await stocklist.stockPage(market, page, q));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// ---- futures and commodities: every market's front contract, in one scanner request (providers/futures.ts) ----
+
+marketRouter.get("/futures", async (req, res) => {
+  try {
+    res.json(await futures.futuresBoard());
   } catch (err) {
     fail(req, res, err);
   }
