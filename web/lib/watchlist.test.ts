@@ -57,6 +57,8 @@ describe("watchlist prices", () => {
     expect(priceDigits("AAPL", 333.54)).toBe(2);
     expect(priceDigits("EURUSD=X", 1.1312)).toBe(4);
     expect(priceDigits("USDJPY=X", 149.8)).toBe(3);
+    expect(priceDigits("USDIDR=X", 17943)).toBe(0);
+    expect(priceDigits("XAUUSD=X", 4165.42)).toBe(3);
     expect(priceDigits("SHIB-USD", 0.0000123)).toBe(8);
     expect(priceDigits("XRP-USD", 0.52)).toBe(4);
   });

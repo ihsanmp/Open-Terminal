@@ -32,7 +32,8 @@ function Sparkline({ data }: { data: number[] }) {
   );
 }
 
-export default function CryptoWidget() {
+/** Every coin, ranked by market cap, a page at a time or by search (Watchlist → Crypto). */
+export default function CryptoList() {
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
   const addToWatchlist = useTerminal((s) => s.addToWatchlist);
   const [page, setPage] = useState(1);

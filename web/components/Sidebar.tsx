@@ -10,7 +10,6 @@ export const MENU: Array<{ type: WidgetType; label: string }> = [
   { type: "news", label: "NEWS" },
   { type: "screener", label: "SCREENER" },
   { type: "heatmap", label: "HEATMAP" },
-  { type: "crypto", label: "CRYPTO" },
   { type: "bonds", label: "US BONDS" },
   { type: "portfolio", label: "PORTFOLIO" },
   { type: "ai", label: "AI ASSIST" },
