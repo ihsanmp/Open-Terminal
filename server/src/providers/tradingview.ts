@@ -341,9 +341,15 @@ export type ResearchProfile = { ticker: string } & Record<(typeof RESEARCH_COLUM
 
 /** One request to a market's scanner (america, indonesia, coin, global …). */
 export async function scanAt(market: string, body: unknown): Promise<Array<{ s: string; d: any[] }>> {
+  return (await scanPage(market, body)).data;
+}
+
+/** A scanner request's rows with how many match in all (for a list a page at a time). */
+export async function scanPage(market: string, body: unknown): Promise<{ total: number; data: Array<{ s: string; d: any[] }> }> {
   const res = await fetch(`https://scanner.tradingview.com/${market}/scan`, { method: "POST", headers: HEADERS, body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`tradingview ${market} scan ${res.status}`);
-  return (await res.json())?.data ?? [];
+  const json = await res.json();
+  return { total: Number(json?.totalCount) || 0, data: json?.data ?? [] };
 }
 
 const globalScan = (body: unknown) => scanAt("global", body);
