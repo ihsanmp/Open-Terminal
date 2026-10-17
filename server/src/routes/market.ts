@@ -24,6 +24,7 @@ import * as treasurydirect from "../providers/treasurydirect.js";
 import * as watcherguru from "../providers/watcherguru.js";
 import * as forex from "../providers/forex.js";
 import * as stocklist from "../providers/stocklist.js";
+import * as quant from "../quant/service.js";
 import { fxTickers } from "../providers/forex.js";
 import * as futures from "../providers/futures.js";
 import { futuresTickers } from "../providers/futures.js";
@@ -751,6 +752,29 @@ marketRouter.get("/etfs", async (req, res) => {
   const q = typeof req.query.q === "string" ? req.query.q : "";
   try {
     res.json(await stocklist.etfPage(market, cls as stocklist.EtfClass | null, page, q));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// ---- quant forecasts: every market's chance of a rise over 5/10/20 days, tested walk-forward,
+// read by both the Astro Calendar and the Live TV (quant/service.ts) ----
+
+marketRouter.get("/quant/forecast", async (req, res) => {
+  try {
+    const { history: _h, ...rest } = await quant.forecasts();
+    res.json(rest);
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+marketRouter.get("/quant/history/:key", async (req, res) => {
+  try {
+    const r = await quant.forecasts();
+    const h = r.history[req.params.key as keyof typeof r.history];
+    if (!h) return res.status(404).json({ error: "unknown market" });
+    res.json({ asOfDay: r.asOfDay, history: h });
   } catch (err) {
     fail(req, res, err);
   }

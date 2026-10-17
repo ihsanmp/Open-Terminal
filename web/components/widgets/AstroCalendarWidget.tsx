@@ -1,17 +1,19 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { apiGet, type Candle } from "../../lib/api";
 import { buildEvents, type AstroEvent, type EventKind } from "../../lib/astro-calendar/events";
 import { ASSETS, describeKey, describeState, extendSeries, impactOf, indexByKey, MIN_SAMPLES, outcomeOf, pricesVersion, trackRecord, verdictTrail, WALK_FORWARD, type Asset, type Impact, type Outcome, type Verdict } from "../../lib/astro-calendar/impact";
 import { useWidgetSetting } from "../../store/terminal";
+import { forecastFor, horizonFor, pct, useQuantForecast, useQuantHistory, verdictOf, type AssetForecast, type HorizonForecast, type QuantForecast, type QuantHistory, type QuantHorizon } from "../../lib/quant";
 
-// The astrology calendar: the month's sky events, each with its offline verdict on GOLD, BTC and DXY
-// (lib/astro-calendar). Clicking an event opens its details: what happens, and the impact with
-// the statistics behind it. The verdict follows the latest close until the day before the event,
-// so it is recomputed whenever the prices change.
+// The astrology calendar: the month's sky events, each with the quant forecast for GOLD, BTC and DXY
+// over its span (the server's forecaster, shared with the Live TV, which reads the sky among its
+// features): what was forecast the day before the event, or today's for one still ahead, and how
+// it turned out. The astrology's own event study (lib/astro-calendar) is kept beside it as a
+// historical pattern: tested, it was right about as often as a coin.
 
 const DAY = 86_400;
 const FIRST_DAY = Math.floor(Date.UTC(1990, 0, 1) / 1000 / DAY);
@@ -30,6 +32,24 @@ const VERDICT_STYLE: Record<Verdict, string> = {
   Netral: "bg-[#2a2a2a] text-[#a8a8a8]",
 };
 const ASSET_LABEL: Record<Asset, string> = { GOLD: "GOLD", BTC: "BTC", DXY: "DXY" };
+/** The quant forecaster's market for each calendar asset. */
+const QUANT_KEY: Record<Asset, string> = { GOLD: "xau", BTC: "btc", DXY: "dxy" };
+
+type QuantData = { forecast: QuantForecast | undefined; history: Partial<Record<Asset, QuantHistory>> };
+const QuantContext = createContext<QuantData>({ forecast: undefined, history: {} });
+
+type EventQuant = { h: QuantHorizon; live: AssetForecast; f: HorizonForecast; point: { pUp: number; asOfDay: number; live: boolean }; verdict: Verdict };
+
+/** The quant forecast for an asset over an event's span: as of the day before it, or today's. */
+function quantFor(event: AstroEvent, asset: Asset, q: QuantData): EventQuant | null {
+  const live = q.forecast?.assets.find((a) => a.key === QUANT_KEY[asset]);
+  if (!live) return null;
+  const h = horizonFor(event.horizon);
+  const point = forecastFor(Math.floor(event.time / DAY), h, q.history[asset], live);
+  if (!point) return null;
+  const f = live.horizons[h];
+  return { h, live, f, point, verdict: verdictOf(point.pUp, f) };
+}
 
 // The whole catalogue is computed once (under a second) and shared by every calendar.
 let catalogue: { events: AstroEvent[]; byKey: Map<string, number[]> } | null = null;
@@ -136,6 +156,50 @@ function OutcomeLine({ outcome, verdict }: { outcome: Outcome; verdict: Verdict 
   );
 }
 
+function QuantRow({ asset, q, outcome }: { asset: Asset; q: EventQuant | null; outcome: Outcome | null }) {
+  if (!q)
+    return (
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#151515] px-4 py-3 flex items-center gap-3">
+        <AssetIcon asset={asset} />
+        <span className="text-fs-14 text-[var(--text)]">{ASSET_LABEL[asset]}</span>
+        <span className="dim text-fs-11">prakiraan belum tersedia (server menghitung model…)</span>
+      </div>
+    );
+  const { f, point, h, verdict } = q;
+  const lean = point.pUp - f.baseRate;
+  const u = q.live.unit === "bp" ? " bp" : "%";
+  const fmt = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}${u}`;
+  // Judged against what was forecast only when it leaned with a tested signal.
+  const right = outcome && outcome.done && verdict !== "Netral" ? (verdict === "Bullish") === outcome.movePct > 0 : null;
+  return (
+    <div className="rounded-xl border border-[#2a2a2a] bg-[#151515]">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <AssetIcon asset={asset} />
+        <span className="text-fs-14 text-[var(--text)]">{ASSET_LABEL[asset]}</span>
+        <Badge verdict={verdict} />
+        {!f.score.proven && <span className="dim text-fs-10">tanpa sinyal teruji</span>}
+      </div>
+      <div className="px-4 pb-2 -mt-1 text-fs-11 space-y-0.5">
+        <div>
+          <span className="dim">Peluang naik {h} hari bursa: </span>
+          <b className={f.score.proven ? (lean >= 0.03 ? "up" : lean <= -0.03 ? "down" : "") : ""}>{pct(point.pUp)}</b> <span className="dim">(biasanya {pct(f.baseRate)}) · {point.live ? `per ${fmtUtcDay(point.asOfDay, "short")}` : `prakiraan H-1, ${fmtUtcDay(point.asOfDay, "short")}`}</span>
+        </div>
+        <div>
+          <span className="dim">Rentang wajar {h} hari: </span>
+          {fmt(f.band.p10)} … {fmt(f.band.p90)}
+        </div>
+        {outcome && (
+          <div>
+            <span className="dim">{outcome.done ? `Hasil ${outcome.horizon} hari bursa setelahnya:` : `Berjalan (${outcome.days} dari ${outcome.horizon} hari bursa):`}</span>{" "}
+            <b className={outcome.movePct >= 0 ? "up" : "down"}>{signed(outcome.movePct)}</b>
+            {right !== null && <span className={right ? "up" : "down"}>{right ? " ✓ sesuai prakiraan" : " ✗ tidak sesuai prakiraan"}</span>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ImpactRow({ impact, trail, record, outcome }: { impact: Impact; trail: TrailPoint[]; record: { calls: number; right: number }; outcome: Outcome | null }) {
   const [open, setOpen] = useState(false);
   const enough = impact.n >= MIN_SAMPLES;
@@ -218,6 +282,11 @@ function EventDialog({ event, events, byKey, version, onClose }: { event: AstroE
   const final = rows.every((r) => r.impact.final);
   const asOf = Math.max(...rows.map((r) => r.impact.asOfDay));
   const [info, setInfo] = useState(false);
+  const [astroOpen, setAstroOpen] = useState(false);
+  const quant = useContext(QuantContext);
+  const quantRows = ASSETS.map((a) => ({ asset: a, q: quantFor(event, a, quant) }));
+  const record = quant.forecast?.assets.filter((a) => Object.values(QUANT_KEY).includes(a.key));
+  const h = horizonFor(event.horizon);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -258,18 +327,21 @@ function EventDialog({ event, events, byKey, version, onClose }: { event: AstroE
               i
             </button>
           </div>
-          <div className="text-fs-10 dim px-1">
-            Kesimpulan per data {fmtUtcDay(asOf)}
-            {final ? " · final (H-1)" : ` · sementara, ikut berubah dengan harga terbaru sampai H-1 (${fmtUtcDay(Math.floor(event.time / DAY) - 1)})`}
-          </div>
           <div className="text-fs-10 px-1 amber">
-            Uji pada semua kejadian 2018–2026 (kesimpulan H-1, hanya data sampai hari itu): arah harga sesuai kesimpulan{" "}
-            {ASSETS.map((a) => `${ASSET_LABEL[a]} ${Math.round((WALK_FORWARD[a].right / WALK_FORWARD[a].calls) * 100)}%`).join(", ")}: setara lempar koin. Pakai sebagai catatan pola historis, bukan sinyal trading.
+            Prakiraan quant {h} hari (sama dengan tab Live TV → Prakiraan; kondisi langit ikut jadi fitur). Uji walk-forward 2016–sekarang, arah benar vs tebakan
+            sederhana: {record?.map((a) => `${a.key === "xau" ? "GOLD" : a.key.toUpperCase()} ${pct(a.horizons[h].score.acc)} vs ${pct(a.horizons[h].score.baseAcc)}`).join(", ") ?? "…"}.{" "}
+            {record?.some((a) => a.horizons[h].score.proven) ? "Bullish/Bearish hanya untuk yang terbukti." : "Belum ada yang terbukti lebih baik, jadi tidak diberi Bullish/Bearish."}
           </div>
           {info && (
             <div className="text-fs-11 dim px-1 space-y-1">
               <p>
-                Dihitung offline dari riwayat harga (gold dan DXY sejak 1990, BTC sejak 2011): untuk setiap kejadian yang sama di masa lalu, diukur pergerakan harga
+                Prakiraan: model quant di server (regresi logistik per aset dan horizon) dari momentum, tren, volatilitas, aset lain, surprise data AS dan
+                kondisi langit (retrograde, fase bulan, gerhana, aspek, ingress dari kalender ini). Untuk kejadian lampau ditampilkan prakiraan H-1 (hanya data
+                sampai hari itu); untuk kejadian mendatang, prakiraan hari ini. Bullish/Bearish hanya bila uji walk-forwardnya mengalahkan tebakan sederhana
+                secara signifikan.
+              </p>
+              <p>
+                Pola historis astro: dihitung offline dari riwayat harga (gold dan DXY sejak 1990, BTC sejak 2011): untuk setiap kejadian yang sama di masa lalu, diukur pergerakan harga
                 beberapa hari bursa sesudahnya (dari penutupan H-1), lalu dibandingkan dengan pergerakan pasar pada hari-hari biasa yang kondisinya dan
                 masanya sama (ditimbang dengan cara yang sama), jadi yang dinilai hanya bagian &quot;dari kejadian astro&quot;. Bullish/Bearish bila bagian itu cukup
                 konsisten (t ≥ 1), selain itu Netral. Kejadian yang jendelanya tumpang-tindih tidak dihitung dua kali.
@@ -285,9 +357,25 @@ function EventDialog({ event, events, byKey, version, onClose }: { event: AstroE
               </p>
             </div>
           )}
-          {rows.map((r) => (
-            <ImpactRow key={r.impact.asset} {...r} />
+          {quantRows.map((r, i) => (
+            <QuantRow key={r.asset} asset={r.asset} q={r.q} outcome={rows[i].outcome} />
           ))}
+          <button className="text-fs-11 text-[#ff6a3d] hover:underline px-1" onClick={() => setAstroOpen(!astroOpen)}>
+            {astroOpen ? "Tutup pola historis astro ↑" : "Pola historis astro (bukan prakiraan) →"}
+          </button>
+          {astroOpen && (
+            <>
+              <div className="text-fs-10 dim px-1">
+                Pola historis per data {fmtUtcDay(asOf)}
+                {final ? " · final (H-1)" : ` · sementara, ikut berubah dengan harga terbaru sampai H-1 (${fmtUtcDay(Math.floor(event.time / DAY) - 1)})`}. Diuji pada
+                semua kejadian 2018–2026: arah harga sesuai{" "}
+                {ASSETS.map((a) => `${ASSET_LABEL[a]} ${Math.round((WALK_FORWARD[a].right / WALK_FORWARD[a].calls) * 100)}%`).join(", ")}, setara lempar koin.
+              </div>
+              {rows.map((r) => (
+                <ImpactRow key={r.impact.asset} {...r} />
+              ))}
+            </>
+          )}
         </div>
       </div>
     </div>,
@@ -296,8 +384,9 @@ function EventDialog({ event, events, byKey, version, onClose }: { event: AstroE
 }
 
 /** A dot per asset on a calendar chip: green bullish, red bearish, grey neutral. */
-function Dots({ event, byKey, version }: { event: AstroEvent; byKey: Map<string, number[]>; version: number }) {
-  const v = useMemo(() => ASSETS.map((a) => impactOf(event, byKey, a).verdict), [event, byKey, version]); // eslint-disable-line react-hooks/exhaustive-deps
+function Dots({ event }: { event: AstroEvent }) {
+  const quant = useContext(QuantContext);
+  const v = useMemo(() => ASSETS.map((a) => quantFor(event, a, quant)?.verdict ?? "Netral"), [event, quant]);
   const color = (x: Verdict) => VERDICT_COLOR[x];
   return (
     <span className="flex gap-[2px] shrink-0" title={ASSETS.map((a, i) => `${a}: ${v[i]}`).join(", ")}>
@@ -336,6 +425,15 @@ export default function AstroCalendarWidget() {
     setVersion(pricesVersion());
   }, [gold.data, btc.data, dxy.data]);
 
+  const forecast = useQuantForecast();
+  const hGold = useQuantHistory(QUANT_KEY.GOLD);
+  const hBtc = useQuantHistory(QUANT_KEY.BTC);
+  const hDxy = useQuantHistory(QUANT_KEY.DXY);
+  const quant = useMemo<QuantData>(
+    () => ({ forecast: forecast.data, history: { GOLD: hGold.data, BTC: hBtc.data, DXY: hDxy.data } }),
+    [forecast.data, hGold.data, hBtc.data, hDxy.data],
+  );
+
   const first = new Date(month.y, month.m, 1);
   const lead = (first.getDay() + 6) % 7; // weeks start on Monday
   const daysInMonth = new Date(month.y, month.m + 1, 0).getDate();
@@ -358,6 +456,7 @@ export default function AstroCalendarWidget() {
   const toggle = (kind: EventKind) => setShown(shown.includes(kind) ? shown.filter((k) => k !== kind) : [...shown, kind]);
 
   return (
+    <QuantContext.Provider value={quant}>
     <div className="flex h-full min-h-0 text-fs-11">
       <div className="flex-1 min-w-0 flex flex-col p-2 gap-2">
         <div className="flex items-center gap-2 flex-wrap">
@@ -382,7 +481,7 @@ export default function AstroCalendarWidget() {
           </span>
         </div>
         <div className="flex items-center gap-3 dim text-fs-10">
-          <span>Titik: GOLD · BTC · DXY —</span>
+          <span>Titik: prakiraan quant GOLD · BTC · DXY —</span>
           <span className="flex items-center gap-1">
             <span className="w-[6px] h-[6px] rounded-full bg-[#2ecc8f]" /> Bullish
           </span>
@@ -417,7 +516,7 @@ export default function AstroCalendarWidget() {
                   >
                     <span className="shrink-0">{e.glyph}</span>
                     <span className="truncate flex-1">{e.title}</span>
-                    {data && <Dots event={e} byKey={data.byKey} version={version} />}
+                    {data && <Dots event={e} />}
                   </button>
                 ))}
                 {events.length > 5 && <span className="dim text-fs-9 px-1">+{events.length - 5} lainnya</span>}
@@ -433,11 +532,12 @@ export default function AstroCalendarWidget() {
             <span className="w-14 dim shrink-0">{localDay(e.time).toLocaleDateString("id-ID", { day: "2-digit", month: "short" })}</span>
             <span className="shrink-0">{e.glyph}</span>
             <span className="truncate flex-1">{e.title}</span>
-            {data && <Dots event={e} byKey={data.byKey} version={version} />}
+            {data && <Dots event={e} />}
           </button>
         ))}
       </aside>
       {selected && data && <EventDialog event={selected} events={data.events} byKey={data.byKey} version={version} onClose={() => setSelected(null)} />}
     </div>
+    </QuantContext.Provider>
   );
 }
