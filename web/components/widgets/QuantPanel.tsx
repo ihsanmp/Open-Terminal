@@ -1,24 +1,35 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { buildEvents } from "../../lib/astro-calendar/events";
-import { pct, QUANT_HORIZONS, signedPts, useQuantForecast, type AssetForecast, type QuantHorizon } from "../../lib/quant";
+import { useState } from "react";
+import { EVENT_LABEL, pct, QUANT_HORIZONS, SEASON_LABEL, signedPts, useQuantForecast, type AssetForecast, type HorizonForecast, type QuantHorizon } from "../../lib/quant";
 import { useTerminal, useWidgetSetting } from "../../store/terminal";
 
 // The Live TV's Prakiraan tab: every market's chance of a rise over the next 5, 10 or 20 trading
 // days from the shared quant forecaster (the Astro Calendar reads the same), its tested record, what
-// the US data and the sky add to it, and the sky's events within the span.
+// the US data and the season add to it, and its range, widened for the big US days within the span.
 
-const GROUP_LABEL = { market: "pasar", macro: "data makro", astro: "astro" } as const;
+const GROUP_LABEL = { market: "pasar", macro: "data makro", astro: "musim" } as const;
 const fmtDay = (d: number) => new Date(d * 86_400_000).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const fmtShort = (d: number) => new Date(d * 86_400_000).toLocaleDateString("id-ID", { day: "numeric", month: "short", timeZone: "UTC" });
+
+/** The span's big US days, "FOMC 28 Okt, FOMC 29 Okt, NFP 6 Nov". */
+const eventList = (f: HorizonForecast) => (f.events ?? []).map((e) => `${e.kinds.map((k) => EVENT_LABEL[k]).join("+")} ${fmtShort(e.day)}`).join(", ");
 
 function Band({ a, h }: { a: AssetForecast; h: QuantHorizon }) {
-  const b = a.horizons[h].band;
+  const x = a.horizons[h];
+  const b = x.band;
   const u = a.unit === "bp" ? " bp" : "%";
   const f = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(a.unit === "bp" ? 0 : 1)}${u}`;
+  const factor = b.factor ?? 1;
+  const shown = Math.abs(factor - 1) >= 0.03;
+  const why = [eventList(x) && `jadwal: ${eventList(x)}`, a.key === "btc" && "BTC lebih liar di musim dingin"].filter(Boolean).join("; ");
+  const title = `Gerak ${h} hari bursa: 10% kemungkinan di bawah ${f(b.p10)}, 10% di atas ${f(b.p90)}. Dari gerak 3 tahun terakhir${
+    shown ? `, ×${factor.toFixed(2)} karena isi jadwalnya dibanding biasanya` : ""
+  }${why ? ` (${why})` : ""}.`;
   return (
-    <span className="dim whitespace-nowrap" title={`Gerak ${h} hari bursa yang wajar dalam 3 tahun terakhir: 10% di bawah ${f(b.p10)}, 10% di atas ${f(b.p90)}`}>
+    <span className="dim whitespace-nowrap" title={title}>
       {f(b.p10)} … {f(b.p90)}
+      {shown && <span className={`block text-fs-9 ${factor > 1 ? "amber" : ""}`}>×{factor.toFixed(2)}</span>}
     </span>
   );
 }
@@ -26,7 +37,7 @@ function Band({ a, h }: { a: AssetForecast; h: QuantHorizon }) {
 function Detail({ a, h }: { a: AssetForecast; h: QuantHorizon }) {
   const f = a.horizons[h];
   const s = f.score;
-  const astroAdds = s.acc - f.without.astro.acc;
+  const seasonAdds = s.acc - f.without.astro.acc;
   const macroAdds = s.acc - f.without.macro.acc;
   return (
     <div className="px-2 pb-2 pt-1 text-fs-10 space-y-1 bg-[#101010]">
@@ -37,7 +48,7 @@ function Detail({ a, h }: { a: AssetForecast; h: QuantHorizon }) {
       </div>
       <div>
         <span className="dim">Sumbangan fitur (akurasi dengan vs tanpa): </span>
-        data makro <b className={macroAdds >= 0 ? "up" : "down"}>{signedPts(macroAdds)}</b>, astro <b className={astroAdds >= 0 ? "up" : "down"}>{signedPts(astroAdds)}</b>
+        data makro <b className={macroAdds >= 0 ? "up" : "down"}>{signedPts(macroAdds)}</b>, musim <b className={seasonAdds >= 0 ? "up" : "down"}>{signedPts(seasonAdds)}</b>
         <span className="dim"> (selisih di bawah ±2 poin masih dalam batas kebetulan)</span>
       </div>
       <div>
@@ -51,6 +62,12 @@ function Detail({ a, h }: { a: AssetForecast; h: QuantHorizon }) {
           </span>
         ))}
       </div>
+      {!!f.events?.length && (
+        <div>
+          <span className="dim">Jadwal besar dalam {h} hari bursa: </span>
+          {eventList(f)}
+        </div>
+      )}
     </div>
   );
 }
@@ -60,13 +77,13 @@ export default function QuantPanel() {
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
   const [h, setH] = useWidgetSetting<QuantHorizon>("quantHorizon", 10);
   const [open, setOpen] = useState<string | null>(null);
-  // The sky's events within the span ahead (trading days ≈ 7/5 calendar days), as the calendar has them.
-  const today = Math.floor(Date.now() / 86_400_000);
-  const ahead = useMemo(() => buildEvents(today, today + Math.ceil((h * 7) / 5)).filter((e) => e.time * 1000 >= Date.now()), [today, h]);
 
   if (isLoading) return <div className="p-2 dim">Menghitung model quant (pertama kali ±1 menit)…</div>;
   if (error || !data) return <div className="p-2 down">Prakiraan gagal dimuat: {(error as Error)?.message}</div>;
   const proven = data.assets.filter((a) => a.horizons[h].score.proven);
+  // The big US days ahead, as a market trading on weekdays has them (the dollar's).
+  const ref = data.assets.find((a) => a.key === "dxy") ?? data.assets[0];
+  const ahead = ref ? eventList(ref.horizons[h]) : "";
 
   return (
     <div className="p-2 space-y-2 text-fs-11">
@@ -99,9 +116,9 @@ export default function QuantPanel() {
             const lean = f.pUp - f.baseRate;
             return [
               <tr key={a.key} onClick={() => setOpen(open === a.key ? null : a.key)} className="cursor-pointer" title="Klik untuk rincian">
-                <td className="!text-left whitespace-nowrap">
+                <td className="!text-left !whitespace-normal">
                   <button
-                    className="hover:underline"
+                    className="hover:underline text-left"
                     onClick={(e) => {
                       e.stopPropagation();
                       setActiveSymbol(a.symbol);
@@ -117,7 +134,7 @@ export default function QuantPanel() {
                 <td className="!text-left">
                   <Band a={a} h={h} />
                 </td>
-                <td className="!text-left whitespace-nowrap">
+                <td className="!text-left !whitespace-normal">
                   {f.verdict !== "Netral" ? <b className={f.verdict === "Bullish" ? "up" : "down"}>{f.verdict}</b> : f.score.proven ? <span>Netral</span> : <span className="dim">tanpa sinyal</span>}
                 </td>
               </tr>,
@@ -133,14 +150,18 @@ export default function QuantPanel() {
         </tbody>
       </table>
       <div className="text-fs-10">
-        <span className="dim">Event astro dalam {h} hari bursa ke depan (ikut jadi fitur model): </span>
-        {ahead.length ? ahead.map((e) => `${e.title} (${new Date(e.time * 1000).toLocaleDateString("id-ID", { day: "numeric", month: "short" })})`).join(", ") : "tidak ada"}
+        <span className="dim">Jadwal besar dalam {h} hari bursa ke depan: </span>
+        {ahead || "tidak ada CPI, NFP, ISM atau FOMC"}
+        {data.season && <span className="dim"> · musim {SEASON_LABEL[data.season]}</span>}
       </div>
       <div className="dim text-fs-10">
         Model regresi logistik per aset dan horizon, dari momentum, tren, volatilitas, aset lain (DXY, yield, kurva, VIX, saham, minyak, emas, BTC), surprise
-        data AS (dari mesin makro tab ini) dan kondisi langit (dari Astro Calendar). Diuji walk-forward per tahun: tiap tahun diprakirakan dengan model yang hanya
-        belajar dari tahun-tahun sebelumnya. Bullish/Bearish hanya muncul bila hasil uji mengalahkan tebakan sederhana secara signifikan. Angka dalam
-        kurung = seberapa sering aset itu biasanya naik. Rentang wajar = gerak 10%–90% dalam 3 tahun terakhir. Astro Calendar membaca prakiraan yang sama.
+        data AS per jenis rilis (inflasi/CPI, dibaca terpisah sejak 2021; tenaga kerja; ISM; lainnya) dan musim (posisi Matahari). Fase bulan, gerhana, retrograde
+        dan aspek tidak dipakai lagi: riset 2005–2026 tidak menemukan pengaruhnya. Diuji walk-forward per tahun: tiap tahun diprakirakan dengan model yang hanya
+        belajar dari tahun-tahun sebelumnya. Bullish/Bearish hanya muncul bila hasil uji mengalahkan tebakan sederhana secara signifikan. Angka dalam kurung =
+        seberapa sering aset itu biasanya naik. Rentang wajar = gerak 10%–90% dalam 3 tahun terakhir, dilebarkan bila horizonnya memuat lebih banyak hari CPI,
+        NFP, ISM atau FOMC daripada biasanya (pengali volatilitas per aset dari riset; BTC juga lebih liar di musim dingin), ditandai ×angka di sampingnya. Astro
+        Calendar membaca prakiraan yang sama.
       </div>
     </div>
   );

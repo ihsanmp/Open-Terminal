@@ -328,15 +328,15 @@ function EventDialog({ event, events, byKey, version, onClose }: { event: AstroE
             </button>
           </div>
           <div className="text-fs-10 px-1 amber">
-            Prakiraan quant {h} hari (sama dengan tab Live TV → Prakiraan; kondisi langit ikut jadi fitur). Uji walk-forward 2016–sekarang, arah benar vs tebakan
+            Prakiraan quant {h} hari (sama dengan tab Live TV → Prakiraan; dari sisi langit hanya musim yang dipakai). Uji walk-forward 2016–sekarang, arah benar vs tebakan
             sederhana: {record?.map((a) => `${a.key === "xau" ? "GOLD" : a.key.toUpperCase()} ${pct(a.horizons[h].score.acc)} vs ${pct(a.horizons[h].score.baseAcc)}`).join(", ") ?? "…"}.{" "}
             {record?.some((a) => a.horizons[h].score.proven) ? "Bullish/Bearish hanya untuk yang terbukti." : "Belum ada yang terbukti lebih baik, jadi tidak diberi Bullish/Bearish."}
           </div>
           {info && (
             <div className="text-fs-11 dim px-1 space-y-1">
               <p>
-                Prakiraan: model quant di server (regresi logistik per aset dan horizon) dari momentum, tren, volatilitas, aset lain, surprise data AS dan
-                kondisi langit (retrograde, fase bulan, gerhana, aspek, ingress dari kalender ini). Untuk kejadian lampau ditampilkan prakiraan H-1 (hanya data
+                Prakiraan: model quant di server (regresi logistik per aset dan horizon) dari momentum, tren, volatilitas, aset lain, surprise data AS per jenis
+                rilis dan musim (posisi Matahari). Retrograde, fase bulan, gerhana dan aspek tidak dipakai: riset 2005–2026 tidak menemukan pengaruhnya pada harga. Untuk kejadian lampau ditampilkan prakiraan H-1 (hanya data
                 sampai hari itu); untuk kejadian mendatang, prakiraan hari ini. Bullish/Bearish hanya bila uji walk-forwardnya mengalahkan tebakan sederhana
                 secara signifikan.
               </p>

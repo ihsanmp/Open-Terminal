@@ -4,7 +4,8 @@
 //   - the markets: its own momentum, trend, volatility and range, and the others' (the dollar,
 //     yields and the curve, the VIX, stocks, oil, gold, bitcoin), each in units of its own volatility;
 //   - the US data: the week's and the month's surprises (macrofeatures.ts, the Live TV's reading);
-//   - the sky: what the astrology calendar marks (astrofeatures.ts).
+//   - the sky: the season, from the Sun (astrofeatures.ts; the moon, eclipses and retrogrades were
+//     tested by the research the forecaster follows and found to move nothing).
 //
 // A logistic regression (L2-regularised, on standardised features) per market and horizon, tested
 // walk-forward a year at a time: each year forecast by a model fit only on the days whose outcome
