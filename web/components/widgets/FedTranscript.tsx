@@ -437,7 +437,7 @@ export function TranscriptPanel({ state, live }: { state: FedTranscriptState; li
         })}
       </div>
       <div className="px-2 py-1 border-t border-[var(--border)] dim text-fs-9 leading-relaxed">
-        Caption live YouTube (otomatis atau dari penyiar), dibaca tiap 5 detik. Indeks = (frasa hawkish − dovish) / (total + 3): frasa seperti “inflation remains elevated”, “rate cuts”, “labor market has softened”; negasi membalik arahnya. Yang tidak dihitung: giliran bicara yang diakhiri pertanyaan (bila caption menandai pergantian pembicara, &gt;&gt;) dan, setelah suara-suara dikenali, kalimat dari suara selain pembicara utama (yang paling lama bicara). Nada suara dan wajah menguatkan/melemahkan indeks 10%. Bacaan arah, bukan sinyal trading.
+        Caption live YouTube (otomatis atau dari penyiar), dibaca tiap 5 detik. Indeks = (frasa hawkish − dovish) / (total + 3): frasa seperti “inflation remains elevated”, “rate cuts”, “labor market has softened”; negasi membalik arahnya. Yang tidak dihitung: giliran bicara yang diakhiri pertanyaan (bila caption menandai pergantian pembicara, &gt;&gt;) dan, setelah suara-suara dikenali, kalimat dari suara selain pembicara utama (yang paling lama bicara). Nada suara dan wajah menguatkan/melemahkan indeks 10%. Dikalibrasi pada 71 konferensi pers FOMC 2016–2026: indeksnya searah dengan keputusan suku bunga (r 0,60) dan arah yield 2Y tiga bulan berikutnya (r 0,38), tetapi tidak memprediksi reaksi pasar di hari itu (r ≈ 0). Bacaan arah, bukan sinyal trading.
       </div>
     </div>
   );
