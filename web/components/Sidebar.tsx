@@ -14,7 +14,6 @@ export const MENU: Array<{ type: WidgetType; label: string }> = [
   { type: "portfolio", label: "PORTFOLIO" },
   { type: "ai", label: "AI ASSIST" },
   { type: "research", label: "EQUITY RESEARCH" },
-  { type: "indices", label: "WORLD INDICES" },
   { type: "watchlist", label: "WATCHLIST" },
   { type: "watcher", label: "WATCHER GURU" },
   { type: "calendar", label: "MACRO" },

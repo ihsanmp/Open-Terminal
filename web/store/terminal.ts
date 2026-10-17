@@ -23,7 +23,6 @@ export type WidgetType =
   | "calendar"
   | "insider"
   | "tv"
-  | "indices"
   | "research"
   | "astrocal";
 
@@ -157,7 +156,6 @@ const SIZE_BY_TYPE: Record<WidgetType, { w: number; h: number }> = {
   calendar: { w: 12, h: 11 },
   insider: { w: 7, h: 9 },
   tv: { w: 6, h: 11 },
-  indices: { w: 5, h: 14 },
   research: { w: 7, h: 16 },
   astrocal: { w: 12, h: 16 },
 };
@@ -247,7 +245,8 @@ function rememberWindowTab(id: string) {
 
 /** Pages and widgets that became others: v2 the Options page US Bonds, v3 Macro Watcher Guru,
  *  v4 Quote Money Flow, v5 News Recap a part of News (its two views the News page's RECAP and
- *  MARKET), v6 Crypto a part of the Watchlist (its "Crypto" category). */
+ *  MARKET), v6 Crypto a part of the Watchlist (its "Crypto" category), v7 World Indices too (its "Indeks"
+ *  category). */
 const RENAMED: Array<[version: number, from: string, to: string, keepsSymbol?: boolean]> = [
   [2, "options", "bonds"],
   [3, "macro", "watcher"],
@@ -255,6 +254,7 @@ const RENAMED: Array<[version: number, from: string, to: string, keepsSymbol?: b
   [4, "quote", "moneyflow", true],
   [5, "recap", "news"],
   [6, "crypto", "watchlist"],
+  [7, "indices", "watchlist"],
 ];
 
 /** Pages folded into another as one of its views: the settings that open it on that view, and
@@ -263,6 +263,7 @@ const FOLDED: Record<string, { view: (w: { settings?: Record<string, unknown> })
   // What News Recap showed (its "tab": the news recap or the market's), as News's mode.
   recap: { view: (w) => ({ mode: w.settings?.tab === "market" ? "market" : "recap" }), drop: ["tab"] },
   crypto: { view: () => ({ category: "crypto" }), drop: [] },
+  indices: { view: () => ({ category: "idx-all" }), drop: [] },
 };
 const keptSettings = (w: { type: string; settings?: Record<string, unknown> }) =>
   Object.fromEntries(Object.entries(w.settings ?? {}).filter(([k]) => !FOLDED[w.type]?.drop.includes(k)));
@@ -288,7 +289,12 @@ function upgrade(saved: unknown, version: number): unknown {
       if (!FOLDED[from]) continue;
       const target = pages.find((p) => p.type === into);
       const gone = pages.find((p) => (p.type as string) === from);
-      if (!target || !gone) continue;
+      if (!gone) continue;
+      // No page to go into yet: this one becomes it (and the next folded one goes into it).
+      if (!target) {
+        pages = pages.map((p) => (p === gone ? rename(p) : p));
+        continue;
+      }
       const settings = { ...keptSettings(gone), ...target.settings, ...((t.view as string) === from ? FOLDED[from].view(gone) : {}) };
       pages = pages.filter((p) => p !== gone).map((p) => (p === target ? { ...p, settings } : p));
     }
@@ -433,9 +439,9 @@ export const useTerminal = create<TerminalState>()(
       // Saved per tab, so windows editing different tabs can't overwrite each other.
       storage: createWorkspaceStorage() as PersistStorage<unknown> | undefined,
       // v1: tabs; v2: the Options page became US Bonds; v3: Macro became Watcher Guru; v4: Quote
-      // became Money Flow; v5: News Recap went into News; v6: Crypto went into the Watchlist. The
-      // window's own tab and the transient UI aren't saved.
-      version: 6,
+      // became Money Flow; v5: News Recap went into News; v6: Crypto went into the Watchlist; v7:
+      // World Indices did too. The window's own tab and the transient UI aren't saved.
+      version: 7,
       partialize: (st) => ({ tabs: st.tabs, watchlist: st.watchlist, favoriteIntervals: st.favoriteIntervals, recentSymbols: st.recentSymbols }),
       migrate: (saved, version) => {
         if (version >= 1) return upgrade(saved, version) as TerminalState;

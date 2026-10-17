@@ -170,6 +170,34 @@ describe("saved workspace", () => {
     expect(b.pages[0]).toMatchObject({ id: "c2", type: "watchlist", settings: { category: "crypto" } });
   });
 
+  it("moves World Indices into the Watchlist (v7), and Crypto and World Indices into one Watchlist page", () => {
+    type Saved = { tabs: Array<{ view: string; pages: Array<{ id: string; type: string; settings?: Record<string, unknown> }>; widgets: Array<{ type: string; settings?: Record<string, unknown> }> }> };
+    const saved = {
+      tabs: [
+        { id: "a", activeSymbol: "AAPL", view: "indices", pages: [{ id: "i", type: "indices", linked: true }], widgets: [{ id: "x", type: "indices", linked: true }], layout: [] },
+        // From before v6: a Crypto page and a World Indices page, no Watchlist page; World Indices in view.
+        {
+          id: "b",
+          activeSymbol: "AAPL",
+          view: "indices",
+          pages: [
+            { id: "c", type: "crypto", linked: true },
+            { id: "i2", type: "indices", linked: true },
+          ],
+          widgets: [],
+          layout: [],
+        },
+      ],
+    };
+    const [a] = (options.migrate!(saved, 6) as unknown as Saved).tabs;
+    expect(a.view).toBe("watchlist");
+    expect(a.pages[0]).toMatchObject({ id: "i", type: "watchlist", settings: { category: "idx-all" } });
+    expect(a.widgets[0]).toMatchObject({ type: "watchlist", settings: { category: "idx-all" } });
+    const [, b] = (options.migrate!(saved, 5) as unknown as Saved).tabs;
+    expect(b.view).toBe("watchlist");
+    expect(b.pages.map((p) => [p.id, p.type, p.settings?.category])).toEqual([["c", "watchlist", "idx-all"]]);
+  });
+
   it("saves the tabs but not which one this window shows, and stays on it when reloaded", () => {
     const b = st().duplicateTab();
     st().setActiveSymbol("SOL-USD");

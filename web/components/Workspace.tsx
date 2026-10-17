@@ -21,7 +21,6 @@ import AiWidget from "./widgets/AiWidget";
 import MacroWidget from "./widgets/MacroWidget";
 import InsiderWidget from "./widgets/InsiderWidget";
 import TvWidget from "./widgets/TvWidget";
-import IndicesWidget from "./widgets/IndicesWidget";
 import ResearchWidget from "./widgets/ResearchWidget";
 // Loaded when first shown: it carries 35 years of gold and bitcoin closes for its offline statistics.
 const AstroCalendarWidget = dynamic(() => import("./widgets/AstroCalendarWidget"), { ssr: false, loading: () => <div className="p-2 dim">Memuat kalender astrologi…</div> });
@@ -52,7 +51,6 @@ function WidgetContent({ widget }: { widget: WidgetInstance }) {
     case "calendar": return <MacroWidget />;
     case "insider": return <InsiderWidget widget={widget} />;
     case "tv": return <TvWidget />;
-    case "indices": return <IndicesWidget />;
     case "research": return <ResearchWidget widget={widget} />;
     case "astrocal": return <AstroCalendarWidget />;
   }
@@ -127,7 +125,7 @@ export const TITLES: Record<string, string> = {
   heatmap: "Heatmap", screener: "Screener",
   watcher: "Watcher Guru", bonds: "US Bonds", portfolio: "Portfolio", ai: "AI Assistant",
   calendar: "Macro", insider: "Insider", tv: "Live TV",
-  indices: "World Indices", research: "Equity Research",
+  research: "Equity Research",
 };
 
 /** Widgets that show one symbol (their own, or the active one when linked). */
