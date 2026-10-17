@@ -151,3 +151,34 @@ describe("corroborating a post with the outlets' headlines", () => {
     expect(sf.onChain({ ...p, text: "🚨 Hex founder Richard Heart detained in Istanbul" })).toBe(false);
   });
 });
+
+describe("where a post stands", () => {
+  const now = Date.parse("2026-10-17T12:00:00Z");
+  const old = now - 24 * 3600_000;
+
+  it("takes an institution's own account, or an X government or business one, as the source", () => {
+    expect(sf.postStatus(post("Now available: weekly H.8 data", old, { sourceId: "bluesky:federalreserve.gov" }), false, now)).toBe("official");
+    expect(sf.postStatus(post("We discovered a recording device in our office", old, { platform: "x", official: true }), false, now)).toBe("official");
+  });
+
+  it("flags a relay's unconfirmed reports, and gives them six hours first", () => {
+    const relay = { sourceId: "bluesky:watcher.guru" };
+    expect(sf.postStatus(post("JUST IN: Brent crude oil surges over $111", old, relay), false, now)).toBe("unconfirmed");
+    expect(sf.postStatus(post("JUST IN: Brent crude oil surges over $111", now - 3600_000, relay), false, now)).toBe("pending");
+    expect(sf.postStatus(post("JUST IN: Brent crude oil surges over $111", old, relay), true, now)).toBe("confirmed");
+  });
+
+  it("leaves a person's own views unflagged, unless they read as news", () => {
+    const person = { sourceId: "truthsocial:107780257626128497" };
+    expect(sf.postStatus(post("Just landed in Georgia, heading over to the Big Rally", old, person), false, now)).toBe("statement");
+    expect(sf.postStatus(post("My thanks to Leslie Picker for a great conversation", old, { sourceId: "bluesky:elerianm.bsky.social" }), false, now)).toBe("statement");
+    expect(sf.postStatus(post("BREAKING: China agrees to buy US soybeans", old, person), false, now)).toBe("unconfirmed");
+    expect(sf.postStatus(post("The ECB is reportedly weighing a cut", old, person), false, now)).toBe("unconfirmed");
+    // A pasted X post from someone unknown: the same rule.
+    expect(sf.postStatus(post("gm, building today", old, { sourceId: null, platform: "x" }), false, now)).toBe("statement");
+  });
+
+  it("keeps Whale Alert's transfers on the chain", () => {
+    expect(sf.postStatus(post("🚨 1,000 $BTC (80,855,002 USD) transferred from #Kraken to #Binance", old, { handle: "whale-alert.io", sourceId: "bluesky:whale-alert.io" }), false, now)).toBe("onchain");
+  });
+});
