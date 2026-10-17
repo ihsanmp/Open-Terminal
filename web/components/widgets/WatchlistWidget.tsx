@@ -15,7 +15,34 @@ import CryptoList from "./CryptoList";
 
 type ForexGroup = "major" | "minor" | "exotic" | "metal";
 type IndexRegion = "Americas" | "Europe" | "Asia-Pacific" | "Middle East & Africa";
-type Category = "mine" | "crypto" | "fx-all" | `fx-${ForexGroup}` | `stocks-${string}` | "idx-all" | `idx-${IndexRegion}`;
+type FuturesGroup = "index" | "rates" | "currency" | "crypto" | "energy" | "metal" | "grain" | "soft" | "livestock";
+type Category =
+  | "mine"
+  | "crypto"
+  | "fx-all"
+  | `fx-${ForexGroup}`
+  | `stocks-${string}`
+  | "idx-all"
+  | `idx-${IndexRegion}`
+  | "fut-financial"
+  | "fut-commodity"
+  | `fut-${FuturesGroup}`;
+type FuturesRow = { symbol: string; code: string; group: FuturesGroup; name: string | null; price: number; changePercent: number | null; high: number | null; low: number | null; currency: string | null };
+
+const FINANCIAL_FUTURES: Array<[FuturesGroup, string]> = [
+  ["index", "Indeks saham"],
+  ["rates", "Suku bunga & obligasi"],
+  ["currency", "Mata uang"],
+  ["crypto", "Crypto"],
+];
+const COMMODITIES: Array<[FuturesGroup, string]> = [
+  ["energy", "Energi"],
+  ["metal", "Logam"],
+  ["grain", "Pertanian (biji-bijian)"],
+  ["soft", "Softs (kopi, gula, CPO…)"],
+  ["livestock", "Ternak"],
+];
+const FUTURES_LABEL = new Map([...FINANCIAL_FUTURES, ...COMMODITIES]);
 type StockRow = { symbol: string; code: string; name: string; price: number | null; changePercent: number | null; marketCap: number | null; volume: number | null; sector: string | null; currency: string | null };
 type StockPage = { total: number; page: number; perPage: number; rows: StockRow[] };
 type IndexRow = { symbol: string; name: string; country: string; region: IndexRegion; price: number | null; changePercent: number | null; currency: string | null };
@@ -333,6 +360,75 @@ function StockList({ market }: { market: string }) {
   );
 }
 
+/** Futures' front contracts: a group's, or every financial or commodity one. */
+function FuturesList({ groups }: { groups: FuturesGroup[] }) {
+  const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
+  const [search, setSearch] = useState("");
+  const poll = usePoll(10_000);
+  const { data = [], error, isLoading } = useQuery({
+    queryKey: ["futures"],
+    queryFn: () => apiGet<FuturesRow[]>("/api/futures"),
+    refetchInterval: poll,
+    placeholderData: keepPreviousData,
+  });
+  const q = search.trim().toUpperCase();
+  const rows = data.filter((r) => groups.includes(r.group) && (!q || r.code.includes(q) || (r.name ?? "").toUpperCase().includes(q)));
+  const several = groups.length > 1;
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex items-center gap-2 px-2 py-1 border-b border-[var(--border)]">
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari (mis. gold, oil, CPO, ES)…" className="w-56" />
+        <span className="dim text-fs-10 ml-auto">{data.length ? `${rows.length} kontrak · front month berkelanjutan, harga TradingView` : ""}</span>
+      </div>
+      {error && !data.length && <div className="p-2 down">Error: {(error as Error).message}</div>}
+      {isLoading && <div className="p-2 dim">Memuat futures…</div>}
+      <div className="flex-1 min-h-0 overflow-auto">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th className="!text-left">Kontrak</th>
+              {several && <th className="!text-left">Grup</th>}
+              <th>Harga</th>
+              <th>Chg%</th>
+              <th>High</th>
+              <th>Low</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.symbol} onClick={() => setActiveSymbol(r.symbol)} title={`Buka ${r.code}`}>
+                <td className="!text-left whitespace-nowrap">
+                  <span className="font-bold">{displaySymbol(r.symbol)}</span> <span className="dim">{r.name}</span>
+                </td>
+                {several && <td className="!text-left dim">{FUTURES_LABEL.get(r.group)}</td>}
+                <td>
+                  <Flash value={r.price}>{fmtPrice(r.price)}</Flash> <span className="dim text-fs-9">{r.currency}</span>
+                </td>
+                <td className={pctClass(r.changePercent)}>
+                  <Flash value={r.changePercent}>{fmt(r.changePercent)}%</Flash>
+                </td>
+                <td className="dim">{fmtPrice(r.high)}</td>
+                <td className="dim">{fmtPrice(r.low)}</td>
+                <td>
+                  <AddButton symbol={r.symbol} />
+                </td>
+              </tr>
+            ))}
+            {data.length > 0 && rows.length === 0 && (
+              <tr>
+                <td colSpan={7} className="dim !text-left">
+                  Tidak ada kontrak yang cocok dengan “{search}”.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 /** The world's benchmark indices, all of them or a region's. */
 function IndexList({ region }: { region: IndexRegion | "all" }) {
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
@@ -407,6 +503,22 @@ export default function WatchlistWidget() {
               </option>
             ))}
           </optgroup>
+          <optgroup label="Futures">
+            <option value="fut-financial">Futures · semua (keuangan)</option>
+            {FINANCIAL_FUTURES.map(([g, label]) => (
+              <option key={g} value={`fut-${g}`}>
+                Futures · {label}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Komoditas">
+            <option value="fut-commodity">Komoditas · semua</option>
+            {COMMODITIES.map(([g, label]) => (
+              <option key={g} value={`fut-${g}`}>
+                Komoditas · {label}
+              </option>
+            ))}
+          </optgroup>
           <option value="crypto">Crypto · semua koin</option>
           <optgroup label="Forex">
             {FOREX_GROUPS.map(([v, label]) => (
@@ -425,6 +537,16 @@ export default function WatchlistWidget() {
         </div>
       ) : category.startsWith("stocks-") ? (
         <StockList market={category.slice("stocks-".length)} />
+      ) : category.startsWith("fut-") ? (
+        <FuturesList
+          groups={
+            category === "fut-financial"
+              ? FINANCIAL_FUTURES.map(([g]) => g)
+              : category === "fut-commodity"
+                ? COMMODITIES.map(([g]) => g)
+                : [category.slice(4) as FuturesGroup]
+          }
+        />
       ) : category.startsWith("idx-") ? (
         <IndexList region={category === "idx-all" ? "all" : (category.slice(4) as IndexRegion)} />
       ) : (
