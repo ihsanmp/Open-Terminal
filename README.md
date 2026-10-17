@@ -82,6 +82,11 @@ Every page sits in the sidebar; any of them can also be opened as a widget, drag
   - **Nowcast:** the Cleveland Fed's inflation nowcast and GDPNow against the consensus. It also shows our own P10/P50/P90 for the next CPI, PPI, payrolls, PCE, retail sales, GDP, claims and ISM (quantile gradient boosting on point‑in‑time data, with its walk‑forward record).
   - **Reaksi and Dampak:** how gold, bitcoin, S&P futures, the dollar and the 2‑year yield moved on each release and Fed broadcast, and what a hot or cool print has done to each asset before.
   - **Prakiraan:** the quant forecasts (below).
+  - **🔔 Notifications:** native Windows toasts, raised by the server even with the tab closed, each kind switchable:
+    - a Fed broadcast going live;
+    - H‑30 before a big US release, with its consensus, the engine's band and the H‑30 bias;
+    - the print against the consensus (hawkish or dovish);
+    - the first five minutes of gold, bitcoin, S&P futures, the dollar and the 2‑year yield.
 - 🔭 **Astro Calendar:** the month's sky events (retrogrades, eclipses, moon phases, ingresses and aspects) with the quant forecast for gold, bitcoin and the dollar over each event's span, and how it turned out. The astrology's own event study is kept beside it, labelled for what it is.
 - 🤖 **AI Assist** (optional): ask Claude about the symbol you're looking at, with the terminal's data as context.
 
@@ -311,7 +316,7 @@ Run the tests with `npm test` (Vitest, no network calls, 1,000+ tests). The indi
 ## 🗺️ Roadmap
 
 - [x] Chart drawing tools
-- [ ] Windows notifications: a Fed broadcast going live, the half hour before a release, a release's result and its first five minutes
+- [x] Windows notifications: a Fed broadcast going live, the half hour before a release, a release's result and its first five minutes
 - [ ] Release and Fed‑broadcast markers on the price chart
 - [ ] Speech‑to‑text fallback for streams without captions
 - [ ] PostgreSQL as an alternative to SQLite
