@@ -23,6 +23,7 @@ import * as newsfeeds from "../providers/newsfeeds.js";
 import * as treasurydirect from "../providers/treasurydirect.js";
 import * as watcherguru from "../providers/watcherguru.js";
 import * as forex from "../providers/forex.js";
+import * as stocklist from "../providers/stocklist.js";
 import { fxTickers } from "../providers/forex.js";
 import * as moneyflow from "../providers/moneyflow.js";
 import * as transfers from "../providers/transfers.js";
@@ -718,6 +719,20 @@ marketRouter.get("/macro/history", async (req, res) => {
   try {
     const events = await cached(`macro:history:${country}`, 6 * 3_600_000, () => econcalendar.countryHistory(country));
     res.json(econcalendar.indicatorHistory(events, title));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// ---- stocks: every stock of a market, biggest first, a page at a time or by search (providers/stocklist.ts) ----
+
+marketRouter.get("/stocks", async (req, res) => {
+  const market = String(req.query.market ?? "us");
+  if (!stocklist.isStockMarket(market)) return res.status(400).json({ error: `unknown market ${market}` });
+  const page = Math.max(1, Math.min(200, Number(req.query.page) || 1));
+  const q = typeof req.query.q === "string" ? req.query.q : "";
+  try {
+    res.json(await stocklist.stockPage(market, page, q));
   } catch (err) {
     fail(req, res, err);
   }
