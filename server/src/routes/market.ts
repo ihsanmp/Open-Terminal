@@ -740,6 +740,22 @@ marketRouter.get("/stocks", async (req, res) => {
   }
 });
 
+// ---- ETFs: the US ones by asset class, and Indonesia's, biggest by assets first (providers/stocklist.ts) ----
+
+marketRouter.get("/etfs", async (req, res) => {
+  const market = String(req.query.market ?? "us");
+  const cls = req.query.class ? String(req.query.class) : null;
+  if (!stocklist.isEtfMarket(market)) return res.status(400).json({ error: `unknown market ${market}` });
+  if (cls && !stocklist.isEtfClass(cls)) return res.status(400).json({ error: `unknown class ${cls}` });
+  const page = Math.max(1, Math.min(200, Number(req.query.page) || 1));
+  const q = typeof req.query.q === "string" ? req.query.q : "";
+  try {
+    res.json(await stocklist.etfPage(market, cls as stocklist.EtfClass | null, page, q));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
 // ---- futures and commodities: every market's front contract, in one scanner request (providers/futures.ts) ----
 
 marketRouter.get("/futures", async (req, res) => {

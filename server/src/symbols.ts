@@ -21,6 +21,9 @@ export function cryptoBase(symbol: string): string | null {
   return LEGACY_CRYPTO[s] ?? null;
 }
 
+/** A bare ticker the app reads as a coin (BTC, ETH, LINK …), whatever else it names. */
+export const isLegacyCryptoTicker = (symbol: string) => symbol.toUpperCase() in LEGACY_CRYPTO;
+
 export const cryptoTicker = (base: string) => `${base.toUpperCase()}-USD`;
 
 /**
