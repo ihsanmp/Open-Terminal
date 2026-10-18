@@ -131,18 +131,24 @@ const text = (v: unknown): string => {
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
 
+/** The text with its character references read ("&amp;" as "&", "&#8217;" as "’"). */
+export function decodeEntities(s: string): string {
+  return s.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (m, e: string) => {
+    if (e[0] === "#") {
+      const code = e[1].toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+      return Number.isFinite(code) && code <= 0x10ffff ? String.fromCodePoint(code) : m;
+    }
+    return ENTITIES[e.toLowerCase()] ?? m;
+  });
+}
+
 /** Plain text from an HTML fragment, whitespace collapsed. */
 export function stripHtml(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (m, e: string) => {
-      if (e[0] === "#") {
-        const code = e[1].toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
-        return Number.isFinite(code) ? String.fromCodePoint(code) : m;
-      }
-      return ENTITIES[e.toLowerCase()] ?? m;
-    })
+  return decodeEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]*>/g, " "),
+  )
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -183,7 +189,8 @@ export function parseFeed(xml: string, feed: FeedDef, now = Date.now()): WireIte
   const out: WireItem[] = [];
   for (const r of raw) {
     let title = stripHtml(r.title);
-    const link = r.link.trim();
+    // The parser leaves entities alone (processEntities: false), so a link's "&amp;" is read here.
+    const link = decodeEntities(r.link.trim());
     if (!title || !/^https?:\/\//.test(link)) continue;
     let publisher = feed.name;
     // A feed that names itself in every title ("FinancialJuice: …"): the publisher shows it anyway.
@@ -204,7 +211,8 @@ export function parseFeed(xml: string, feed: FeedDef, now = Date.now()): WireIte
     if (summary.length > 280) summary = summary.slice(0, 277).replace(/\s+\S*$/, "") + "…";
     if (summary === title) summary = "";
     out.push({
-      id: createHash("sha1").update(link).digest("hex").slice(0, 16),
+      // From the link as the feed wrote it, so a story keeps the id it was archived under.
+      id: createHash("sha1").update(r.link.trim()).digest("hex").slice(0, 16),
       title,
       link,
       summary,
