@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { benchmarks, type TDSecurity } from "./treasurydirect.js";
+import { benchmarks, normalize, type TDSecurity } from "./treasurydirect.js";
 
 const sec = (p: Partial<TDSecurity>): TDSecurity => ({
   cusip: "X",
@@ -34,5 +34,35 @@ describe("Treasury benchmarks", () => {
     expect(two).toMatchObject({ cusip: "2Y", maturityDate: "2028-09-30", coupon: 4.75 });
     expect(two.next).toEqual({ auctionDate: "2026-10-27", issueDate: "2026-11-02", maturityDate: "2028-10-31", reopening: false });
     expect(b.find((x) => x.tenor === "3M")).toMatchObject({ cusip: "B13", coupon: null, auctionYield: 4.1, maturityDate: "2027-01-07" });
+  });
+});
+
+describe("TreasuryDirect's replies since October 2026", () => {
+  it("reads the auction's date from its close when auctionDate is gone, and nulls as blanks", () => {
+    const strip = (s: TDSecurity) => ({ ...s, auctionDate: undefined as unknown as string });
+    const auctioned = [
+      strip(sec({ cusip: "2Y-OLD", competitiveAuctionCloseDate: "2026-08-26T00:00:00", issueDate: "2026-08-31T00:00:00" })),
+      strip(sec({ cusip: "2Y-NEW", competitiveAuctionCloseDate: "2026-09-24T00:00:00" })),
+    ].map(normalize);
+    const upcoming = [strip(sec({ cusip: "", competitiveAuctionCloseDate: "2026-10-27T00:00:00", issueDate: "2026-11-02T00:00:00", maturityDate: null as unknown as string }))].map(normalize);
+    const [b] = benchmarks(auctioned, upcoming);
+    expect(b.cusip).toBe("2Y-NEW");
+    expect(b.auctionDate).toBe("2026-09-24");
+    expect(b.next).toEqual({ auctionDate: "2026-10-27", issueDate: "2026-11-02", maturityDate: "", reopening: false });
+  });
+
+  it("tells TIPS by their type and reads a bill's rate from investmentRate", () => {
+    const now = (p: Partial<TDSecurity>) => normalize({ ...sec(p), tips: undefined, floatingRate: undefined });
+    const auctioned = [
+      now({ cusip: "5Y", securityTerm: "5-Year", originalSecurityTerm: "5-Year", maturityDate: "2031-09-30T00:00:00", type: "Note" }),
+      now({ cusip: "B13", securityType: "Bill", securityTerm: "13-Week", type: "Bill", maturityDate: "2027-01-07T00:00:00", investmentRate: "4.068" }),
+    ];
+    const upcoming = [
+      now({ cusip: "", securityTerm: "5-Year", originalSecurityTerm: "5-Year", type: "TIPS", auctionDate: "2026-10-22T00:00:00", issueDate: "2026-10-30T00:00:00", maturityDate: "2031-10-15T00:00:00" }),
+      now({ cusip: "", securityTerm: "5-Year", originalSecurityTerm: "5-Year", type: "Note", auctionDate: "2026-10-28T00:00:00", issueDate: "2026-10-31T00:00:00", maturityDate: "2031-10-31T00:00:00" }),
+    ];
+    const b = benchmarks(auctioned, upcoming);
+    expect(b.find((x) => x.tenor === "3M")?.auctionYield).toBe(4.068);
+    expect(b.find((x) => x.tenor === "5Y")?.next?.auctionDate).toBe("2026-10-28");
   });
 });

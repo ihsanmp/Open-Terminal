@@ -28,6 +28,8 @@ export type TDSecurity = {
   originalSecurityTerm?: string;
   reopening?: string;
   auctionDate: string;
+  /** The auction's close: what TreasuryDirect gives in place of auctionDate since October 2026. */
+  competitiveAuctionCloseDate?: string | null;
   issueDate: string;
   maturityDate: string;
   interestRate?: string;
@@ -36,6 +38,10 @@ export type TDSecurity = {
   bidToCoverRatio?: string;
   tips?: string;
   floatingRate?: string;
+  /** "Bill", "Note", "Bond", "TIPS", "FRN": how TIPS are told apart since October 2026. */
+  type?: string;
+  /** A bill's investment rate at the high price (it was highInvestmentRate). */
+  investmentRate?: string;
 };
 
 export type Benchmark = {
@@ -55,7 +61,7 @@ export type Benchmark = {
   next: { auctionDate: string; issueDate: string; maturityDate: string; reopening: boolean } | null;
 };
 
-const day = (iso: string) => iso.slice(0, 10);
+const day = (iso: string | null | undefined) => (iso ?? "").slice(0, 10);
 const num = (s: string | undefined) => {
   const v = s ? Number(s) : NaN;
   return Number.isFinite(v) && s !== "" ? v : null;
@@ -73,6 +79,22 @@ function isTenor(s: TDSecurity, t: (typeof TENOR_TERMS)[number]): boolean {
   const years = (Date.parse(s.maturityDate) - Date.parse(s.issueDate)) / YEAR_MS;
   // An upcoming auction may not name its dates yet.
   return !Number.isFinite(years) || years >= parseInt(t.term, 10) - 0.5;
+}
+
+/**
+ * TreasuryDirect's reply as the earlier one read: every date a string (some are null now), the
+ * auction's from its close, TIPS and FRNs from their type, a bill's rate from investmentRate.
+ */
+export function normalize(s: TDSecurity): TDSecurity {
+  return {
+    ...s,
+    tips: s.tips || (s.type === "TIPS" ? "Yes" : "No"),
+    floatingRate: s.floatingRate || (s.type === "FRN" ? "Yes" : "No"),
+    highInvestmentRate: s.highInvestmentRate || s.investmentRate,
+    auctionDate: s.auctionDate || s.competitiveAuctionCloseDate || "",
+    issueDate: s.issueDate ?? "",
+    maturityDate: s.maturityDate ?? "",
+  };
 }
 
 /** Each tenor's benchmark and its next auction. */
@@ -107,7 +129,7 @@ async function get(path: string): Promise<TDSecurity[]> {
   if (!res.ok) throw new Error(`treasurydirect ${res.status}`);
   const body = await res.json();
   if (!Array.isArray(body)) throw new Error("treasurydirect: unexpected reply");
-  return body as TDSecurity[];
+  return (body as TDSecurity[]).map(normalize);
 }
 
 export async function currentBenchmarks(): Promise<Benchmark[]> {
