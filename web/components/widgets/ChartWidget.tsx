@@ -1208,7 +1208,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
             );
           })
       )}
-      <span className="hidden group-hover:flex gap-1.5 ml-1 bg-[#0a0a0a] px-1">
+      {/* Hide, settings, remove: a quarter larger than the legend's text, to hit easily. */}
+      <span className="hidden group-hover:flex items-center gap-2 ml-1 bg-[#0a0a0a] px-1 leading-none" style={{ fontSize: "1.25em" }}>
         <button title={it.inst.hidden ? "Show" : "Hide"} className="dim hover:text-[var(--text)]" onClick={() => update(it.inst.uid, { hidden: !it.inst.hidden })}>
           {it.inst.hidden ? "◌" : "◉"}
         </button>
