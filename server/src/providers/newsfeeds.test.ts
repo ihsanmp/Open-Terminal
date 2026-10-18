@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FEEDS, mergeItems, parseFeed, stripHtml, type FeedDef } from "./newsfeeds.js";
+import { decodeEntities, FEEDS, mergeItems, parseFeed, stripHtml, type FeedDef } from "./newsfeeds.js";
 
 const feed: FeedDef = { id: "t", name: "Test Wire", url: "https://example.com/rss", category: "MARKETS", region: "US", tier: 2 };
 const NOW = Date.parse("2026-09-24T12:00:00Z");
@@ -84,5 +84,22 @@ describe("news wire merging", () => {
 
   it("has unique feed ids", () => {
     expect(new Set(FEEDS.map((f) => f.id)).size).toBe(FEEDS.length);
+  });
+});
+
+describe("links with character references", () => {
+  const feed = FEEDS[0];
+  const xml = (link: string) =>
+    `<rss><channel><item><title>Fed holds rates</title><link>${link}</link><pubDate>${new Date().toUTCString()}</pubDate></item></channel></rss>`;
+
+  it("reads a link's &amp; as &, and keeps the id the raw link gave", () => {
+    const [item] = parseFeed(xml("https://www.bbc.co.uk/news/a?at_medium=RSS&amp;at_campaign=rss"), feed);
+    expect(item.link).toBe("https://www.bbc.co.uk/news/a?at_medium=RSS&at_campaign=rss");
+    const [plain] = parseFeed(xml("https://www.bbc.co.uk/news/a?at_medium=RSS&at_campaign=rss"), feed);
+    expect(item.id).not.toBe(plain.id);
+  });
+
+  it("leaves an out-of-range reference as it is instead of failing the feed", () => {
+    expect(decodeEntities("a &#99999999; b &#x2014; c")).toBe("a &#99999999; b — c");
   });
 });
