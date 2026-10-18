@@ -343,7 +343,9 @@ async function historyAtInterval(symbol: string, rangeKey: string, interval: Int
   };
   // TradingView's chart feed first: the same depth of history TradingView shows, for
   // stocks, indices, FX, futures and coins alike. The others take over if it's unreachable.
-  const attempts: Array<[string, () => Promise<yahoo.Candle[]>]> = [["tradingview", () => tvHistory(symbol, interval)]];
+  // What an earlier run saved for this chart (diskcache.ts), so TradingView is asked only for the bars since.
+  const seed = staleGet<yahoo.Candle[]>(`history:${symbol}:${rangeKey}:${interval}`);
+  const attempts: Array<[string, () => Promise<yahoo.Candle[]>]> = [["tradingview", () => tvHistory(symbol, interval, undefined, undefined, seed)]];
   // A token named by its pair is only on TradingView.
   if (isTvPair(symbol)) return withFallback(attempts);
   const nasdaqOk = !base && !isVix(symbol) && !isYahooOnly(symbol);
