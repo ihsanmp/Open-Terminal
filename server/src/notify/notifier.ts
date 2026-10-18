@@ -68,9 +68,11 @@ export function sideOf(r: Release): -1 | 0 | 1 | null {
 }
 const SIDE_TEXT = { 1: "lebih panas/kuat dari perkiraan → hawkish", "-1": "lebih lemah/dingin dari perkiraan → dovish", 0: "sesuai konsensus" } as const;
 
-export function h30Message(g: Group, conclusion: H30Conclusion | null): { title: string; lines: string[] } {
+export function h30Message(g: Group, conclusion: H30Conclusion | null, now = g.time - 30 * 60_000): { title: string; lines: string[] } {
   const lead = g.releases[0];
-  const title = `30 menit lagi (${clock(g.time)}): ${g.releases.map((r) => FOLLOWED[r.title].label).join(", ")}`;
+  // Thirty minutes ahead as a rule; less when the app was opened inside the half hour.
+  const minutes = Math.max(1, Math.round((g.time - now) / 60_000));
+  const title = `${minutes} menit lagi (${clock(g.time)}): ${g.releases.map((r) => FOLLOWED[r.title].label).join(", ")}`;
   const lines = [`Konsensus ${FOLLOWED[lead.title].label}: ${reading(lead, lead.forecast)}`];
   if (conclusion) {
     const d = conclusion.driver;
@@ -220,7 +222,7 @@ export async function check(now = Date.now()): Promise<void> {
     if (on.h30 && left > 0 && left <= 30 * 60_000 && !sent[`h30:${g.iso}`]) {
       const c = conclusionAt(g.iso);
       if (c || left <= 25 * 60_000) {
-        const m = h30Message(g, c);
+        const m = h30Message(g, c, now);
         await send("h30", `h30:${g.iso}`, m.title, m.lines);
       }
     }
@@ -258,7 +260,15 @@ export function startNotifier(): void {
   if (started) return;
   started = true;
   // At boot, a broadcast still live or a result out within the hour is notified then, once.
-  const tick = () => void check().catch((err) => console.warn("notify:", err instanceof Error ? err.message : err));
+  // One look at a time: a slow one (the bars, the Fed's channels) mustn't let the next send the same.
+  let busy = false;
+  const tick = () => {
+    if (busy) return;
+    busy = true;
+    void check()
+      .catch((err) => console.warn("notify:", err instanceof Error ? err.message : err))
+      .finally(() => (busy = false));
+  };
   setTimeout(tick, 20_000).unref();
   setInterval(tick, 30_000).unref();
 }

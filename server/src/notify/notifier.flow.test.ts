@@ -49,7 +49,7 @@ describe("the notification watch", () => {
     await check(T - 29 * MIN);
     expect(h.shown).toEqual([]);
     await check(T - 24 * MIN);
-    expect(h.shown.map((s) => s.title)).toEqual([expect.stringMatching(/^30 menit lagi .*CPI MoM$/)]);
+    expect(h.shown.map((s) => s.title)).toEqual([expect.stringMatching(/^24 menit lagi .*CPI MoM$/)]);
     await check(T - 23 * MIN);
     expect(h.shown).toHaveLength(1);
 
