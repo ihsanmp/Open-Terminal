@@ -14,6 +14,7 @@ import { startQuantForecasts } from "./quant/service.js";
 import { socialRouter } from "./routes/social.js";
 import { startEngineWatch } from "./providers/macroengine.js";
 import { startNotifier } from "./notify/notifier.js";
+import { warm as warmTradingView } from "./providers/tvchart.js";
 import { notifyRouter } from "./routes/notify.js";
 import { latestFedSentiment } from "./providers/fedtranscript.js";
 import { impact } from "./providers/newsimpact.js";
@@ -79,6 +80,8 @@ const PORT = Number(process.env.API_PORT ?? 4000);
 const HOST = process.env.API_HOST ?? "127.0.0.1";
 const server = app.listen(PORT, HOST, () => {
   console.log(`OpenTerminal API listening on http://${HOST}:${PORT}`);
+  // The first chart follows at once: TradingView's socket is opened now, not on its request.
+  warmTradingView();
 });
 // Headlines are kept for the news recap while the app runs.
 startArchive();

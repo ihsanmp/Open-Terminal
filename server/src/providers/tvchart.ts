@@ -130,6 +130,14 @@ async function connection(): Promise<Conn> {
   }
 }
 
+/**
+ * Opens a socket ahead of the first request (the app's first chart comes right after the server
+ * starts, and opening one costs ~0.5 s). Closed like any other if nothing uses it for a minute.
+ */
+export function warm(): void {
+  if (!pool.some((c) => c.alive)) pool.push(new Conn());
+}
+
 // Sockets idle for a minute are closed (TradingView would drop them in time anyway).
 setInterval(() => {
   for (const c of [...pool]) if (c.inflight === 0 && Date.now() - c.lastUsed > IDLE_MS) c.close();

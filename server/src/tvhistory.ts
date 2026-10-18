@@ -7,6 +7,9 @@
 // longest history wins (the earlier candidate on a tie). For coins, only listings that report
 // volume compete while any does: TradingView's CRYPTO index reaches furthest back but has none.
 
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { dataDir } from "./db.js";
 import { fxTickers } from "./providers/forex.js";
 import { futuresTickers } from "./providers/futures.js";
 import * as tvchart from "./providers/tvchart.js";
@@ -94,6 +97,44 @@ const known = new Map<string, { ticker: string; bars: tvchart.TvBar[]; at: numbe
 const REPICK_MS = 6 * 3_600_000;
 const MAX_KNOWN = 300;
 
+/**
+ * The listing chosen for each symbol and interval, kept on disk for a week: after a restart a chart
+ * asks that one listing for its history, not every exchange (a coin's ten, a megabyte each, ~1 s).
+ */
+const PICK_MS = 7 * 86_400_000;
+const picksFile = join(dataDir, "cache", "tv-picks.json");
+let picks: Record<string, { ticker: string; at: number }> | null = null;
+let picksTimer: NodeJS.Timeout | null = null;
+
+function loadPicks(): Record<string, { ticker: string; at: number }> {
+  if (picks) return picks;
+  try {
+    picks = existsSync(picksFile) ? (JSON.parse(readFileSync(picksFile, "utf8")) as typeof picks) : {};
+  } catch {
+    picks = {};
+  }
+  return picks!;
+}
+
+function savePick(key: string, ticker: string): void {
+  const p = loadPicks();
+  p[key] = { ticker, at: Date.now() };
+  // Written once a burst of charts has settled.
+  if (picksTimer) return;
+  picksTimer = setTimeout(() => {
+    picksTimer = null;
+    try {
+      const old = Date.now() - PICK_MS;
+      for (const [k, v] of Object.entries(p)) if (v.at < old) delete p[k];
+      mkdirSync(join(dataDir, "cache"), { recursive: true });
+      writeFileSync(picksFile, JSON.stringify(p));
+    } catch {
+      // the picks are only a shortcut
+    }
+  }, 2_000);
+  picksTimer.unref();
+}
+
 const toCandles = (bars: tvchart.TvBar[]): Candle[] =>
   bars
     .filter((b) => [b.open, b.high, b.low, b.close].every(Number.isFinite))
@@ -116,24 +157,41 @@ export async function tvHistory(symbol: string, interval: Interval, fetchBars = 
       }
     }
   }
+  const remember = (ticker: string, bars: tvchart.TvBar[]) => {
+    known.delete(key);
+    known.set(key, { ticker, bars, at: Date.now() });
+    if (known.size > MAX_KNOWN) known.delete(known.keys().next().value!);
+  };
+  // The listing chosen before (this run or an earlier one): only it is asked.
+  const pick = live ? loadPicks()[key] : undefined;
+  if (pick && Date.now() - pick.at < PICK_MS) {
+    const got = (await fetchBars([pick.ticker], TV_RESOLUTION[interval], TV_DEPTH[interval], 10_000))[pick.ticker];
+    if (got?.length) {
+      remember(pick.ticker, got);
+      return toCandles(got);
+    }
+  }
   const candidates = tvCandidates(symbol);
   if (candidates.length === 0) throw new Error(`tradingview: no ticker for ${symbol}`);
   // A token off the ranked board is charted on its own pair first: on the big exchanges its
-  // ticker may belong to another token, and the chart must be of the token the quote is.
+  // ticker may belong to another token, and the chart must be of the token the quote is. The
+  // exchanges are asked meanwhile (finding out it's off the board can take half a second), and
+  // their answer is used only when the pair has nothing.
+  const onExchanges = fetchBars(candidates, TV_RESOLUTION[interval], TV_DEPTH[interval], 10_000);
+  onExchanges.catch(() => undefined);
   const own = await tokenPairOf(symbol);
   let best: tvchart.TvBar[] | null = null;
   let ticker: string | null = null;
   for (const list of own.length ? [own, candidates] : [candidates]) {
-    const found = await fetchBars(list, TV_RESOLUTION[interval], TV_DEPTH[interval], 10_000);
+    const found = list === candidates ? await onExchanges : await fetchBars(list, TV_RESOLUTION[interval], TV_DEPTH[interval], 10_000);
     best = pickLongest(list, found, cryptoBase(symbol) !== null);
     ticker = list.find((t) => found[t] === best) ?? null;
     if (best) break;
   }
   if (!best) throw new Error(`tradingview: no bars for ${symbol}`);
   if (live && ticker) {
-    known.delete(key);
-    known.set(key, { ticker, bars: best, at: Date.now() });
-    if (known.size > MAX_KNOWN) known.delete(known.keys().next().value!);
+    remember(ticker, best);
+    savePick(key, ticker);
   }
   return toCandles(best);
 }
