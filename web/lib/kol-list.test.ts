@@ -24,7 +24,7 @@ describe("the listed market accounts", () => {
   it("name each followed account's source once, and don't follow the news outlets", () => {
     const via = KOL_ACCOUNTS.flatMap((a) => (a.followedVia ? [a.followedVia] : []));
     expect(new Set(via).size).toBe(via.length);
-    for (const v of via) expect(v).toMatch(/^(bluesky|telegram|truthsocial):[a-z0-9._-]+$/);
+    for (const v of via) expect(v).toMatch(/^((bluesky|telegram|truthsocial):[a-z0-9._-]+|rss:https:\/\/[a-z0-9./_-]+)$/);
     expect(KOL_ACCOUNTS.some((a) => a.media && a.followedVia)).toBe(false);
   });
 });

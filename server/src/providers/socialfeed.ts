@@ -13,15 +13,19 @@
 //    Cloudflare; its posts aren't).
 //  - X: a single post is public by id (the syndication CDN the embedded tweets use), so a link
 //    pasted in the app shows the post itself, with its pictures and the post it quotes.
+//  - RSS: a feed the account publishes from its own site or label, for those on X alone (Bitcoin
+//    Magazine's site, Eric Balchunas's Bloomberg podcast).
 //
 // Followed accounts are read every 45 s while the tab is open and every 10 minutes otherwise, and
 // their posts kept for 30 days (pasted X posts until removed), so the feed survives restarts.
 
+import { createHash } from "node:crypto";
 import { get as httpsGet } from "node:https";
+import { XMLParser } from "fast-xml-parser";
 import { db } from "../db.js";
 import { decode } from "./watcherguru.js";
 
-export type Platform = "x" | "telegram" | "bluesky" | "truthsocial";
+export type Platform = "x" | "telegram" | "bluesky" | "truthsocial" | "rss";
 export type Tier = "A1" | "Tokoh" | "KOL";
 /**
  * How an account's identity is known: "domain", a Bluesky handle that is its own web domain (only
@@ -66,6 +70,10 @@ export type SocialPost = {
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
 const KEEP_DAYS = 30;
 
+/** Bloomberg's "Trillions", Eric Balchunas's weekly ETF podcast (Apple Podcasts' feed for it). */
+const TRILLIONS_FEED =
+  "https://www.omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/ee08231b-2e0c-40d0-afa9-ae3c0021f0dc/ab3c08b0-6606-450f-a60c-ae3c0021f0e6/podcast.rss";
+
 /** The accounts followed from the start (each can be removed, and others added). */
 export const BUILT_IN: Array<Omit<SocialSource, "id" | "builtIn">> = [
   { platform: "bluesky", ref: "watcher.guru", name: "Watcher Guru", tier: "A1" },
@@ -83,6 +91,10 @@ export const BUILT_IN: Array<Omit<SocialSource, "id" | "builtIn">> = [
   { platform: "bluesky", ref: "vitalik.ca", name: "Vitalik Buterin", tier: "KOL" },
   { platform: "bluesky", ref: "elerianm.bsky.social", name: "Mohamed El-Erian", tier: "KOL" },
   { platform: "bluesky", ref: "weisenthal.bsky.social", name: "Joe Weisenthal", tier: "KOL" },
+  // On X alone, read from what they publish themselves (checked 2026-10-18; every Bluesky,
+  // Mastodon and Telegram account by their names was a copy, suspended or silent since 2023).
+  { platform: "rss", ref: "https://bitcoinmagazine.com/feed", name: "Bitcoin Magazine", tier: "A1" },
+  { platform: "rss", ref: TRILLIONS_FEED, name: "Eric Balchunas · Trillions (Bloomberg)", tier: "KOL" },
 ];
 /** Linked from the owner's own website (checked 2026-10-15): livesquawk.com links its Bluesky,
  *  wublockchain.xyz its Telegram channel. */
@@ -102,6 +114,7 @@ const KIND: Record<string, SourceKind> = {
   "telegram:wublockchainenglish": "relay",
   "bluesky:unusualwhales.bsky.social": "relay",
   "bluesky:polymarket.com": "relay",
+  "rss:https://bitcoinmagazine.com/feed": "relay",
 };
 export const kindOf = (sourceId: string | null): SourceKind => (sourceId ? KIND[sourceId] : undefined) ?? "person";
 
@@ -486,6 +499,63 @@ export function removePost(id: string): boolean {
   return db.prepare("DELETE FROM social_posts WHERE id = ? AND via = 'manual'").run(id).changes > 0;
 }
 
+// ---------------------------------------------------------------- RSS
+
+const rssXml = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@", textNodeName: "#text", processEntities: false });
+const asList = <T>(v: T | T[] | undefined): T[] => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
+const textOf = (v: unknown): string => (v === null || v === undefined ? "" : typeof v === "object" ? textOf((v as Record<string, unknown>)["#text"]) : String(v));
+/** A site's sign-off lines ("This post … first appeared on …", a host's privacy notice). */
+const BOILERPLATE = /^(this post .+ first appeared on|see omnystudio\.com|learn more about your ad choices)/i;
+
+/**
+ * A feed's latest items as posts: the title, then its summary's first paragraphs. The feed is the
+ * site's own (or its label's), so who wrote it is the site: "site" trust.
+ */
+export function parseRss(xml: string, src: string | null, sourceName?: string): { name: string; posts: SocialPost[] } {
+  const channel = (rssXml.parse(xml) as { rss?: { channel?: Record<string, unknown> } }).rss?.channel;
+  if (!channel) throw new Error("bukan feed RSS");
+  const name = sourceName || decode(textOf(channel.title)) || "RSS";
+  const posts: SocialPost[] = [];
+  for (const it of asList(channel.item as Record<string, unknown>[] | Record<string, unknown> | undefined).slice(0, 30)) {
+    const title = decode(textOf(it.title)).trim();
+    const link = decode(textOf(it.link)).trim();
+    const time = Date.parse(textOf(it.pubDate));
+    if (!title || !/^https?:\/\//.test(link) || !Number.isFinite(time)) continue;
+    const html = textOf(it.description) || textOf(it["content:encoded"]);
+    const paragraphs = html
+      .split(/<\/p>|<br\s*\/?>\s*<br\s*\/?>/i)
+      .map((part) => htmlText(part).text.replace(/\s+/g, " ").trim())
+      .filter((t) => t && !t.includes(title) && t !== name && !BOILERPLATE.test(t));
+    let summary = paragraphs.join("\n\n");
+    if (summary.length > 420) summary = summary.slice(0, 417).replace(/\s+\S*$/, "") + "…";
+    const image = /<img[^>]+src="(https:\/\/[^"]+)"/i.exec(html)?.[1] ?? (it["media:content"] as Record<string, string> | undefined)?.["@url"];
+    posts.push({
+      id: `rss:${createHash("sha1").update(textOf(it.guid) || link).digest("hex").slice(0, 16)}`,
+      sourceId: src,
+      platform: "rss",
+      author: name,
+      handle: new URL(link).hostname.replace(/^www\./, ""),
+      avatar: null,
+      text: summary ? `${title}\n\n${summary}` : title,
+      links: [],
+      images: image ? [decode(image)] : [],
+      url: link,
+      time,
+      trust: "site",
+      via: "feed",
+    });
+  }
+  return { name, posts };
+}
+
+async function rss(url: string, src: string | null) {
+  // Some sites turn away a feed request that doesn't look like a browser's (Bitcoin Magazine: 403).
+  const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/rss+xml, application/xml;q=0.9, */*;q=0.8" }, signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const named = BUILT_IN.find((b) => b.platform === "rss" && sourceId("rss", b.ref) === src)?.name;
+  return parseRss(await res.text(), src, named);
+}
+
 // ---------------------------------------------------------------- following
 
 /** An account to follow from what's typed: a t.me link, a Bluesky handle or profile link, a Truth Social id. */
@@ -494,6 +564,7 @@ export function parseSourceInput(input: string): { platform: Platform; ref: stri
   let m: RegExpExecArray | null;
   if ((m = /^(?:https?:\/\/)?(?:www\.)?t(?:elegram)?\.me\/(?:s\/)?([A-Za-z0-9_]{4,64})\/?$/i.exec(s)) || (m = /^tg:([A-Za-z0-9_]{4,64})$/i.exec(s))) return { platform: "telegram", ref: m[1] };
   if ((m = /^(?:https?:\/\/)?bsky\.app\/profile\/([A-Za-z0-9.:-]+)\/?$/i.exec(s)) || (m = /^bsky:([A-Za-z0-9.:-]+)$/i.exec(s))) return { platform: "bluesky", ref: m[1].toLowerCase() };
+  if ((m = /^rss:(https:\/\/\S+)$/i.exec(s))) return { platform: "rss", ref: m[1] };
   if ((m = /^truth(?:social)?:(\d{6,25})$/i.exec(s)) || (m = /^(?:https?:\/\/)?truthsocial\.com\/api\/v1\/accounts\/(\d{6,25})/i.exec(s))) return { platform: "truthsocial", ref: m[1] };
   if (/truthsocial\.com\/@/i.test(s)) return { error: "Truth Social: masukkan ID akunnya (truth:<angka>), nama akun tidak bisa dicari tanpa login" };
   if (/^(?:https?:\/\/)?(?:www\.)?(?:x|twitter)\.com\//i.test(s)) return { error: "akun X tidak bisa diikuti tanpa API berbayar X; tempel link postingannya di kolom X" };
@@ -535,6 +606,8 @@ function readSource(platform: Platform, ref: string, id: string): Promise<{ name
       return bluesky(ref, id);
     case "truthsocial":
       return truthsocial(ref, id);
+    case "rss":
+      return rss(ref, id);
     default:
       return Promise.reject(new Error("X tidak bisa diikuti"));
   }
@@ -583,11 +656,13 @@ export const READS_AS_NEWS = /^\W*(breaking|just in|just:|alert|urgent|developin
  * source itself, a report awaiting confirmation (its first six hours) or still unconfirmed, or a
  * statement, someone's own view that no outlet would be expected to report.
  */
-export type PostStatus = "onchain" | "confirmed" | "official" | "pending" | "unconfirmed" | "statement";
+export type PostStatus = "onchain" | "confirmed" | "official" | "pending" | "unconfirmed" | "statement" | "article";
 
 export function postStatus(p: SocialPost, confirmed: boolean, now = Date.now()): PostStatus {
   if (onChain(p)) return "onchain";
   if (confirmed) return "confirmed";
+  // Published on the account's own site (an article, a podcast episode): not a rumour to confirm.
+  if (p.platform === "rss") return "article";
   const kind = kindOf(p.sourceId);
   if (kind === "official" || p.official) return "official";
   const news = kind === "relay" || READS_AS_NEWS.test(`${p.text} ${p.quoted?.text ?? ""}`);
