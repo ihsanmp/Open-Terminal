@@ -3,6 +3,7 @@
 // where their identity can be checked are followed in the Insider tab (followedVia, a source id of
 // server/src/providers/socialfeed.ts); the rest are on X alone, read by pasting a post's link.
 // The news outlets among them are in the News tab instead (media).
+// Bitcoin Magazine was added by hand (18 Oct 2026), after the sheet.
 
 export type KolAccount = {
   name: string;
@@ -38,6 +39,7 @@ export const KOL_ACCOUNTS: KolAccount[] = [
   {"name": "Tree of Alpha", "handle": "Tree_of_Alpha", "market": "Crypto / Web3", "category": "News cepat", "info": "Headline & alpha crypto", "note": "Pendiri Tree News; sering lebih dulu dari media.", "handleCheck": "recheck"},
   {"name": "db", "handle": "tier10k", "market": "Crypto / Web3", "category": "News cepat", "info": "Breaking news crypto & makro", "note": "Favorit trader futures untuk speed.", "handleCheck": "ok"},
   {"name": "Wu Blockchain (Colin Wu)", "handle": "WuBlockchain", "market": "Crypto / Web3", "category": "News cepat", "info": "Berita Asia/China, exchange, mining", "note": "Jurnalis; kuat untuk info Binance/OKX/Asia sebelum media Barat.", "handleCheck": "ok", "followedVia": "telegram:wublockchainenglish"},
+  {"name": "Bitcoin Magazine", "handle": "BitcoinMagazine", "market": "Crypto / Web3", "category": "News cepat", "info": "Headline Bitcoin: ETF, treasury perusahaan, kebijakan, kutipan tokoh", "note": "Media pro-Bitcoin (BTC Inc, penyelenggara konferensi Bitcoin): framing cenderung bullish, sering mengutip tanpa konteks penuh — cek sumber aslinya. Centang emas di X = organisasi terverifikasi. Ditambahkan 18 Okt 2026 atas permintaan; kanal Telegram-nya tidak ditautkan situs resmi, jadi tidak diikuti otomatis.", "handleCheck": "ok"},
   {"name": "Watcher.Guru", "handle": "WatcherGuru", "market": "Crypto / Web3", "category": "News cepat", "info": "Breaking crypto & finansial", "note": "Cepat tapi kadang tanpa konteks; akun sempat diretas Okt 2025 — waspada posting aneh.", "handleCheck": "ok", "followedVia": "bluesky:watcher.guru"},
   {"name": "Bitcoin Archive", "handle": "BTC_Archive", "market": "Crypto / Web3", "category": "News cepat", "info": "Berita BTC, ETF, adopsi institusi", "note": "Bias bullish BTC.", "handleCheck": "ok"},
   {"name": "Eleanor Terrett", "handle": "EleanorTerrett", "market": "Crypto / Web3", "category": "News cepat", "info": "Regulasi crypto AS (SEC, Kongres)", "note": "Jurnalis regulasi — scoop soal RUU & SEC.", "handleCheck": "ok"},
