@@ -51,6 +51,8 @@ class Conn {
   alive = true;
   inflight = 0;
   lastUsed = Date.now();
+  /** When anything last came in (TradingView's heartbeat is every ~10 s). */
+  lastMsg = Date.now();
   /** By chart session: what to do with its messages, and with the socket's end. */
   sessions = new Map<string, { onMsg: (msg: Msg) => void; onClose: () => void }>();
 
@@ -70,6 +72,7 @@ class Conn {
       this.ws.onclose = end;
     });
     this.ws.onmessage = (ev: MessageEvent) => {
+      this.lastMsg = Date.now();
       for (const payload of parseFrames(String(ev.data))) {
         if (payload.startsWith("~h~")) {
           this.send(`~m~${payload.length}~m~${payload}`); // heartbeat echo
@@ -183,6 +186,87 @@ async function seriesOnce(symbol: string, resolution: string, count: number, tim
     waiting.shift()?.();
   }
 }
+
+// ---------------------------------------------------------------- live series
+
+/**
+ * A chart kept open: TradingView pushes its bars as they change ("du"), so a chart's refresh reads
+ * them instead of asking again (a request costs two round trips, ~120 ms). Opened on a socket of
+ * its own for each one read, closed three minutes after its last read.
+ */
+type Live = { bars: Map<number, TvBar>; cs: string; conn: Conn; ready: boolean; dead: boolean; lastRead: number };
+const lives = new Map<string, Live>();
+const LIVE_IDLE_MS = 3 * 60_000;
+const MAX_LIVE = 40;
+/** A socket silent this long (no heartbeat) is taken for dead. */
+const SILENT_MS = 45_000;
+let liveConn: Conn | null = null;
+
+const rowsOf = (msg: Msg): TvBar[] =>
+  ((msg.p?.[1]?.sds_1?.s ?? []) as Array<{ v: number[] }>).map(({ v }) => ({ time: v[0], open: v[1], high: v[2], low: v[3], close: v[4], volume: Number.isFinite(v[5]) ? v[5] : null }));
+
+function dropLive(key: string, l: Live): void {
+  lives.delete(key);
+  l.dead = true;
+  l.conn.sessions.delete(l.cs);
+  if (l.conn.alive) l.conn.send(frame("chart_delete_session", [l.cs]));
+}
+
+function openLive(symbol: string, resolution: string): Live {
+  if (!liveConn || !liveConn.alive || Date.now() - liveConn.lastMsg > SILENT_MS) {
+    liveConn?.close();
+    liveConn = new Conn();
+  }
+  const conn = liveConn;
+  const l: Live = { bars: new Map(), cs: `cl_${++sessionSeq}`, conn, ready: false, dead: false, lastRead: Date.now() };
+  conn.sessions.set(l.cs, {
+    onMsg: (msg) => {
+      if (msg.m === "timescale_update" || msg.m === "du") for (const b of rowsOf(msg)) l.bars.set(b.time, b);
+      else if (msg.m === "series_completed") l.ready = true;
+      else if (msg.m === "symbol_error" || msg.m === "series_error") l.dead = true;
+    },
+    onClose: () => (l.dead = true),
+  });
+  void conn.ready.then((ok) => {
+    if (!ok || l.dead) return;
+    conn.send(frame("chart_create_session", [l.cs, ""]));
+    conn.send(frame("resolve_symbol", [l.cs, "sds_sym_1", "=" + JSON.stringify({ symbol, adjustment: "splits" })]));
+    // A few bars back: enough to join the history a refresh already holds.
+    conn.send(frame("create_series", [l.cs, "sds_1", "s1", "sds_sym_1", resolution, 10, ""]));
+  });
+  return l;
+}
+
+/**
+ * The bars a live chart of `symbol` holds (its last ten and every one since it opened), or null
+ * until it has them; the first call opens it. Reading keeps it open.
+ */
+export function liveBars(symbol: string, resolution: string): TvBar[] | null {
+  const key = `${symbol}|${resolution}`;
+  let l = lives.get(key);
+  if (l && (l.dead || !l.conn.alive || Date.now() - l.conn.lastMsg > SILENT_MS)) {
+    dropLive(key, l);
+    l = undefined;
+  }
+  if (!l) {
+    if (lives.size >= MAX_LIVE) {
+      const oldest = [...lives].sort((a, b) => a[1].lastRead - b[1].lastRead)[0];
+      if (oldest) dropLive(oldest[0], oldest[1]);
+    }
+    lives.set(key, openLive(symbol, resolution));
+    return null;
+  }
+  l.lastRead = Date.now();
+  return l.ready && l.bars.size ? [...l.bars.values()].sort((a, b) => a.time - b.time) : null;
+}
+
+setInterval(() => {
+  for (const [key, l] of [...lives]) if (Date.now() - l.lastRead > LIVE_IDLE_MS) dropLive(key, l);
+  if (!lives.size && liveConn) {
+    liveConn.close();
+    liveConn = null;
+  }
+}, 30_000).unref();
 
 async function series(symbol: string, resolution: string, count: number, timeoutMs: number): Promise<TvBar[] | null> {
   const first = await seriesOnce(symbol, resolution, count, timeoutMs);

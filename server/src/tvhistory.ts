@@ -140,13 +140,30 @@ const toCandles = (bars: tvchart.TvBar[]): Candle[] =>
     .filter((b) => [b.open, b.high, b.low, b.close].every(Number.isFinite))
     .map((b) => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume ?? 0 }));
 
-export async function tvHistory(symbol: string, interval: Interval, fetchBars = tvchart.bars, tokenPairOf = tokenCandidates): Promise<Candle[]> {
+/**
+ * `seed`: the history an earlier run saved (the disk cache), so a refresh after a restart asks the
+ * chosen listing for only the bars since, not all of them again.
+ */
+export async function tvHistory(symbol: string, interval: Interval, fetchBars = tvchart.bars, tokenPairOf = tokenCandidates, seed?: Candle[]): Promise<Candle[]> {
   // Only TradingView's own feed is refreshed this way (tests pass their own).
   const live = fetchBars === tvchart.bars;
   const key = `${symbol}|${interval}`;
+  if (live && !known.has(key) && seed?.length) {
+    const pick = loadPicks()[key];
+    if (pick && Date.now() - pick.at < PICK_MS) known.set(key, { ticker: pick.ticker, bars: seed.map((c) => ({ ...c })), at: Date.now() });
+  }
   const kept = live ? known.get(key) : undefined;
   if (kept && Date.now() - kept.at < REPICK_MS && kept.bars.length) {
-    const behind = Math.ceil((Date.now() / 1000 - kept.bars[kept.bars.length - 1].time) / BAR_SECONDS[interval]) + 3;
+    const last = kept.bars[kept.bars.length - 1].time;
+    // The chart kept open pushes its bars: read them when they join what's held (no request at all).
+    const streamed = tvchart.liveBars(kept.ticker, TV_RESOLUTION[interval]);
+    if (streamed?.length && streamed[0].time <= last) {
+      const byTime = new Map(kept.bars.map((b) => [b.time, b]));
+      for (const b of streamed) byTime.set(b.time, b);
+      kept.bars = [...byTime.values()].sort((x, y) => x.time - y.time).slice(-TV_DEPTH[interval]);
+      return toCandles(kept.bars);
+    }
+    const behind = Math.ceil((Date.now() / 1000 - last) / BAR_SECONDS[interval]) + 3;
     if (behind < 500) {
       const fresh = (await fetchBars([kept.ticker], TV_RESOLUTION[interval], behind, 10_000))[kept.ticker];
       if (fresh?.length) {
