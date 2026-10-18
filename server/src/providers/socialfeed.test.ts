@@ -182,3 +182,33 @@ describe("where a post stands", () => {
     expect(sf.postStatus(post("🚨 1,000 $BTC (80,855,002 USD) transferred from #Kraken to #Binance", old, { handle: "whale-alert.io", sourceId: "bluesky:whale-alert.io" }), false, now)).toBe("onchain");
   });
 });
+
+describe("RSS from the account's own site", () => {
+  const xml = `<?xml version="1.0"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Bitcoin Magazine</title>
+    <item><title>Deutsche Bank To Debut Bitcoin Custody &amp; More</title><link>https://bitcoinmagazine.com/news/deutsche-bank</link>
+      <pubDate>Fri, 16 Oct 2026 16:35:55 +0000</pubDate><guid isPermaLink="false">https://bitcoinmagazine.com/?p=1</guid>
+      <description><![CDATA[<p><a href="https://bitcoinmagazine.com">Bitcoin Magazine</a><br /><img src="https://bitcoinmagazine.com/a.jpg"><br /><a href="https://bitcoinmagazine.com/news/deutsche-bank">Deutsche Bank To Debut Bitcoin Custody &amp; More</a></p><p>The bank&#8217;s custody launches within weeks.</p><p>This post <a href="x">Deutsche Bank</a> first appeared on <a href="y">Bitcoin Magazine</a>.</p>]]></description></item>
+    <item><title>No date</title><link>https://bitcoinmagazine.com/x</link></item>
+  </channel></rss>`;
+
+  it("reads each item as a post: the title, its summary without the site's sign-off, the picture", () => {
+    const { name, posts } = sf.parseRss(xml, "rss:https://bitcoinmagazine.com/feed");
+    expect(name).toBe("Bitcoin Magazine");
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toMatchObject({
+      platform: "rss",
+      handle: "bitcoinmagazine.com",
+      text: "Deutsche Bank To Debut Bitcoin Custody & More\n\nThe bank’s custody launches within weeks.",
+      images: ["https://bitcoinmagazine.com/a.jpg"],
+      url: "https://bitcoinmagazine.com/news/deutsche-bank",
+      trust: "site",
+      time: Date.parse("Fri, 16 Oct 2026 16:35:55 +0000"),
+    });
+    expect(sf.postStatus(posts[0], false)).toBe("article");
+  });
+
+  it("follows a feed given as rss:<url>, and refuses what isn't a feed", () => {
+    expect(sf.parseSourceInput("rss:https://bitcoinmagazine.com/feed")).toEqual({ platform: "rss", ref: "https://bitcoinmagazine.com/feed" });
+    expect(() => sf.parseRss("<html></html>", null)).toThrow(/bukan feed/);
+  });
+});

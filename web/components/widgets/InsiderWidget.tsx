@@ -14,7 +14,7 @@ import { useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../st
 
 // ---------------------------------------------------------------- the posts
 
-type Platform = "x" | "telegram" | "bluesky" | "truthsocial";
+type Platform = "x" | "telegram" | "bluesky" | "truthsocial" | "rss";
 type Trust = "domain" | "verified" | "site" | "known" | "paid" | "unverified";
 type Link = { text: string; url: string };
 type Confirmation = { publisher: string; title: string; link: string; time: number };
@@ -41,12 +41,12 @@ type Post = {
   confirmedBy: Confirmation[];
   onChain: boolean;
   /** Where it stands (server: socialfeed.ts postStatus). */
-  status: "onchain" | "confirmed" | "official" | "pending" | "unconfirmed" | "statement";
+  status: "onchain" | "confirmed" | "official" | "pending" | "unconfirmed" | "statement" | "article";
 };
 type Source = { id: string; platform: Platform; ref: string; name: string; builtIn: boolean; status: { ok: boolean; error: string | null; at: number; count: number } | null };
 type Feed = { sources: Source[]; posts: Post[] };
 
-const PLATFORM: Record<Platform, string> = { x: "X", telegram: "Telegram", bluesky: "Bluesky", truthsocial: "Truth Social" };
+const PLATFORM: Record<Platform, string> = { x: "X", telegram: "Telegram", bluesky: "Bluesky", truthsocial: "Truth Social", rss: "situs resmi" };
 
 const TRUST: Record<Trust, { text: string; cls: string; title: string }> = {
   domain: { text: "✓ akun asli", cls: "up", title: "Handle Bluesky-nya adalah domain milik akun ini sendiri: hanya pemilik domain yang bisa memakainya" },
@@ -113,6 +113,17 @@ function Confirm({ post }: { post: Post }) {
     return (
       <span className="up" title="Akun resmi lembaga atau perusahaan itu sendiri: inilah sumber primernya, tak perlu dikonfirmasi media">
         ✓ sumber resmi
+      </span>
+    );
+  // Published on the account's own site: a magazine's article, a podcast's episode.
+  if (post.status === "article")
+    return /omny\.fm|podcast/i.test(post.url) ? (
+      <span className="dim" title="Episode podcast resmi pemilik akun (dari feed label/penerbitnya sendiri)">
+        🎙 episode podcast
+      </span>
+    ) : (
+      <span className="dim" title="Artikel yang diterbitkan media itu sendiri di situs resminya: laporan media tersebut, bukan kabar berantai. Cek sumber yang dikutipnya.">
+        📰 artikel di situsnya
       </span>
     );
   // Someone's own view or statement: no outlet is expected to report it, so it isn't flagged.
@@ -272,7 +283,7 @@ function Posts({ symbol }: { symbol: string }) {
   const mention = onlySymbol ? mentionsOf(symbol) : null;
   const posts = (data?.posts ?? []).filter((p) => {
     if (filter === "x" ? p.via !== "manual" : filter !== "all" && p.sourceId !== filter) return false;
-    if (onlyConfirmed && !["onchain", "confirmed", "official"].includes(p.status)) return false;
+    if (onlyConfirmed && !["onchain", "confirmed", "official", "article"].includes(p.status)) return false;
     if (mention && !mention.test(`${p.text} ${p.quoted?.text ?? ""}`)) return false;
     return true;
   });
@@ -305,7 +316,7 @@ function Posts({ symbol }: { symbol: string }) {
             <div className="flex flex-wrap gap-1">
               <input
                 className="flex-1 min-w-[200px]"
-                placeholder="t.me/<channel>, bsky.app/profile/<handle>, atau truth:<id akun>"
+                placeholder="t.me/<channel>, bsky.app/profile/<handle>, truth:<id akun>, atau rss:<url feed>"
                 value={follow}
                 onChange={(e) => setFollow(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && submitFollow()}
@@ -315,7 +326,7 @@ function Posts({ symbol }: { symbol: string }) {
               </button>
             </div>
             <div className="dim text-fs-10">
-              Hanya akun yang identitasnya bisa dipastikan yang diterima: handle domain di Bluesky, atau tanda verifikasi resmi platformnya, supaya akun palsu tidak masuk. Akun X tidak bisa diikuti otomatis tanpa API berbayar X; tempel link postingannya di atas.
+              Hanya akun yang identitasnya bisa dipastikan yang diterima: handle domain di Bluesky, atau tanda verifikasi resmi platformnya, supaya akun palsu tidak masuk. Akun X tidak bisa diikuti otomatis tanpa API berbayar X; tempel link postingannya di atas, atau ikuti feed dari situs resminya sendiri dengan rss:&lt;url feed&gt;.
             </div>
             {followMsg && <div className={`text-fs-10 ${followMsg.ok ? "up" : "down"}`}>{followMsg.text}</div>}
           </div>
