@@ -6,6 +6,8 @@ describe("the listed market accounts", () => {
     expect(kolOf("deitaone")?.name).toBe("Walter Bloomberg");
     expect(kolOf("DeItaone")?.note).toContain("tarif palsu");
     expect(kolOf("nobody_here")).toBeUndefined();
+    expect(kolOf("bitcoinmagazine")?.name).toBe("Bitcoin Magazine");
+    expect(kolOf("EricBalchunas")?.category).toBe("ETF & institusi");
   });
 
   it("include the OG sheet, and give an account on both sheets both notes", () => {
