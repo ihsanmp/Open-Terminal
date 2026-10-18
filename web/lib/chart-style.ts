@@ -117,7 +117,8 @@ export function utcOffsetLabel(zone: string, at = new Date()): string {
   const part = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "shortOffset" })
     .formatToParts(at)
     .find((p) => p.type === "timeZoneName")?.value;
-  const offset = !part || part === "GMT" ? "" : part.replace("GMT", "");
+  // "GMT" for UTC itself, though some ICU builds write "GMT+0" (Linux's, CI's).
+  const offset = !part ? "" : part.replace("GMT", "").replace(/^[+-]0{1,2}(:00)?$/, "");
   return `(UTC${offset})`;
 }
 
