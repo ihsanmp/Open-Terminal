@@ -47,5 +47,7 @@ describe("chart style (TradingView's Symbol and Canvas settings)", () => {
   it("labels zones with their UTC offset", () => {
     expect(utcOffsetLabel("Asia/Jakarta")).toBe("(UTC+7)");
     expect(utcOffsetLabel("UTC")).toBe("(UTC)");
+    expect(utcOffsetLabel("Africa/Abidjan")).toBe("(UTC)");
+    expect(utcOffsetLabel("Asia/Kolkata")).toBe("(UTC+5:30)");
   });
 });
