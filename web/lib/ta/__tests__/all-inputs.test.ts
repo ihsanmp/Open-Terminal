@@ -68,7 +68,8 @@ function problems(def: IndicatorDef, r: IndicatorResult): string[] {
 }
 
 describe("every input of every indicator", () => {
-  it.each(INDICATORS.map((d) => [d.id, d] as const))("%s", (_id, def) => {
+  // Every variant of every input: the heaviest (Lorentzian's nearest neighbours) takes several seconds.
+  it.each(INDICATORS.map((d) => [d.id, d] as const))("%s", { timeout: 60_000 }, (_id, def) => {
     const base = defaultParams(def);
     const found: string[] = [];
     const run = (p: Params, what: string) => {

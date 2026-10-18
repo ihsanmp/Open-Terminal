@@ -345,9 +345,7 @@ Please open an issue first for anything non‑trivial.
 
 ## Known limitations
 
-- **`npm audit` advisories.** Two are not force‑fixed:
-  - `fast-xml-parser`'s XMLBuilder injection (moderate) doesn't apply here, since only `XMLParser` is used;
-  - `postcss`'s high‑severity issue is bundled inside Next.js and is only resolved by the Next 16 major upgrade.
+- **`npm audit` advisories.** Two remain, both inside Next.js and resolved only by the Next 16 major upgrade: `postcss` (high) and Next's own cache poisoning of SSG/ISR pages (moderate), which this app, rendered on demand on your machine, doesn't use.
 - **Reverse proxies.** Behind a reverse proxy or load balancer, set `API_HOST`/`WEB_ORIGIN` to match and terminate TLS in front: the project doesn't handle HTTPS itself.
 - **Blocked providers.** Some providers are blocked by some ISPs (Binance's main API, for one). The fallbacks cover them, sometimes with less detail.
 
