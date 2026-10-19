@@ -377,12 +377,15 @@ const fmtFact = (f: FactCheck, v: number | null | undefined, hi?: number) => {
   const range = `${n(v)}${hi !== undefined ? `–${n(hi)}` : ""}`;
   return u === "$" ? `$${range}` : u === "poin" ? range : u === "pp" ? `${v > 0 ? "+" : ""}${range} pp` : `${range}${u === "%" ? "%" : ` ${u}`}`;
 };
+/** What was said, and the official figure (a date for "unchanged since" and "first since"). */
+const saidOf = (f: FactCheck) => (unitOf(f) === "sejak" ? `sejak ${f.month ?? "—"}` : fmtFact(f, f.value, f.high));
+const officialOf = (f: FactCheck) => (unitOf(f) === "sejak" ? (f.period ?? "—") : fmtFact(f, f.official, f.officialHigh));
 
 /** A claim's verdict beside the line it was said in. */
 function FactBadge({ f }: { f: FactCheck }) {
   const v = f.verdict ? VERDICT[f.verdict] : null;
-  const title = `${labelOf(f)}${f.provisional ? " (sementara: kalimatnya belum selesai)" : ""}: disebut ${fmtFact(f, f.value, f.high)}${
-    f.verdict ? ` · data resmi ${fmtFact(f, f.official, f.officialHigh)}${f.period ? ` (${f.period})` : ""}${f.source ? ` · ${f.source}` : ""}${f.note ? ` · ${f.note}` : ""}` : " · mengecek data resmi…"
+  const title = `${labelOf(f)}${f.provisional ? " (sementara: kalimatnya belum selesai)" : ""}: disebut ${saidOf(f)}${
+    f.verdict ? ` · data resmi ${officialOf(f)}${f.period && unitOf(f) !== "sejak" ? ` (${f.period})` : ""}${f.source ? ` · ${f.source}` : ""}${f.note ? ` · ${f.note}` : ""}` : " · mengecek data resmi…"
   }`;
   return (
     <span
@@ -413,12 +416,12 @@ function FactList({ facts }: { facts: FactCheck[] }) {
         <div className="mt-1 space-y-1 max-h-48 overflow-auto">
           {[...facts].reverse().map((f) => (
             <div key={`${f.line}:${f.indicator}:${f.value}`} className="leading-snug">
-              <FactBadge f={f} /> <b>{labelOf(f)}</b>: disebut {fmtFact(f, f.value, f.high)}
+              <FactBadge f={f} /> <b>{labelOf(f)}</b>: disebut {saidOf(f)}
               {f.verdict && f.verdict !== "unverifiable" && (
                 <>
                   {" "}
-                  · data resmi {fmtFact(f, f.official, f.officialHigh)}
-                  {f.period && <span className="dim"> ({f.period})</span>}
+                  · data resmi {officialOf(f)}
+                  {f.period && unitOf(f) !== "sejak" && <span className="dim"> ({f.period})</span>}
                 </>
               )}
               {f.note && <span className="dim"> · {f.note}</span>}
