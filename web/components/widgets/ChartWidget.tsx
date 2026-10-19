@@ -52,7 +52,7 @@ import { IntervalMenu } from "../chart/IntervalMenu";
 import { ChartSettings } from "../chart/ChartSettings";
 import { candleOptions, formatChartTime, formatTick, prevCloseColors, resolveChartStyle, resolveTimezone, risingBars } from "../../lib/chart-style";
 import { DEFAULT_CHART_INDICATORS, useTerminal, useWidgetSetting, useWidgetSymbol, type ChartScaleMode, type WidgetInstance } from "../../store/terminal";
-import { isPinch, keyAction, panPrice, scalePrice, shiftSpan, wheelPixels, zoomFactor, zoomSpan, type Span } from "../../lib/chart-nav";
+import { isPinch, keepBarsInView, keyAction, panPrice, scalePrice, shiftSpan, wheelPixels, zoomAnchor, zoomFactor, zoomSpan, type Span } from "../../lib/chart-nav";
 import { IndicatorPicker, IndicatorSettings } from "../chart/IndicatorDialogs";
 import { PriceScaleMenu } from "../chart/PriceScaleMenu";
 import { isCryptoSymbol, usePoll, usSessionActive } from "../../lib/refresh";
@@ -913,13 +913,15 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     const isLog = scaleMode === "log";
     const maxBars = Math.max(200, total * 1.2 + 50);
     const visible = () => ts.getVisibleLogicalRange();
+    // Zooming and scrolling keep some bars in view (lib/chart-nav.ts): never all blank future.
+    const lastIndex = candles.length - 1;
     const zoomBy = (factor: number, anchor?: number) => {
       const r = visible();
-      if (r) ts.setVisibleLogicalRange(zoomSpan(r, factor, anchor ?? r.to, 10, maxBars));
+      if (r) ts.setVisibleLogicalRange(keepBarsInView(zoomSpan(r, factor, anchor ?? zoomAnchor(r, lastIndex), 10, maxBars), lastIndex));
     };
     const scrollBy = (bars: number) => {
       const r = visible();
-      if (r) ts.setVisibleLogicalRange(shiftSpan(r, bars));
+      if (r) ts.setVisibleLogicalRange(keepBarsInView(shiftSpan(r, bars), lastIndex));
     };
     const autoOn = () => {
       savedPrice.current = null;
@@ -1044,7 +1046,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       if (Math.abs(dx) > Math.abs(dy)) {
         scrollBy((dx * (r.to - r.from)) / Math.max(1, g.rect.width - g.axisWidth));
       } else if (dy !== 0) {
-        const anchor = e.ctrlKey ? ts.coordinateToLogical(e.clientX - g.rect.left) ?? r.to : r.to;
+        const anchor = e.ctrlKey ? ts.coordinateToLogical(e.clientX - g.rect.left) ?? undefined : undefined;
         zoomBy(zoomFactor(dy, isPinch(e.ctrlKey, dy)), anchor);
       }
     };

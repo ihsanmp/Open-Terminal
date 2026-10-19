@@ -33,6 +33,30 @@ export function zoomSpan(r: Span, factor: number, anchor: number, minBars = 10, 
 
 export const shiftSpan = (r: Span, by: number): Span => ({ from: r.from + by, to: r.to + by });
 
+/**
+ * Where the plain wheel zooms around: the newest bar when it's in view (it stays where it is on
+ * screen, the blank future beside it scaling with the bars); the view's right edge when the view
+ * is back in the history; its left edge when it's out in the blank future past the newest bar.
+ * (Zooming around the right edge out there walked the view further into the blank: one notch and
+ * no candle was left.)
+ */
+export function zoomAnchor(r: Span, lastIndex: number): number {
+  if (lastIndex < r.from) return r.from;
+  if (lastIndex + 0.5 >= r.to) return r.to;
+  return lastIndex + 0.5;
+}
+
+/**
+ * A view kept on the data: at least `keep` bars of it in view, the view moved back when a zoom or a
+ * scroll has taken it past the newest bar (into the blank future) or before the first.
+ */
+export function keepBarsInView(r: Span, lastIndex: number, keep = 5): Span {
+  const k = Math.max(1, Math.min(keep, lastIndex + 1));
+  if (r.from > lastIndex + 0.5 - k) return shiftSpan(r, lastIndex + 0.5 - k - r.from);
+  if (r.to < k - 0.5) return shiftSpan(r, k - 0.5 - r.to);
+  return r;
+}
+
 const toLog = (r: Span): Span => ({ from: Math.log(r.from), to: Math.log(r.to) });
 const fromLog = (r: Span): Span => ({ from: Math.exp(r.from), to: Math.exp(r.to) });
 
