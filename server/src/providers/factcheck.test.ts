@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { check, claimsInLines, extractClaims, readNumber, verdictOf, yoy } from "./factcheck.js";
+import { check, claimsInLines, extractClaims, readNumber, setBars, setReleases, verdictOf, yoy } from "./factcheck.js";
 
 const asOf = new Date("2026-10-29T18:30:00Z");
 const said = (text: string) => extractClaims(text, asOf).map((c) => [c.indicator, c.value, c.month]);
@@ -79,6 +79,76 @@ describe("the figures that go together", () => {
     expect(said("Total PCE prices rose 2.7% over the 12 months ending in July. Excluding the volatile food and energy categories, core PCE prices rose 2.9%.")).toEqual([
       ["pce", 2.7, "2026-07"],
       ["core_pce", 2.9, "2026-07"],
+    ]);
+  });
+});
+
+describe("the releases, the markets and the Fed's moves", () => {
+  const rel = (title: string, ref: string, actual: number, previous: number | null = null, date = `${ref}T12:30:00.000Z`) => ({ title, date, ref, actual, previous });
+  setReleases(async () => [
+    rel("Inflation Rate MoM", "2026-08-31", 0.4, 0.1, "2026-09-11T12:30:00.000Z"),
+    rel("Inflation Rate MoM", "2026-09-30", 0.6, 0.4, "2026-10-14T12:30:00.000Z"),
+    rel("Core Inflation Rate MoM", "2026-09-30", 0.3, 0.3, "2026-10-14T12:30:00.000Z"),
+    rel("Retail Sales MoM", "2026-09-30", 0.8, 1.3, "2026-10-15T12:30:00.000Z"),
+    rel("Initial Jobless Claims", "2026-10-10", 199, 198, "2026-10-15T12:30:00.000Z"),
+    rel("ISM Manufacturing PMI", "2026-09-30", 54.5, 54.6, "2026-10-01T14:00:00.000Z"),
+    rel("JOLTs Job Openings", "2026-08-31", 7.079, 7.335, "2026-09-29T14:00:00.000Z"),
+    rel("Michigan Consumer Sentiment Prel", "2026-10-31", 46.3, 48.1, "2026-10-09T14:00:00.000Z"),
+    rel("Unemployment Rate", "2026-09-30", 4.2, 4.1, "2026-10-02T12:30:00.000Z"),
+  ]);
+  const t0 = Date.parse("2026-10-29T18:00:00Z") / 1000;
+  setBars(async (symbols) => Object.fromEntries(symbols.map((s) => [s, [{ time: t0 - 60, close: ({ "TVC:US10Y": 4.12, "SP:SPX": 6745.2, "TVC:USOIL": 61.4, "OANDA:XAUUSD": 4012 } as Record<string, number>)[s] ?? 100 }]])));
+  const asOf = new Date("2026-10-29T18:00:00Z");
+  const checked = async (text: string) => Promise.all(extractClaims(text, asOf).map((c) => check(c, asOf, async () => [])));
+
+  it("reads a month's change of CPI as the month-on-month release, and checks it against the first print", async () => {
+    const [cpi, core] = await checked("Consumer prices rose 0.6 percent in September, and core CPI rose 0.3 percent.");
+    expect(cpi).toMatchObject({ indicator: "cpi_mom", month: "2026-09", verdict: "match", official: 0.6, period: "2026-09" });
+    expect(core).toMatchObject({ indicator: "core_cpi_mom", month: "2026-09", verdict: "match" });
+  });
+
+  it("checks retail sales, jobless claims, ISM, job openings and sentiment", async () => {
+    const r = await checked(
+      "Retail sales rose 0.8% in September. Initial jobless claims fell to 199,000. The ISM manufacturing index came in at 54.5. Job openings slipped to 7.1 million. Consumer sentiment was 46.3.",
+    );
+    expect(r.map((x) => [x.indicator, x.value, x.verdict])).toEqual([
+      ["retail_sales", 0.8, "match"],
+      ["jobless_claims", 199, "match"],
+      ["ism_mfg", 54.5, "match"],
+      ["job_openings", 7.1, "match"],
+      ["michigan", 46.3, "match"],
+    ]);
+  });
+
+  it("checks the unemployment rate against the first print, not only the revised series", async () => {
+    const [u] = await checked("The unemployment rate rose to 4.2 percent in September.");
+    expect(u).toMatchObject({ verdict: "match", official: 4.2, series: "Unemployment Rate" });
+  });
+
+  it("sets a market level beside its price when it was said", async () => {
+    const r = await checked("The 10-year yield is at 4.1 percent, the S&P 500 is at 6,750, oil is trading at $61 a barrel and gold at $4,000 an ounce.");
+    expect(r.map((x) => [x.indicator, x.value, x.verdict])).toEqual([
+      ["yield_10y", 4.1, "match"],
+      ["spx", 6750, "match"],
+      ["oil", 61, "match"],
+      ["gold", 4000, "match"],
+    ]);
+  });
+
+  it("leaves out changes, comparisons and forecasts said about them", async () => {
+    expect(said("Our securities holdings have declined by more than $2 trillion.")).toEqual([]);
+    expect(said("They are waiting for oil to go over $70.")).toEqual([]);
+    expect(said("Economists expect retail sales to rise 0.4 percent.")).toEqual([]);
+    expect(said("The 10-year average of the unemployment rate is 5.6 percent.")).toEqual([]);
+    expect(said("When unemployment was 14 percent, we acted.")).toEqual([]);
+  });
+});
+
+describe("weekly and market figures", () => {
+  it("reads jobless claims as the latest week's, whatever month an earlier clause named", () => {
+    expect(said("Retail sales rose 0.8% in September while initial jobless claims fell to 199,000 last week.")).toEqual([
+      ["retail_sales", 0.8, "2026-09"],
+      ["jobless_claims", 199, null],
     ]);
   });
 });
