@@ -152,3 +152,42 @@ describe("weekly and market figures", () => {
     ]);
   });
 });
+
+describe("the FOMC's own record, from the seed", () => {
+  const record = async (text: string, when: string) => {
+    const asOf = new Date(when);
+    return Promise.all(extractClaims(text, asOf).map((c) => check(c, asOf, async () => [])));
+  };
+
+  it("checks a first move since a year, and a run of consecutive cuts", async () => {
+    const [first] = await record("This is the first rate cut since March 2020.", "2024-09-18T19:00:00Z");
+    expect(first).toMatchObject({ indicator: "first_since", month: "2020-03", verdict: "match", period: "2020-03-15" });
+    const [run] = await record("This is our third consecutive rate cut.", "2024-12-18T19:00:00Z");
+    expect(run).toMatchObject({ indicator: "cuts_count", value: 3, scope: "consecutive", verdict: "match", official: 3 });
+    const [wrong] = await record("This is our fourth consecutive rate cut.", "2024-12-18T19:00:00Z");
+    expect(wrong).toMatchObject({ verdict: "differs", official: 3 });
+  });
+
+  it("counts the moves this year and in the cycle", async () => {
+    const r = await record("We have cut rates three times this year. This is the sixth cut in this cycle.", "2025-12-10T19:00:00Z");
+    expect(r.map((x) => [x.indicator, x.value, x.scope, x.verdict, x.official])).toEqual([
+      ["cuts_count", 3, "since", "match", 3],
+      ["cuts_count", 6, "cycle", "match", 6],
+    ]);
+  });
+
+  it("checks how long the rate has been held, and the range just decided", async () => {
+    const [held] = await record("Rates have been unchanged since December.", "2026-08-01T19:00:00Z");
+    expect(held).toMatchObject({ indicator: "unchanged_since", month: "2025-12", verdict: "match", period: "2025-12-10" });
+    const r = await record("The target range for the federal funds rate is now 3-3/4 to 4 percent. This is the first hike since 2023.", "2026-09-16T19:00:00Z");
+    expect(r.map((x) => [x.indicator, x.verdict])).toEqual([
+      ["fed_funds", "match"],
+      ["first_since", "match"],
+    ]);
+  });
+
+  it("leaves out what's planned", () => {
+    expect(said("We will cut rates twice this year.")).toEqual([]);
+    expect(said("Participants expect the first cut since 2020 later this year.")).toEqual([]);
+  });
+});

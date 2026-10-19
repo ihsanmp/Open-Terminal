@@ -14,6 +14,7 @@
 // objective") or a hypothetical isn't. A claim whose measure can't be told ("prices rose 3 percent"
 // with no index named) is checked against every inflation measure and says which it matches.
 
+import { FOMC_MEETINGS_SEEN, FOMC_MOVES, FOMC_THROUGH, type FomcMove } from "../seed/fomc.js";
 import * as fred from "./fred.js";
 
 export type Indicator =
@@ -44,6 +45,10 @@ export type Indicator =
   | "balance_sheet"
   | "fed_funds"
   | "rate_change"
+  | "cuts_count"
+  | "hikes_count"
+  | "unchanged_since"
+  | "first_since"
   | "yield_2y"
   | "yield_10y"
   | "yield_30y"
@@ -67,6 +72,12 @@ export type Claim = {
   month: string | null;
   /** Said as an approximation ("about 2 percent", "nearly 180,000"): checked with more room. */
   approx?: boolean;
+  /**
+   * For a count of the Fed's moves: since when ("cycle", the moves since the last one the other way;
+   * "consecutive", the decisions in a row; "since", from `month`). For "first since", the year or
+   * year-month in `month`.
+   */
+  scope?: "cycle" | "consecutive" | "since";
   /** The words it was read from. */
   phrase: string;
   /** Where its figure is in the text as `prepare` leaves it. */
@@ -113,6 +124,10 @@ export const LABEL: Record<Indicator, string> = {
   balance_sheet: "Neraca The Fed",
   fed_funds: "Kisaran suku bunga acuan Fed",
   rate_change: "Total perubahan suku bunga Fed",
+  cuts_count: "Jumlah pemangkasan suku bunga Fed",
+  hikes_count: "Jumlah kenaikan suku bunga Fed",
+  unchanged_since: "Suku bunga Fed tak berubah sejak",
+  first_since: "Langkah pertama sejak",
   yield_2y: "Yield Treasury 2 tahun",
   yield_10y: "Yield Treasury 10 tahun",
   yield_30y: "Yield Treasury 30 tahun",
@@ -139,7 +154,11 @@ export const UNIT: Record<Indicator, string> = Object.fromEntries(
               ? "$"
               : k === "rate_change"
                 ? "pp"
-                : "%",
+                : k === "cuts_count" || k === "hikes_count"
+                  ? "kali"
+                  : k === "unchanged_since" || k === "first_since"
+                    ? "sejak"
+                    : "%",
   ]),
 ) as Record<Indicator, string>;
 
@@ -165,7 +184,7 @@ export function readNumber(s: string): { value: number; length: number; commas?:
 
 /** Words that make a statement not one of fact: forecasts, goals, hypotheticals. */
 const NOT_FACT =
-  /\b(expect\w*|project\w*|forecast\w*|anticipat\w*|will|would|could|should|might|may be|if|goal|objective|target(?! range)\w*|median|longer[- ]run|next year|by the end of|outlook|scenario|assum\w*|estimate[sd]? (?:that|to)|think|believe|range of (?:possible|outcomes)|neutral|want\w*|reach\w*|achiev\w*|return\w*|bring\w*|get(?:ting)? (?:it|inflation)|keep(?:ing)? (?:it|inflation)|rais\w* inflation|until|aim\w*|seek\w*|commit\w*|consistent with|toward|u-?6|hypothetical\w*|by 20\d\d|consensus|economists|predict\w*|survey of)\b/;
+  /\b(expect\w*|project\w*|forecast\w*|anticipat\w*|will|would|could|should|might|may be|if|goal|objective|target(?! range)\w*|median|longer[- ]run|next year|by the end of|outlook|scenario|assum\w*|estimate[sd]? (?:that|to)|think|believe|range of (?:possible|outcomes)|neutral|want\w*|reach\w*|achiev\w*|return\w*|bring\w* (?:inflation|prices|it down|it back|them down)|get(?:ting)? (?:it|inflation)|keep(?:ing)? (?:it|inflation)|rais\w* inflation|until|aim\w*|seek\w*|commit\w*|consistent with|toward|u-?6|hypothetical\w*|by 20\d\d|consensus|economists|predict\w*|survey of)\b/;
 /** Another economy's figures ("lots of countries … inflation of 10 percent"). */
 const ABROAD = /\b(?:countries|europe|euro area|eurozone|britain|united kingdom|japan|china|canada|abroad|around the world|globally|emerging markets)\b/;
 /** A reading of another time than now: "last december", "in 2010", "at its peak". */
@@ -275,6 +294,65 @@ const PLAUSIBLE: Partial<Record<Indicator, [number, number]>> = {
   bitcoin: [1000, 1_000_000],
 };
 
+const ORDINAL: Record<string, number> = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10, eleventh: 11, twelfth: 12 };
+const TIMES: Record<string, number> = { once: 1, twice: 2, "three times": 3, "four times": 4, "five times": 5, "six times": 6, "seven times": 7, "eight times": 8, "nine times": 9, "ten times": 10 };
+const MONTH_RE = "january|february|march|april|may|june|july|august|september|october|november|december";
+const CUT = /^(?:cut|cuts|cutting|reduction|reductions|lowered|lowering|reduced|reducing|easing)$/;
+
+/** "since december", "since december 2024", "since 2020": the year-month (or year) meant. */
+function sinceOf(monthWord: string | undefined, year: string | undefined, asOf: Date): string | null {
+  if (monthWord && year) return `${year}-${String(MONTHS.indexOf(monthWord) + 1).padStart(2, "0")}`;
+  if (monthWord) return monthOf(MONTHS.indexOf(monthWord), asOf);
+  return year ?? null;
+}
+
+/**
+ * What a sentence says about the Fed's own record, in words: "this is our third cut", "we have
+ * raised rates twice this year", "rates have been unchanged since december", "the first cut since
+ * 2020". Checked against the FOMC seed (src/seed/fomc.ts), offline.
+ */
+function extractFomc(sentence: string, base: number, asOf: Date): Claim[] {
+  if (NOT_FACT.test(sentence.replace(/\btarget range\b/g, "")) && !/\b(?:this is|we have|we've|has been|have been)\b/.test(sentence)) return [];
+  const out: Claim[] = [];
+  const thisYear = `${asOf.getUTCFullYear()}-01`;
+  const ordinal = new RegExp(
+    `\\b(?:this is|this was|it's|it is|that's|that is|today's (?:cut|move|decision|reduction|increase|hike) (?:is|was|marks)|marks?|marking)\\s+(?:the|our|a)\\s+(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|(\\d{1,2})(?:st|nd|rd|th))\\s+(straight |consecutive |successive )?(?:rate |interest rate |policy rate )?(cut|reduction|hike|increase|rate increase|rate cut)\\b(?:\\s+(this year|in this cycle|in the current cycle|since (${MONTH_RE})(?: (\\d{4}))?))?`,
+    "g",
+  );
+  for (const m of sentence.matchAll(ordinal)) {
+    const n = m[2] ? Number(m[2]) : ORDINAL[m[1]];
+    // "The first cut since 2020" is a claim about the last one before it (first_since below).
+    if (n === 1 && (m[6] || /^\s*since\b/.test(sentence.slice(m.index! + m[0].length)))) continue;
+    const cut = CUT.test(m[4].split(" ").pop()!);
+    const scope = m[5] === "this year" ? "since" : m[6] ? "since" : m[3] ? "consecutive" : "cycle";
+    const month = m[5] === "this year" ? thisYear : m[6] ? sinceOf(m[6], m[7], asOf) : null;
+    out.push({ indicator: cut ? "cuts_count" : "hikes_count", value: n, month, scope, at: base + m.index!, phrase: m[0] });
+  }
+  const times = new RegExp(
+    `\\b(?:we(?:'ve| have)?|the (?:fed|committee|fomc)(?: has)?)\\s+(?:now\\s+)?(cut|lowered|reduced|raised|increased|hiked)\\s+(?:interest\\s+)?(?:rates|our policy rate|the (?:federal funds|policy) rate)?\\s*(once|twice|three times|four times|five times|six times|seven times|eight times|nine times|ten times|(\\d{1,2}) times)\\s+(this year|since (${MONTH_RE})(?: (\\d{4}))?)`,
+    "g",
+  );
+  for (const m of sentence.matchAll(times)) {
+    const n = m[3] ? Number(m[3]) : TIMES[m[2]];
+    const cut = CUT.test(m[1]);
+    const month = m[4] === "this year" ? thisYear : sinceOf(m[5], m[6], asOf);
+    out.push({ indicator: cut ? "cuts_count" : "hikes_count", value: n, month, scope: "since", at: base + m.index!, phrase: m[0] });
+  }
+  const unchanged = new RegExp(
+    `\\b(?:(?:interest )?rates?|the (?:policy|federal funds) rate|our policy rate) (?:have|has) (?:been|remained|stayed|held) (?:unchanged|steady|on hold|at this level|where (?:they|it) (?:are|is))\\s+since\\s+(?:last\\s+)?(${MONTH_RE})(?: (\\d{4}))?|\\bwe(?:'ve| have) (?:held|kept|left) (?:interest rates|rates|our policy rate|the policy rate)(?: (?:unchanged|steady|on hold))? since (?:last )?(${MONTH_RE})(?: (\\d{4}))?`,
+    "g",
+  );
+  for (const m of sentence.matchAll(unchanged)) {
+    const month = sinceOf(m[1] ?? m[3], m[2] ?? m[4], asOf);
+    out.push({ indicator: "unchanged_since", value: 0, month, at: base + m.index!, phrase: m[0] });
+  }
+  const first = new RegExp(`\\bfirst (?:rate |interest rate )?(cut|reduction|hike|increase) since (?:(${MONTH_RE}) )?(?:of )?(\\d{4})\\b`, "g");
+  for (const m of sentence.matchAll(first)) {
+    out.push({ indicator: "first_since", value: CUT.test(m[1]) ? -1 : 1, month: sinceOf(m[2], m[3], asOf), at: base + m.index!, phrase: m[0] });
+  }
+  return out;
+}
+
 /**
  * The factual claims about the US data and markets in a stretch of transcript: each figure with the
  * measure the words before it name, in that measure's unit.
@@ -287,6 +365,7 @@ export function extractClaims(text: string, asOf = new Date()): Claim[] {
     const sentence = part[0];
     const base = part.index ?? 0;
     if (sentence.trim().endsWith("?")) continue;
+    out.push(...extractFomc(sentence, base, asOf));
     const re = /\b(\d+(?:[.,]\d+)*|zero|one|two|three|four|five|six|seven|eight|nine|ten)\b/g;
     for (let m = re.exec(sentence); m; m = re.exec(sentence)) {
       const at = m.index;
@@ -554,6 +633,141 @@ async function marketTry(c: Claim, asOf: Date): Promise<Try[]> {
   return [{ m: new Date(bar.time * 1000).toISOString().slice(0, 16).replace("T", " "), v: bar.close, verdict: verdictOf(c.value, bar.close, c.indicator, c.approx), k: 0, series: sym, source: "harga TradingView saat diucapkan", url }];
 }
 
+type Move = Pick<FomcMove, "decided" | "effective" | "low" | "high" | "changeBp">;
+const ymd = (t: number) => new Date(t).toISOString().slice(0, 10);
+
+/** Today's decision as the calendar has it the moment it's out (the data has it from the next day). */
+async function todaysDecision(asOf: Date): Promise<Move | null> {
+  const day = ymd(asOf.getTime());
+  const row = (await releasesOf()).find((r) => r.title === "Fed Interest Rate Decision" && r.date.slice(0, 10) === day && r.actual !== null && Date.parse(r.date) <= asOf.getTime());
+  if (!row || row.previous === null || row.actual === row.previous) return null;
+  return { decided: day, effective: ymd(asOf.getTime() + 86_400_000), low: row.actual! - 0.25, high: row.actual!, changeBp: Math.round((row.actual! - row.previous) * 100) };
+}
+
+/**
+ * The Fed's moves decided by `asOf`: the seed's, then FRED's for any after the seed (a network that
+ * isn't there leaves the seed's, said so), then the one decided that day if the calendar has it.
+ */
+export async function movesAsOf(asOf: Date, get = fred.series): Promise<{ moves: Move[]; note: string | null }> {
+  let moves: Move[] = [...FOMC_MOVES];
+  let note: string | null = null;
+  if (ymd(asOf.getTime()) > FOMC_THROUGH) {
+    try {
+      const [lows, highs] = [await seriesOf("fed_low", get), await seriesOf("fed_high", get)];
+      const lowOn = new Map(lows.map((p) => [p.date, p.value]));
+      let prev = moves.at(-1)!;
+      for (const p of highs.filter((x) => x.date > FOMC_THROUGH)) {
+        const low = lowOn.get(p.date) ?? p.value - 0.25;
+        if (p.value !== prev.high || low !== prev.low) {
+          const m = { decided: ymd(Date.parse(`${p.date}T00:00:00Z`) - 86_400_000), effective: p.date, low, high: p.value, changeBp: Math.round((p.value - prev.high) * 100) };
+          moves.push(m);
+          prev = m;
+        }
+      }
+    } catch {
+      note = `riwayat dari seed (sampai ${FOMC_THROUGH}); data sesudahnya tidak terbaca`;
+    }
+  }
+  moves = moves.filter((m) => m.decided <= ymd(asOf.getTime()));
+  const today = await todaysDecision(asOf).catch(() => null);
+  if (today && !moves.some((m) => m.decided === today.decided)) moves.push(today);
+  return { moves, note };
+}
+
+/** The range in force on a day (the move effective on or before it). */
+const rangeOn = (moves: Move[], day: string) => [...moves].reverse().find((m) => m.effective <= day) ?? null;
+
+/** The FOMC's own record against a claim about it: its range, its moves, their count, a hold's start. */
+async function checkRecord(c: Claim, asOf: Date, get: typeof fred.series): Promise<Check> {
+  const none = (note: string): Check => ({ ...c, verdict: "unverifiable", official: null, period: null, series: null, source: null, url: null, note });
+  const { moves, note } = await movesAsOf(asOf, get);
+  const src = { series: "FOMC (seed + DFEDTARL/DFEDTARU)", source: "keputusan FOMC (Federal Reserve, via FRED)", url: "https://www.federalreserve.gov/monetarypolicy/openmarket.htm" };
+  const today = ymd(asOf.getTime());
+  const done = (verdict: Verdict, official: number | null, period: string | null, extra?: string, high?: number): Check => ({
+    ...c,
+    verdict,
+    official,
+    ...(high !== undefined ? { officialHigh: high } : {}),
+    period,
+    ...src,
+    note: [extra, note].filter(Boolean).join("; ") || null,
+  });
+
+  if (c.indicator === "fed_funds") {
+    // The range just decided counts from the decision (the data has it from the next day).
+    const r = [...moves].reverse().find((m) => m.decided <= today) ?? rangeOn(moves, today);
+    if (!r) return none("data tidak tersedia");
+    const ok = c.high !== undefined ? Math.abs(c.value - r.low) < 0.01 && Math.abs(c.high - r.high) < 0.01 : c.value >= r.low - 0.01 && c.value <= r.high + 0.01;
+    return done(ok ? "match" : "differs", r.low, r.decided, undefined, r.high);
+  }
+
+  if (c.indicator === "rate_change") {
+    const now = [...moves].reverse().find((m) => m.decided <= today);
+    if (!now) return none("data tidak tersedia");
+    // A month said without its year ("since march"): this year's, or the year before's.
+    const tries = [c.month!, prevYear(c.month!)].flatMap((ym, k) => {
+      const was = rangeOn(moves, ymd(Date.parse(`${ym}-01T00:00:00Z`) - 86_400_000));
+      return was ? [{ ym, k, v: now.high - was.high }] : [];
+    });
+    if (!tries.length) return none("data tidak tersedia");
+    const t = tries.map((x) => ({ ...x, verdict: verdictOf(c.value, x.v, "rate_change") })).sort((a, b) => ORDER.indexOf(a.verdict) - ORDER.indexOf(b.verdict) || a.k - b.k)[0];
+    return done(t.verdict, Math.round(t.v * 100) / 100, `${t.ym} → ${now.decided}`);
+  }
+
+  if (c.indicator === "cuts_count" || c.indicator === "hikes_count") {
+    const sign = c.indicator === "cuts_count" ? -1 : 1;
+    const same = (bp: number) => Math.sign(bp) === sign;
+    let n = 0;
+    let period: string;
+    if (c.scope === "since" && c.month) {
+      // A month said without its year: this year's, or the last's if this year's is still ahead.
+      n = moves.filter((m) => m.decided >= `${c.month}-01`.slice(0, 10) && same(m.changeBp)).length;
+      period = `${c.month} → ${today}`;
+    } else if (c.scope === "consecutive") {
+      // The decisions in a row (the seed's since 2013, and today's if it moved).
+      const seen = [...FOMC_MEETINGS_SEEN.filter((m) => m.date <= today)];
+      const todays = moves.find((m) => m.decided === today);
+      if (todays && !seen.some((m) => m.date === today)) seen.push({ date: today, high: todays.high, changeBp: todays.changeBp });
+      for (const m of [...seen].reverse()) {
+        if (!same(m.changeBp)) break;
+        n++;
+      }
+      period = "keputusan berturut-turut";
+    } else {
+      // This cycle: the moves this way since the last one the other way.
+      const cycle: Move[] = [];
+      for (const m of [...moves].reverse()) {
+        if (!m.changeBp) continue;
+        if (!same(m.changeBp)) break;
+        cycle.push(m);
+      }
+      n = cycle.length;
+      period = cycle.length ? `${cycle.at(-1)!.decided} → ${cycle[0].decided}` : "siklus ini";
+    }
+    return done(c.value === n ? "match" : "differs", n, period);
+  }
+
+  if (c.indicator === "unchanged_since") {
+    const last = [...moves].reverse().find((m) => m.decided <= today && m.changeBp !== 0);
+    if (!last || !c.month) return none("data tidak tersedia");
+    const said = c.month.length === 4 ? last.decided.slice(0, 4) === c.month : last.decided.slice(0, 7) === c.month;
+    // "Since december" for a move decided on 10 december and in force from the 11th.
+    const near = !said && Math.abs(Date.parse(`${c.month}-15T00:00:00Z`) - Date.parse(`${last.decided}T00:00:00Z`)) < 40 * 86_400_000;
+    return done(said ? "match" : near ? "close" : "differs", null, last.decided, `langkah terakhir: ${last.changeBp > 0 ? "+" : ""}${last.changeBp} bp`);
+  }
+
+  if (c.indicator === "first_since") {
+    const sign = c.value;
+    const moved = [...moves].reverse().filter((m) => Math.sign(m.changeBp) === sign);
+    const [latest, before] = moved;
+    if (!latest || !c.month) return none("data tidak tersedia");
+    if (!before) return done("differs", null, latest.decided, "tidak ada langkah serupa sebelumnya di data");
+    const said = before.decided.startsWith(c.month);
+    return done(said ? "match" : "differs", null, before.decided, `langkah serupa sebelumnya: ${before.decided}`);
+  }
+  return none("bukan klaim tentang keputusan FOMC");
+}
+
 /**
  * Checks a claim against the data out by `asOf`: the month it names, or else the latest data
  * (and the month before, since a speaker may still quote the previous release).
@@ -579,40 +793,7 @@ export async function check(c: Claim, asOf = new Date(), get = fred.series): Pro
 
     if (MARKET[c.indicator]) return done(best(await marketTry(c, asOf)));
 
-    if (c.indicator === "fed_funds") {
-      const [lows, highs] = [await seriesOf("fed_low", get), await seriesOf("fed_high", get)];
-      const day = (s: Series, t: number) => s.filter((p) => Date.parse(p.date) <= t).at(-1);
-      const fits = (lo: { value: number }, hi: { value: number }) =>
-        c.high !== undefined ? Math.abs(c.value - lo.value) < 0.01 && Math.abs(c.high - hi.value) < 0.01 : c.value >= lo.value - 0.01 && c.value <= hi.value + 0.01;
-      const now = { lo: day(lows, asOf.getTime()), hi: day(highs, asOf.getTime()) };
-      // On a decision day the range just announced is in the data from the next day on.
-      const next = { lo: day(lows, asOf.getTime() + 86_400_000), hi: day(highs, asOf.getTime() + 86_400_000) };
-      const pick = next.lo && next.hi && fits(next.lo, next.hi) ? next : now;
-      const [lo, hi] = [pick.lo, pick.hi];
-      if (!lo || !hi) return none("data tidak tersedia");
-      const ok = fits(lo, hi);
-      if (!ok && Date.now() - asOf.getTime() < 2 * 86_400_000)
-        return { ...none("bisa jadi kisaran baru yang diputuskan hari ini: data resmi mencatatnya mulai besok"), official: lo.value, officialHigh: hi.value, period: lo.date };
-      return { ...c, verdict: ok ? "match" : "differs", official: lo.value, officialHigh: hi.value, period: lo.date, series: "DFEDTARL/DFEDTARU", source: SERIES.fed_low.source, url: fredUrl("DFEDTARU"), note: null };
-    }
-
-    if (c.indicator === "rate_change") {
-      // The top of the range now against just before the month named began.
-      const highs = await seriesOf("fed_high", get);
-      const at = (t: number) => highs.filter((p) => Date.parse(p.date) <= t).at(-1);
-      const [nowHigh, tomorrow] = [at(asOf.getTime()), at(asOf.getTime() + 86_400_000)];
-      if (!nowHigh) return none("data tidak tersedia");
-      // A month said without its year ("since march"): this year's, or the year before's.
-      const tries: Try[] = [];
-      for (const [k, ym] of [c.month!, prevYear(c.month!)].entries()) {
-        const was = at(Date.parse(`${ym}-01T00:00:00Z`) - 86_400_000);
-        if (was) [nowHigh, tomorrow].forEach((p) => p && tries.push(fredTry("fed_high", `${ym} → ${p.date}`, p.value - was.value, k)));
-      }
-      if (!tries.length) return none("data tidak tersedia");
-      const t = best(tries);
-      if (t.verdict !== "match" && Date.now() - asOf.getTime() < 2 * 86_400_000) return { ...none("bisa jadi termasuk keputusan hari ini: data resmi mencatatnya mulai besok"), official: t.v, period: t.m };
-      return done(t);
-    }
+    if (["fed_funds", "rate_change", "cuts_count", "hikes_count", "unchanged_since", "first_since"].includes(c.indicator)) return await checkRecord(c, asOf, get);
 
     if (c.indicator === "payrolls_avg") {
       const pts = known(await seriesOf("payrolls", get));
