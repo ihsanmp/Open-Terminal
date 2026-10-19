@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isPinch, keyAction, panPrice, scalePrice, wheelPixels, zoomFactor, zoomSpan } from "./chart-nav";
+import { isPinch, keepBarsInView, keyAction, panPrice, scalePrice, wheelPixels, zoomAnchor, zoomFactor, zoomSpan } from "./chart-nav";
 
 const key = (k: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }> = {}) => ({
   key: k,
@@ -23,6 +23,24 @@ describe("TradingView-style chart navigation", () => {
   it("keeps a sensible number of bars in view", () => {
     expect(zoomSpan({ from: 0, to: 20 }, 0.1, 20, 10)).toEqual({ from: 10, to: 20 });
     expect(zoomSpan({ from: 0, to: 100 }, 100, 100, 10, 500)).toEqual({ from: -400, to: 100 });
+  });
+
+  it("zooms around the newest bar, not the blank future to its right", () => {
+    // 1000 bars (the newest is 999), the view from 900 out to 1100 in the blank future.
+    expect(zoomAnchor({ from: 900, to: 1100 }, 999)).toBe(999.5);
+    expect(zoomAnchor({ from: 900, to: 990 }, 999)).toBe(990);
+    expect(zoomAnchor({ from: 1010, to: 1130 }, 999)).toBe(1010);
+    // A notch in: the newest bar stays in view (around the right edge, nothing was left).
+    const z = zoomSpan({ from: 980, to: 1100 }, 0.64, zoomAnchor({ from: 980, to: 1100 }, 999));
+    expect(z.from).toBeLessThan(999);
+  });
+
+  it("keeps some bars in view when a zoom or scroll goes past the data", () => {
+    expect(keepBarsInView({ from: 1010, to: 1130 }, 999)).toEqual({ from: 994.5, to: 1114.5 });
+    expect(keepBarsInView({ from: -200, to: -50 }, 999)).toEqual({ from: -145.5, to: 4.5 });
+    expect(keepBarsInView({ from: 900, to: 1100 }, 999)).toEqual({ from: 900, to: 1100 });
+    // Fewer bars than that: all of them.
+    expect(keepBarsInView({ from: 10, to: 40 }, 2)).toEqual({ from: -0.5, to: 29.5 });
   });
 
   it("reads wheel deltas in pixels and tells a pinch from a Ctrl + mouse notch", () => {
