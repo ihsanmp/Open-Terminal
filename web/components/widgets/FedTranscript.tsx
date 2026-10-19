@@ -62,6 +62,11 @@ type Sentiment = {
 /** A figure said about the US data, checked against the official data (server: factcheck.ts). */
 type FactCheck = {
   line: number;
+  /** Still open to the next words (its month, or a "goal" that drops it). */
+  provisional?: boolean;
+  label?: string;
+  /** "%", "rb" (thousands), "jt" (millions), "T$", "poin", "$", "pp". */
+  unit?: string;
   indicator: string;
   value: number;
   high?: number;
@@ -363,19 +368,30 @@ const VERDICT: Record<NonNullable<FactCheck["verdict"]>, { text: string; color: 
   unverifiable: { text: "? tak terverifikasi", color: "#888", title: "Tidak bisa dicocokkan dengan data resmi" },
 };
 
-const unitOf = (f: FactCheck) => (f.indicator.startsWith("payrolls") ? "rb" : "%");
-const fmtFact = (f: FactCheck, v: number | null | undefined, hi?: number) =>
-  v === null || v === undefined ? "—" : `${v.toLocaleString("id-ID", { maximumFractionDigits: 2 })}${hi !== undefined ? `–${hi.toLocaleString("id-ID", { maximumFractionDigits: 2 })}` : ""}${unitOf(f)}`;
+const unitOf = (f: FactCheck) => f.unit ?? (f.indicator.startsWith("payrolls") ? "rb" : "%");
+const labelOf = (f: FactCheck) => f.label ?? FACT_LABEL[f.indicator] ?? f.indicator;
+const fmtFact = (f: FactCheck, v: number | null | undefined, hi?: number) => {
+  if (v === null || v === undefined) return "—";
+  const n = (x: number) => x.toLocaleString("id-ID", { maximumFractionDigits: 2 });
+  const u = unitOf(f);
+  const range = `${n(v)}${hi !== undefined ? `–${n(hi)}` : ""}`;
+  return u === "$" ? `$${range}` : u === "poin" ? range : u === "pp" ? `${v > 0 ? "+" : ""}${range} pp` : `${range}${u === "%" ? "%" : ` ${u}`}`;
+};
 
 /** A claim's verdict beside the line it was said in. */
 function FactBadge({ f }: { f: FactCheck }) {
   const v = f.verdict ? VERDICT[f.verdict] : null;
-  const title = `${FACT_LABEL[f.indicator] ?? f.indicator}: disebut ${fmtFact(f, f.value, f.high)}${
+  const title = `${labelOf(f)}${f.provisional ? " (sementara: kalimatnya belum selesai)" : ""}: disebut ${fmtFact(f, f.value, f.high)}${
     f.verdict ? ` · data resmi ${fmtFact(f, f.official, f.officialHigh)}${f.period ? ` (${f.period})` : ""}${f.source ? ` · ${f.source}` : ""}${f.note ? ` · ${f.note}` : ""}` : " · mengecek data resmi…"
   }`;
   return (
-    <span className="text-fs-9 px-1 mx-0.5 rounded-sm border not-italic whitespace-nowrap" style={{ borderColor: v?.color ?? "#555", color: v?.color ?? "#888" }} title={title}>
+    <span
+      className={`text-fs-9 px-1 mx-0.5 rounded-sm border not-italic whitespace-nowrap ${f.provisional ? "border-dashed opacity-80" : ""}`}
+      style={{ borderColor: v?.color ?? "#555", color: v?.color ?? "#888" }}
+      title={title}
+    >
       {v ? v.text : "… cek fakta"}
+      {f.provisional && v && <span className="dim"> · sementara</span>}
     </span>
   );
 }
@@ -397,7 +413,7 @@ function FactList({ facts }: { facts: FactCheck[] }) {
         <div className="mt-1 space-y-1 max-h-48 overflow-auto">
           {[...facts].reverse().map((f) => (
             <div key={`${f.line}:${f.indicator}:${f.value}`} className="leading-snug">
-              <FactBadge f={f} /> <b>{FACT_LABEL[f.indicator] ?? f.indicator}</b>: disebut {fmtFact(f, f.value, f.high)}
+              <FactBadge f={f} /> <b>{labelOf(f)}</b>: disebut {fmtFact(f, f.value, f.high)}
               {f.verdict && f.verdict !== "unverifiable" && (
                 <>
                   {" "}
@@ -417,7 +433,7 @@ function FactList({ facts }: { facts: FactCheck[] }) {
             </div>
           ))}
           <div className="dim text-fs-9">
-            Dicocokkan otomatis dengan data resmi terbaru di FRED (BLS, BEA, The Fed); proyeksi, target (mis. “2 percent objective”), perbandingan dan angka masa lalu tidak dicek. Diuji pada 72 konferensi pers FOMC 2016–2026: ±90% klaim yang terbaca memang klaim fakta; “berbeda” di data lama kebanyakan karena revisi data sesudahnya.
+            Dicocokkan otomatis, begitu angkanya terdengar (“sementara” sampai kalimatnya selesai), dengan: angka rilis pertama data AS (CPI/PCE bulanan, PPI, retail sales, payroll, pengangguran, klaim, ISM, JOLTS, ADP, sentimen Michigan), FRED (inflasi tahunan, GDP, upah, KPR, neraca dan suku bunga Fed) dan harga pasar TradingView saat diucapkan (yield, DXY, S&amp;P 500, minyak, emas, bitcoin). Proyeksi, target (mis. “2 percent objective”), perbandingan, perubahan (“turun sebesar…”) dan angka masa lalu tidak dicek. Diuji pada 72 konferensi pers FOMC 2016–2026: ±90% klaim yang terbaca memang klaim fakta; “berbeda” kebanyakan karena revisi data sesudahnya.
           </div>
         </div>
       )}

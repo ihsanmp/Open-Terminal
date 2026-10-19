@@ -17,7 +17,7 @@ import { findHits, indexOf, normalize, stanceOf, type Side, type Stance } from "
 import { liveTracks, segment, type LiveTracks } from "./youtubelive.js";
 import { MediaAnalyzer, stopFaceWorker, type MediaReport } from "./fedmedia.js";
 import { noteFedBroadcast } from "./reactions.js";
-import { check, claimsInLines, type Check, type Claim } from "./factcheck.js";
+import { check, claimsInLines, LABEL, UNIT, type Check, type Claim } from "./factcheck.js";
 
 /** On first open, read back this many 5-second segments (an hour). */
 const BACKFILL = 720;
@@ -189,7 +189,7 @@ export function scoreTranscript(lines: Line[], voices?: Voices): { lines: Scored
 
 type Status = "starting" | "live" | "offline" | "no-captions" | "error";
 
-type Session = {
+export type Session = {
   videoId: string;
   title: string;
   status: Status;
@@ -216,37 +216,59 @@ type Session = {
   savedAt: number;
   scored: { key: string; result: ReturnType<typeof scoreTranscript> } | null;
   /** The figures said about the US data, each checked against the official data (factcheck.ts). */
-  facts: { scanned: number; items: Map<string, FactItem> };
+  facts: { scanned: number; read: number; items: Map<string, FactItem> };
 };
 
-type FactItem = { line: number; claim: Claim; result: Check | null };
-/** A claim with the line it was said in: its check once in, else the claim alone (verdict null). */
-export type FactCheck = (Check | (Claim & { verdict: null })) & { line: number };
+type FactItem = { line: number; claim: Claim; result: Check | null; provisional: boolean; asked: string };
+/**
+ * A claim with the line it was said in: its check once in, else the claim alone (verdict null).
+ * Provisional while the two lines after it aren't in: their words may still name its month, or
+ * make it a goal or a forecast instead.
+ */
+export type FactCheck = (Check | (Claim & { verdict: null })) & { line: number; provisional: boolean; label: string; unit: string };
 const MAX_FACTS = 300;
+/** Lines after a claim's that can still change it. */
+const SETTLE = 2;
 
 /**
- * Reads the lines not yet read for claims (the last two wait: a caption may cut a sentence before
- * its figure's unit or month) and checks each new one in the background.
+ * Reads the newest lines for claims as soon as they're in, and checks each in the background: a
+ * claim in the last two lines is provisional, read again as the next lines come (its month added,
+ * or dropped if they make it a goal or a forecast), then settled.
  */
-function scanFacts(s: Session): void {
-  const ready = s.tr.lines.length - 2;
-  if (ready <= s.facts.scanned) return;
-  // A few lines back again: a claim begun before the last read ends in the new lines.
+export function scanFacts(s: Session): void {
+  const n = s.tr.lines.length;
+  if (n === s.facts.read) return;
+  // From a few lines before the settled ones: a claim begun there may end in the new lines.
   const from = Math.max(0, s.facts.scanned - 8);
-  const lines = s.tr.lines.slice(from, ready);
+  const lines = s.tr.lines.slice(from, n);
   // Said when it was said (a broadcast read back from disk is checked against the data of its day).
   const at = lines.at(-1)?.at ?? Date.now();
   const asOf = new Date(at > 1e12 ? at : Date.now());
+  const settled = n - SETTLE;
+  const seen = new Set<string>();
   for (const c of claimsInLines(lines.map((l) => l.text), asOf)) {
     const line = from + c.line;
     const key = `${line}:${c.indicator}:${c.value}`;
-    if (s.facts.items.has(key)) continue;
-    const item: FactItem = { line, claim: c, result: null };
+    seen.add(key);
+    const asked = `${c.month}|${c.approx}|${c.high}`;
+    const had = s.facts.items.get(key);
+    if (had && (!had.provisional || had.asked === asked)) {
+      had.provisional = line >= settled;
+      continue;
+    }
+    // New, or a provisional one the next words have changed (a month named after the figure).
+    const item: FactItem = { line, claim: c, result: null, provisional: line >= settled, asked };
     s.facts.items.set(key, item);
-    void check(c, asOf).then((r) => (item.result = r));
+    void check(c, asOf).then((r) => {
+      if (s.facts.items.get(key) === item) item.result = r;
+    });
     if (s.facts.items.size > MAX_FACTS) s.facts.items.delete(s.facts.items.keys().next().value!);
   }
-  s.facts.scanned = ready;
+  // A provisional claim the next words have undone ("… 2 percent objective") goes.
+  for (const [key, item] of s.facts.items) if (item.provisional && item.line >= from && !seen.has(key)) s.facts.items.delete(key);
+  for (const item of s.facts.items.values()) if (item.line < settled) item.provisional = false;
+  s.facts.scanned = Math.max(s.facts.scanned, settled);
+  s.facts.read = n;
 }
 
 const sessions = new Map<string, Session>();
@@ -490,7 +512,7 @@ export function transcript(videoId: string, since = 0, faces = true, fed = true,
       dirty: false,
       savedAt: Date.now(),
       scored: null,
-      facts: { scanned: 0, items: new Map() },
+      facts: { scanned: 0, read: 0, items: new Map() },
     };
     sessions.set(videoId, s);
     // Room for this one: drop the session asked for longest ago.
@@ -527,7 +549,7 @@ export function transcript(videoId: string, since = 0, faces = true, fed = true,
   scanFacts(s);
   const facts: FactCheck[] = [...s.facts.items.values()]
     .sort((a, b) => a.line - b.line)
-    .map((f) => ({ ...(f.result ?? { ...f.claim, verdict: null }), line: f.line }));
+    .map((f) => ({ ...(f.result ?? { ...f.claim, verdict: null }), line: f.line, provisional: f.provisional, label: LABEL[f.claim.indicator], unit: UNIT[f.claim.indicator] }));
   return {
     videoId,
     title: s.title,
