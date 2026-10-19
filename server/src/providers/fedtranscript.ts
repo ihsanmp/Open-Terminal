@@ -18,6 +18,7 @@ import { liveTracks, segment, type LiveTracks } from "./youtubelive.js";
 import { MediaAnalyzer, stopFaceWorker, type MediaReport } from "./fedmedia.js";
 import { noteFedBroadcast } from "./reactions.js";
 import { check, claimsInLines, LABEL, UNIT, type Check, type Claim } from "./factcheck.js";
+import { findReports, eventPart, statements, type Evidence } from "./evidence.js";
 
 /** On first open, read back this many 5-second segments (an hour). */
 const BACKFILL = 720;
@@ -217,7 +218,89 @@ export type Session = {
   scored: { key: string; result: ReturnType<typeof scoreTranscript> } | null;
   /** The figures said about the US data, each checked against the official data (factcheck.ts). */
   facts: { scanned: number; read: number; items: Map<string, FactItem> };
+  /** The events said (not figures), each looked for in the news archive (evidence.ts). */
+  evidence: { scanned: number; checked: number; items: Map<string, EvidenceItem> };
 };
+
+type EvidenceItem = Evidence & { at: number; askedAt: number };
+const MAX_EVIDENCE = 300;
+/** Statements read per poll (a broadcast read back from disk is caught up on over a few polls). */
+const EVIDENCE_PER_POLL = 60;
+/** A statement no outlet had reported yet is looked for again, for two hours after it was said. */
+const EVIDENCE_RETRY_MS = 10 * 60_000;
+const EVIDENCE_RETRY_FOR = 2 * 3_600_000;
+
+/**
+ * Reads the settled lines (their sentences done) for statements of events and looks each up in
+ * the news archive; one not found yet is looked for again as the news comes in.
+ */
+export function scanEvidence(s: Session, now = Date.now()): void {
+  const settled = s.tr.lines.length - SETTLE;
+  const ev = s.evidence;
+  if (settled > ev.scanned) {
+    // From the first statement not read yet (one still running on last time, or the next).
+    const from = ev.scanned;
+    const lines = s.tr.lines.slice(from, settled);
+    let pending: number | null = null;
+    let done = 0;
+    for (const st of statements(lines.map((l) => l.text))) {
+      const line = from + st.line;
+      const lastLine = from + st.lastLine;
+      // Running on into the lines not settled yet: read once it's done.
+      if (lastLine >= settled - 1 && !/[.?!]$/.test(st.text)) {
+        pending ??= line;
+        continue;
+      }
+      if (done >= EVIDENCE_PER_POLL) {
+        pending ??= line;
+        break;
+      }
+      // Keyed by how it ends: read again from its middle, it's the same statement.
+      const key = `${lastLine}:${st.text.slice(-40)}`;
+      if (ev.items.has(key)) continue;
+      const text = eventPart(st.text);
+      if (!text) continue;
+      done++;
+      ev.checked++;
+      const said = s.tr.lines[line]?.at ?? now;
+      const at = said > 1e12 ? said : now;
+      ev.items.set(key, { text, line, lastLine, at, askedAt: now, sources: safeReports(text, at) });
+      if (ev.items.size > MAX_EVIDENCE) ev.items.delete(ev.items.keys().next().value!);
+    }
+    ev.scanned = pending ?? settled;
+  }
+  // Said before an outlet had it: looked for again a while.
+  for (const item of ev.items.values()) {
+    if (item.sources.length || now - item.at > EVIDENCE_RETRY_FOR || now - item.askedAt < EVIDENCE_RETRY_MS) continue;
+    item.askedAt = now;
+    item.sources = safeReports(item.text, item.at);
+  }
+}
+
+/**
+ * The statements an outlet reported, and how many were looked for: overlapping stretches of
+ * unpunctuated captions telling one story (the same lead headline, or none) count once.
+ */
+function evidenceReply(s: Session): TranscriptReply["evidence"] {
+  const all = [...s.evidence.items.values()].sort((a, b) => a.line - b.line);
+  const one = all.filter((e, k) => {
+    const p = all[k - 1];
+    return !p || e.line > p.lastLine + 1 || (p.sources[0]?.link ?? null) !== (e.sources[0]?.link ?? null);
+  });
+  return {
+    checked: one.length,
+    items: one.filter((e) => e.sources.length).map(({ text, line, lastLine, sources }) => ({ text, line, lastLine, sources })),
+  };
+}
+
+function safeReports(text: string, at: number) {
+  try {
+    return findReports(text, at);
+  } catch (err) {
+    console.warn("evidence:", err instanceof Error ? err.message : err);
+    return [];
+  }
+}
 
 type FactItem = { line: number; claim: Claim; result: Check | null; provisional: boolean; asked: string };
 /**
@@ -434,6 +517,11 @@ export type TranscriptReply = {
   /** The figures said about the US data, checked against the official data, in the order said. */
   facts: FactCheck[];
   /**
+   * The events said, looked for in the news archive: those an outlet has reported (with its
+   * headlines), and how many were looked for.
+   */
+  evidence: { checked: number; items: Evidence[] };
+  /**
    * The Fed Sentiment Index with all three layers: the words' index (90%) made firmer or softer by
    * the delivery's confidence (10%): index × (0.9 + 0.1 × (2 × confidence − 1)). Null until layer 2
    * has heard enough of the main speaker.
@@ -513,6 +601,7 @@ export function transcript(videoId: string, since = 0, faces = true, fed = true,
       savedAt: Date.now(),
       scored: null,
       facts: { scanned: 0, read: 0, items: new Map() },
+      evidence: { scanned: 0, checked: 0, items: new Map() },
     };
     sessions.set(videoId, s);
     // Room for this one: drop the session asked for longest ago.
@@ -547,6 +636,7 @@ export function transcript(videoId: string, since = 0, faces = true, fed = true,
   if (fed && sentiment.hawkish + sentiment.dovish >= 3) keepReading({ index: combined?.index ?? sentiment.index, at: new Date().toISOString(), title: s.title, videoId });
   const start = Math.max(0, Math.min(since, lines.length));
   scanFacts(s);
+  scanEvidence(s);
   const facts: FactCheck[] = [...s.facts.items.values()]
     .sort((a, b) => a.line - b.line)
     .map((f) => ({ ...(f.result ?? { ...f.claim, verdict: null }), line: f.line, provisional: f.provisional, label: LABEL[f.claim.indicator], unit: UNIT[f.claim.indicator] }));
@@ -563,5 +653,6 @@ export function transcript(videoId: string, since = 0, faces = true, fed = true,
     media,
     combined,
     facts,
+    evidence: evidenceReply(s),
   };
 }
