@@ -82,6 +82,8 @@ type FactCheck = {
   url?: string | null;
   note?: string | null;
 };
+/** An event said, and the outlets in the news archive that reported it (server: evidence.ts). */
+type EvidenceItem = { text: string; line: number; lastLine: number; sources: Array<{ publisher: string; title: string; link: string; time: number }> };
 type Reply = {
   videoId: string;
   title: string;
@@ -94,6 +96,7 @@ type Reply = {
   media?: Media;
   combined?: { index: number; stance: Stance } | null;
   facts?: FactCheck[];
+  evidence?: { checked: number; items: EvidenceItem[] };
 };
 
 export type FedTranscriptState = { videoId: string | null; lines: TranscriptLine[]; reply: Reply | null; error: string | null };
@@ -444,6 +447,55 @@ function FactList({ facts }: { facts: FactCheck[] }) {
   );
 }
 
+/** Beside the line a statement ends on: the outlets that reported it. */
+function EvidenceBadge({ e }: { e: EvidenceItem }) {
+  const title = `Ada pemberitaan:\n${e.sources.map((x) => `${x.publisher}: ${x.title}`).join("\n")}\n\n“${e.text}”`;
+  return (
+    <a href={e.sources[0]?.link} target="_blank" rel="noreferrer" className="text-fs-9 px-1 mx-0.5 rounded-sm border not-italic whitespace-nowrap hover:underline" style={{ borderColor: "#5c9ded", color: "#5c9ded" }} title={title}>
+      📰 {e.sources[0]?.publisher}
+      {e.sources.length > 1 && ` +${e.sources.length - 1}`}
+    </a>
+  );
+}
+
+/** The events said that an outlet has reported, newest first, with the headlines. */
+function EvidenceList({ evidence }: { evidence: { checked: number; items: EvidenceItem[] } | undefined }) {
+  const [open, setOpen] = useState(false);
+  if (!evidence || !evidence.checked) return null;
+  const { checked, items } = evidence;
+  return (
+    <div className="px-2 py-1 border-b border-[var(--border)] text-fs-10">
+      <button className="dim hover:text-[var(--text)]" onClick={() => setOpen((o) => !o)} title="Peristiwa yang disebut di siaran (bukan angka), dicari di arsip berita tab News tujuh hari terakhir">
+        {open ? "▾" : "▸"} Cek berita: {checked} pernyataan peristiwa dicek · <span style={{ color: "#5c9ded" }}>{items.length} ada pemberitaan</span>
+        {checked > items.length && <span> · sisanya belum ditemukan di arsip</span>}
+      </button>
+      {open && (
+        <div className="mt-1 space-y-1 max-h-48 overflow-auto">
+          {[...items].reverse().map((e) => (
+            <div key={`${e.line}:${e.text.slice(-40)}`} className="leading-snug">
+              <div className="dim italic truncate" title={e.text}>
+                “{e.text.slice(0, 160)}”
+              </div>
+              {e.sources.map((x) => (
+                <div key={x.link + x.publisher}>
+                  📰{" "}
+                  <a href={x.link} target="_blank" rel="noreferrer" className="amber hover:underline">
+                    {x.publisher}
+                  </a>
+                  : {x.title}
+                </div>
+              ))}
+            </div>
+          ))}
+          <div className="dim text-fs-9">
+            Pernyataan tentang peristiwa (bukan opini, rencana, pertanyaan atau angka; pada caption otomatis tanpa tanda baca, potongan ±18 kata yang saling tumpang-tindih) dicari otomatis di arsip berita aplikasi (tab News, tujuh hari terakhir), dengan pencocokan kata langka yang sama seperti tab Insider. “Ada pemberitaan” berarti outlet itu memberitakan hal yang sama, bukan bahwa isinya pasti benar; “belum ditemukan” bukan berarti salah: arsipnya mungkin tidak memuat beritanya, atau pembicara lebih dulu menyebutnya (dicari lagi selama dua jam). Disetel pada 79 pernyataan dari arsip 3–18 Okt; di uji buta terakhir (16 pernyataan, tidak dipakai menyetel): 8 dari 10 berita yang ada ditemukan, dan 0 dari 6 kasus jebakan (tempat/subjek lain dengan kata serupa) salah dicocokkan.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Marked({ line, dimmed }: { line: TranscriptLine; dimmed: boolean }) {
   if (dimmed || !line.phrases.length) return <>{line.text} </>;
   const lower = line.text.toLowerCase().replace(/[’‘]/g, "'");
@@ -482,6 +534,8 @@ export function TranscriptPanel({ state, live }: { state: FedTranscriptState; li
   const indexOf = new Map(shown.map((l, k) => [l, firstShown + k]));
   const factsByLine = new Map<number, FactCheck[]>();
   for (const f of r?.facts ?? []) (factsByLine.get(f.line) ?? factsByLine.set(f.line, []).get(f.line)!).push(f);
+  const evidenceByLine = new Map<number, EvidenceItem[]>();
+  for (const e of r?.evidence?.items ?? []) (evidenceByLine.get(e.lastLine) ?? evidenceByLine.set(e.lastLine, []).get(e.lastLine)!).push(e);
 
   useLayoutEffect(() => {
     if (follow.current && box.current) box.current.scrollTop = box.current.scrollHeight;
@@ -510,6 +564,7 @@ export function TranscriptPanel({ state, live }: { state: FedTranscriptState; li
         </div>
       )}
       <FactList facts={r?.facts ?? []} />
+      <EvidenceList evidence={r?.evidence} />
       {r?.catchUp && (
         <div className="px-2 py-1 amber text-fs-10">
           Membaca siaran dari awal… {Math.round((r.catchUp.done / Math.max(1, r.catchUp.of)) * 100)}%
@@ -558,6 +613,9 @@ export function TranscriptPanel({ state, live }: { state: FedTranscriptState; li
                     <Marked line={l} dimmed={off} />
                     {(factsByLine.get(indexOf.get(l) ?? -1) ?? []).map((f) => (
                       <FactBadge key={`${f.indicator}:${f.value}`} f={f} />
+                    ))}
+                    {(evidenceByLine.get(indexOf.get(l) ?? -1) ?? []).map((e) => (
+                      <EvidenceBadge key={e.text.slice(-40)} e={e} />
                     ))}
                   </span>
                 ))}

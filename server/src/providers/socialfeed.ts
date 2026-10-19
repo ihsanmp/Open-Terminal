@@ -733,7 +733,7 @@ export type Headline = Confirmation & { words: Set<string> };
 const EVERGREEN = /price prediction|promo code|coupon|\bhow to\b|^what is\b/i;
 
 /** The outlets' headlines from `from` on (the News tab's archive, wires and papers, not blogs). */
-function headlines(from: number): Headline[] {
+export function headlines(from: number): Headline[] {
   let rows: Array<{ title: string; summary: string; link: string; publisher: string; published_at: string }>;
   try {
     rows = db.prepare("SELECT title, summary, link, publisher, published_at FROM news_archive WHERE tier <= 2 AND published_at >= ?").all(new Date(from).toISOString()) as typeof rows;
