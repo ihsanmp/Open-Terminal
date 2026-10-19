@@ -68,6 +68,9 @@ export type ForexRow = {
   price: number;
   change: number | null;
   changePercent: number | null;
+  /** Over the last week and month, in percent. */
+  changeWeek: number | null;
+  changeMonth: number | null;
   high: number | null;
   low: number | null;
 };
@@ -85,7 +88,7 @@ export function forexBoard(): Promise<ForexRow[]> {
     for (const pair of ALL) {
       const q = quotes.get(`${pair}=X`);
       if (!q || q.price == null) continue;
-      rows.push({ symbol: `${pair}=X`, pair, group: groupOf(pair), name: q.name, price: q.price, change: q.change, changePercent: q.changePercent, high: q.high, low: q.low });
+      rows.push({ symbol: `${pair}=X`, pair, group: groupOf(pair), name: q.name, price: q.price, change: q.change, changePercent: q.changePercent, changeWeek: q.changeWeek ?? null, changeMonth: q.changeMonth ?? null, high: q.high, low: q.low });
     }
     if (!rows.length) throw new Error("no forex prices from TradingView");
     return rows;

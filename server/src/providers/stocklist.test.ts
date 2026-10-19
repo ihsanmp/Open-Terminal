@@ -21,13 +21,15 @@ describe("a market's stocks", () => {
   });
 
   it("lists them biggest first, as the app's symbols, a page at a time", async () => {
-    const calls = scanner(844, [{ s: "IDX:BBCA", d: ["PT Bank Central Asia Tbk", 5175, 1.2, 7.49e14, 1e8, "Finance", "IDR"] }]);
+    const calls = scanner(844, [{ s: "IDX:BBCA", d: ["PT Bank Central Asia Tbk", 5175, 1.2, 7.49e14, 1e8, "Finance", "IDR", -3.5, 6.25] }]);
     const page = await stockPage("indonesia", 2);
     expect(calls[0].url).toContain("/indonesia/scan");
     expect(calls[0].body.range).toEqual([100, 200]);
     expect(calls[0].body.sort).toEqual({ sortBy: "market_cap_basic", sortOrder: "desc" });
     expect(page).toMatchObject({ total: 844, page: 2, perPage: 100 });
-    expect(page.rows[0]).toEqual({ symbol: "BBCA.JK", code: "BBCA", name: "PT Bank Central Asia Tbk", price: 5175, changePercent: 1.2, marketCap: 7.49e14, volume: 1e8, sector: "Finance", currency: "IDR" });
+    // The day's, the week's and the month's change.
+    expect(calls[0].body.columns).toEqual(expect.arrayContaining(["change", "Perf.W", "Perf.1M"]));
+    expect(page.rows[0]).toEqual({ symbol: "BBCA.JK", code: "BBCA", name: "PT Bank Central Asia Tbk", price: 5175, changePercent: 1.2, changeWeek: -3.5, changeMonth: 6.25, marketCap: 7.49e14, volume: 1e8, sector: "Finance", currency: "IDR" });
   });
 
   it("searches by ticker or name, and writes a Paris listing as .PA", async () => {

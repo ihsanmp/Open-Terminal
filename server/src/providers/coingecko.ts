@@ -11,6 +11,9 @@ export type CryptoRow = {
   name: string;
   price: number;
   changePercent24h: number | null;
+  /** The change over the last 7 days and month, in percent (TradingView's coin scanner only). */
+  changeWeek?: number | null;
+  changeMonth?: number | null;
   marketCap: number | null;
   volume24h: number | null;
   rank: number | null;

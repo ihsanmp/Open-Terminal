@@ -6,6 +6,7 @@ import { useTerminal } from "../../store/terminal";
 import Flash from "../Flash";
 import { sessionRefreshMs, usePoll } from "../../lib/refresh";
 import { Bilingual } from "./NewsRecap";
+import { ChgCells, ChgHeads, usePerf } from "./ChangeCells";
 
 type RecapRow = { symbol: string; name: string; changePercent: number | null };
 type RecapIndex = { symbol: string; label: string; price: number | null; changePercent: number | null };
@@ -35,6 +36,8 @@ export default function MarketRecap() {
     refetchInterval: poll,
   });
 
+  const perf = usePerf(data?.indexes.map((q) => q.symbol) ?? []);
+
   if (error) return <div className="p-2 down">Error: {(error as Error).message}</div>;
   if (!data) return <div className="p-2 dim">Loading market recap…</div>;
 
@@ -56,7 +59,7 @@ export default function MarketRecap() {
           <tr>
             <th>Index</th>
             <th>Last</th>
-            <th>Chg%</th>
+            <ChgHeads />
           </tr>
         </thead>
         <tbody>
@@ -66,15 +69,13 @@ export default function MarketRecap() {
               <td>
                 <Flash value={q.price}>{fmt(q.price)}</Flash>
               </td>
-              <td className={pctClass(q.changePercent)}>
-                <Flash value={q.changePercent}>{fmt(q.changePercent)}%</Flash>
-              </td>
+              <ChgCells day={q.changePercent} week={perf?.[q.symbol]?.week} month={perf?.[q.symbol]?.month} />
             </tr>
           ))}
           {data.vix !== null && (
             <tr className="cursor-pointer" onClick={() => setActiveSymbol("^VIX")}>
               <td>VIX</td>
-              <td colSpan={2}>
+              <td colSpan={4}>
                 <Flash value={data.vix} className="amber">
                   {fmt(data.vix, 2)}
                 </Flash>

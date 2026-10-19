@@ -46,7 +46,7 @@ import { buildRecap, quotedTexts, withTranslations } from "../news/recap.js";
 import { toIndonesian } from "../news/translate.js";
 import { cryptoBase, cryptoTicker, isIndex, isTvPair, isYahooOnly } from "../symbols.js";
 import { INDEX_TV_TICKER, WORLD_INDICES, searchIndices } from "../indices.js";
-import { tvHistory } from "../tvhistory.js";
+import { tvCandidates, tvHistory } from "../tvhistory.js";
 import { cachedOnDisk } from "../diskcache.js";
 import { BINANCE_INTERVAL, INTERVAL_SECONDS, aggregateByPeriod, clip, groupCandles, isInterval, loadStart, yahooPlan, type Interval } from "../intervals.js";
 import { cryptoTerm, matchCoins, rankResults, type Coin, type SearchResult } from "../search.js";
@@ -309,6 +309,29 @@ async function getQuotes(symbols: string[]): Promise<yahoo.Quote[]> {
   }
   return out;
 }
+
+/** The week's and the month's change of any symbols (TradingView's scanner), shared for a minute; none when it's out of reach. */
+async function symbolsPerf(symbols: string[]): Promise<Map<string, tradingview.Perf>> {
+  const key = `perf:${[...symbols].sort().join(",")}`;
+  try {
+    return await cached(key, 60_000, () => tradingview.perfOf(symbols, tvCandidates));
+  } catch {
+    return new Map();
+  }
+}
+
+// The change over the last week and month of each symbol (the Watchlist's columns beside the day's).
+marketRouter.get("/perf", async (req, res) => {
+  // Keyed as asked (a list may write a symbol in lower case), looked up in upper case.
+  const asked = String(req.query.symbols ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 150);
+  if (asked.length === 0) return res.status(400).json({ error: "symbols required" });
+  const perf = await symbolsPerf([...new Set(asked.map((s) => s.toUpperCase()))]);
+  res.json(Object.fromEntries(asked.map((s) => [s, perf.get(s.toUpperCase()) ?? null])));
+});
 
 marketRouter.get("/quotes", async (req, res) => {
   const symbols = String(req.query.symbols ?? "")
@@ -1120,11 +1143,12 @@ marketRouter.get("/indices", async (req, res) => {
   try {
     // ~40 Yahoo lookups behind a polite rate limiter, so the board is shared for 15s.
     const data = await cached("indices:world", 15_000, async () => {
-      const quotes = await getQuotes(WORLD_INDICES.map((i) => i.symbol));
+      const [quotes, perf] = await Promise.all([getQuotes(WORLD_INDICES.map((i) => i.symbol)), symbolsPerf(WORLD_INDICES.map((i) => i.symbol))]);
       const bySymbol = new Map(quotes.map((q) => [q.symbol, q]));
       const rows = WORLD_INDICES.map((i) => {
         const q = bySymbol.get(i.symbol);
-        return { ...i, price: q?.price ?? null, change: q?.change ?? null, changePercent: q?.changePercent ?? null, currency: q?.currency ?? null };
+        const p = perf.get(i.symbol);
+        return { ...i, price: q?.price ?? null, change: q?.change ?? null, changePercent: q?.changePercent ?? null, changeWeek: p?.week ?? null, changeMonth: p?.month ?? null, currency: q?.currency ?? null };
       });
       if (rows.every((d) => d.price === null)) throw new Error("no index quotes from any provider");
       return rows;

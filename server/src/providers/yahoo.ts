@@ -28,6 +28,9 @@ export type Quote = {
   marketState: string | null;
   time: number | null;
   source: string;
+  /** The change over the last week and month, in percent (TradingView's scanner; others leave them out). */
+  changeWeek?: number | null;
+  changeMonth?: number | null;
 };
 
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number };

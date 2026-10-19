@@ -2,13 +2,14 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { apiGet, fmt, fmtBig, fmtPrice, pctClass } from "../../lib/api";
+import { apiGet, fmt, fmtBig, fmtPrice } from "../../lib/api";
 import { useTerminal } from "../../store/terminal";
 import { usePoll } from "../../lib/refresh";
+import { ChgCells, ChgHeads } from "./ChangeCells";
 
 type CryptoRow = {
   id: string; symbol: string; ticker: string; name: string; price: number;
-  changePercent24h: number | null; marketCap: number | null; volume24h: number | null;
+  changePercent24h: number | null; changeWeek?: number | null; changeMonth?: number | null; marketCap: number | null; volume24h: number | null;
   rank: number | null; sparkline: number[]; image: string | null;
 };
 type GlobalStats = { totalMarketCap: number; btcDominance: number; ethDominance: number; coins?: number };
@@ -87,7 +88,7 @@ export default function CryptoList() {
         <table className="data-table">
           <thead>
             <tr>
-              <th>#</th><th>Asset</th><th>Price</th><th>24h%</th><th>MCap</th><th>Vol 24h</th>
+              <th>#</th><th>Asset</th><th>Price</th><ChgHeads /><th>MCap</th><th>Vol 24h</th>
               {hasSparklines && <th>7d</th>}
               <th></th>
             </tr>
@@ -104,7 +105,7 @@ export default function CryptoList() {
                   </span>
                 </td>
                 <td>{fmtPrice(c.price)}</td>
-                <td className={pctClass(c.changePercent24h)}>{fmt(c.changePercent24h)}%</td>
+                <ChgCells day={c.changePercent24h} week={c.changeWeek} month={c.changeMonth} />
                 <td>{fmtBig(c.marketCap)}</td>
                 <td>{fmtBig(c.volume24h)}</td>
                 {hasSparklines && <td><Sparkline data={c.sparkline.filter((_, i) => i % 4 === 0)} /></td>}
@@ -123,7 +124,7 @@ export default function CryptoList() {
               </tr>
             ))}
             {data.length === 0 && !isFetching && (
-              <tr><td colSpan={8} className="dim !text-left">No coins match “{query}”.</td></tr>
+              <tr><td colSpan={10} className="dim !text-left">No coins match “{query}”.</td></tr>
             )}
           </tbody>
         </table>
