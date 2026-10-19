@@ -57,6 +57,9 @@ export type FuturesRow = {
   price: number;
   change: number | null;
   changePercent: number | null;
+  /** Over the last week and month, in percent. */
+  changeWeek: number | null;
+  changeMonth: number | null;
   high: number | null;
   low: number | null;
   currency: string | null;
@@ -73,7 +76,7 @@ export function futuresBoard(): Promise<FuturesRow[]> {
     for (const c of CONTRACTS) {
       const q = quotes.get(`${c.code}=F`);
       if (!q || q.price == null) continue;
-      rows.push({ symbol: `${c.code}=F`, code: c.code, group: c.group, name: q.name, price: q.price, change: q.change, changePercent: q.changePercent, high: q.high, low: q.low, currency: q.currency });
+      rows.push({ symbol: `${c.code}=F`, code: c.code, group: c.group, name: q.name, price: q.price, change: q.change, changePercent: q.changePercent, changeWeek: q.changeWeek ?? null, changeMonth: q.changeMonth ?? null, high: q.high, low: q.low, currency: q.currency });
     }
     if (!rows.length) throw new Error("no futures prices from TradingView");
     return rows;

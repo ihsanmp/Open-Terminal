@@ -23,7 +23,10 @@ export type StockRow = {
   code: string;
   name: string;
   price: number | null;
+  /** Since the last close; over the last week and the last month (TradingView's Perf.W, Perf.1M). */
   changePercent: number | null;
+  changeWeek: number | null;
+  changeMonth: number | null;
   marketCap: number | null;
   volume: number | null;
   sector: string | null;
@@ -41,7 +44,7 @@ export function stockPage(market: StockMarket, page = 1, q = ""): Promise<StockP
   return cached(`stocks:${market}:${page}:${query.toLowerCase()}`, 10_000, async () => {
     // The US scanner is TradingView's "america".
     const { total, data } = await tradingview.scanPage(market === "us" ? "america" : market, {
-      columns: ["description", "close", "change", "market_cap_basic", "volume", "sector", "currency"],
+      columns: ["description", "close", "change", "market_cap_basic", "volume", "sector", "currency", "Perf.W", "Perf.1M"],
       filter: [
         { left: "type", operation: "equal", right: "stock" },
         { left: "is_primary", operation: "equal", right: true },
@@ -52,10 +55,10 @@ export function stockPage(market: StockMarket, page = 1, q = ""): Promise<StockP
     });
     const rows = data.map((r): StockRow => {
       const [exchange, code] = r.s.split(":");
-      const [name, close, change, mcap, volume, sector, currency] = r.d;
+      const [name, close, change, mcap, volume, sector, currency, week, month] = r.d;
       // France's scanner names the venue EURONEXT; its listings are Paris (.PA) ones.
       const symbol = listingSymbol(exchange, code, market === "france" && exchange === "EURONEXT" ? `${code}.PA` : tradingview.yahooSymbolOf(exchange, code));
-      return { symbol, code, name: name ?? code, price: close ?? null, changePercent: change ?? null, marketCap: mcap ?? null, volume: volume ?? null, sector: sector ?? null, currency: currency ?? null };
+      return { symbol, code, name: name ?? code, price: close ?? null, changePercent: change ?? null, changeWeek: week ?? null, changeMonth: month ?? null, marketCap: mcap ?? null, volume: volume ?? null, sector: sector ?? null, currency: currency ?? null };
     });
     return { total, page, perPage: PER_PAGE, rows };
   });
@@ -86,7 +89,7 @@ export function etfPage(market: EtfMarket, cls: EtfClass | null, page = 1, q = "
   return cached(`etfs:${market}:${cls ?? "all"}:${page}:${query.toLowerCase()}`, 10_000, async () => {
     const { total, data } = await tradingview.scanPage(market === "us" ? "america" : market, {
       // The category ("Large Cap Blend", "Investment Grade" …) where the sector of a stock would be.
-      columns: ["description", "close", "change", "aum", "volume", "category.tr", "currency", "asset_class.tr"],
+      columns: ["description", "close", "change", "aum", "volume", "category.tr", "currency", "asset_class.tr", "Perf.W", "Perf.1M"],
       filter: [
         { left: "typespecs", operation: "has", right: ["etf"] },
         ...(cls ? [{ left: "asset_class", operation: "equal", right: ETF_CLASSES[cls] }] : []),
@@ -97,13 +100,15 @@ export function etfPage(market: EtfMarket, cls: EtfClass | null, page = 1, q = "
     });
     const rows = data.map((r): StockRow => {
       const [exchange, code] = r.s.split(":");
-      const [name, close, change, aum, volume, category, currency, assetClass] = r.d;
+      const [name, close, change, aum, volume, category, currency, assetClass, week, month] = r.d;
       return {
         symbol: listingSymbol(exchange, code, tradingview.yahooSymbolOf(exchange, code)),
         code,
         name: name ?? code,
         price: close ?? null,
         changePercent: change ?? null,
+        changeWeek: week ?? null,
+        changeMonth: month ?? null,
         marketCap: aum ?? null,
         volume: volume ?? null,
         // "Pair" (what TradingView files the spot bitcoin ETFs under) says less than their class.

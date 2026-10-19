@@ -23,6 +23,14 @@ import {
 } from "../../lib/watchlist";
 import { useTerminal, useWidgetSetting } from "../../store/terminal";
 import Flash from "../Flash";
+import { pctText, tiny, usePerf } from "../widgets/ChangeCells";
+
+type ChgPeriod = "day" | "week" | "month";
+const PERIOD: Record<ChgPeriod, { label: string; title: string; next: ChgPeriod }> = {
+  day: { label: "Hari", title: "Perubahan harian: sejak harga penutupan sebelumnya (kripto: 24 jam terakhir)", next: "week" },
+  week: { label: "Minggu", title: "Perubahan satu minggu terakhir (TradingView)", next: "month" },
+  month: { label: "Bulan", title: "Perubahan satu bulan terakhir (TradingView)", next: "day" },
+};
 import { technicals, type Group, type Rating } from "../../lib/technicals";
 
 // TradingView's right-hand Watchlist on the chart page: the watchlist by section (indices, stocks,
@@ -284,6 +292,9 @@ export default function WatchlistPanel({ symbol, onPick, onHide, below }: { symb
     enabled: listed.length > 0,
     refetchInterval: poll,
   });
+  // One change column (the panel is narrow): the day's, the week's or the month's, clicked through.
+  const [period, setPeriod] = useWidgetSetting<ChgPeriod>("watchlistChgPeriod", "day");
+  const perf = usePerf(period === "day" ? [] : listed);
   const groups = groupBySection(listed);
   const toggle = (s: Section) => setCollapsed((c) => (c.includes(s) ? c.filter((x) => x !== s) : [...c, s]));
 
@@ -323,8 +334,16 @@ export default function WatchlistPanel({ symbol, onPick, onHide, below }: { symb
             <tr className="dim text-fs-11">
               <th className="text-left font-normal px-2.5 py-1">Symbol</th>
               <th className="text-right font-normal px-1 py-1">Last</th>
-              <th className="text-right font-normal px-1 py-1">Chg</th>
-              <th className="text-right font-normal pl-1 pr-2.5 py-1">Chg%</th>
+              {period === "day" && <th className="text-right font-normal px-1 py-1">Chg</th>}
+              <th className="text-right font-normal pl-1 pr-2.5 py-1">
+                <button
+                  className="hover:text-[var(--amber)] whitespace-nowrap"
+                  title={`${PERIOD[period].title}. Klik untuk ganti: hari → minggu → bulan`}
+                  onClick={() => setPeriod(PERIOD[period].next)}
+                >
+                  {PERIOD[period].label} % ⇄
+                </button>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -332,7 +351,7 @@ export default function WatchlistPanel({ symbol, onPick, onHide, below }: { symb
               const shut = collapsed.includes(g.section);
               return [
                 <tr key={g.section} className="cursor-pointer select-none" onClick={() => toggle(g.section)}>
-                  <td colSpan={4} className="dim text-fs-10 tracking-wider px-2.5 pt-2.5 pb-1">
+                  <td colSpan={period === "day" ? 4 : 3} className="dim text-fs-10 tracking-wider px-2.5 pt-2.5 pb-1">
                     <span className="inline-block w-3">{shut ? "›" : "⌄"}</span> {g.label}
                   </td>
                 </tr>,
@@ -372,8 +391,13 @@ export default function WatchlistPanel({ symbol, onPick, onHide, below }: { symb
                           <td className="text-right px-1 tabular-nums">
                             <Flash value={q?.price}>{fmt(q?.price, priceDigits(s, q?.price))}</Flash>
                           </td>
-                          <td className={`text-right px-1 tabular-nums ${pctClass(q?.change)}`}>{fmt(q?.change, priceDigits(s, q?.price))}</td>
-                          <td className={`text-right pl-1 pr-2.5 tabular-nums ${pctClass(q?.changePercent)}`}>{fmt(q?.changePercent)}%</td>
+                          {period === "day" && (
+                            <td className={`text-right px-1 tabular-nums ${pctClass(q?.change)}`}>{fmt(q?.change, priceDigits(s, q?.price))}</td>
+                          )}
+                          {(() => {
+                            const v = period === "day" ? q?.changePercent : period === "week" ? perf?.[s]?.week : perf?.[s]?.month;
+                            return <td className={`text-right pl-1 pr-2.5 tabular-nums ${pctClass(tiny(v))}`}>{pctText(v)}</td>;
+                          })()}
                         </tr>
                       );
                     })),

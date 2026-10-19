@@ -2,12 +2,13 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { apiGet, fmt, fmtBig, fmtPrice, pctClass, type Quote } from "../../lib/api";
+import { apiGet, fmt, fmtBig, fmtPrice, type Quote } from "../../lib/api";
 import { useTerminal, useWidgetSetting } from "../../store/terminal";
 import Flash from "../Flash";
 import { listRefreshMs, usePoll } from "../../lib/refresh";
 import { displaySymbol, priceDigits } from "../../lib/watchlist";
 import CryptoList from "./CryptoList";
+import { ChgCells, ChgHeads, usePerf } from "./ChangeCells";
 
 // The watchlist, and the markets to pick from beside it: every stock of a market, the world's
 // indices by region, every coin (the Crypto page was this) and every forex pair brokers quote, by
@@ -31,7 +32,7 @@ type Category =
   | "fut-financial"
   | "fut-commodity"
   | `fut-${FuturesGroup}`;
-type FuturesRow = { symbol: string; code: string; group: FuturesGroup; name: string | null; price: number; changePercent: number | null; high: number | null; low: number | null; currency: string | null };
+type FuturesRow = { symbol: string; code: string; group: FuturesGroup; name: string | null; price: number; changePercent: number | null; changeWeek?: number | null; changeMonth?: number | null; high: number | null; low: number | null; currency: string | null };
 
 const FINANCIAL_FUTURES: Array<[FuturesGroup, string]> = [
   ["index", "Indeks saham"],
@@ -63,9 +64,9 @@ function etfParams(category: string): Record<string, string> {
   if (category === "etf-indonesia") return { market: "indonesia" };
   return category === "etf-us" ? { market: "us" } : { market: "us", class: category.slice("etf-us-".length) };
 }
-type StockRow = { symbol: string; code: string; name: string; price: number | null; changePercent: number | null; marketCap: number | null; volume: number | null; sector: string | null; currency: string | null };
+type StockRow = { symbol: string; code: string; name: string; price: number | null; changePercent: number | null; changeWeek?: number | null; changeMonth?: number | null; marketCap: number | null; volume: number | null; sector: string | null; currency: string | null };
 type StockPage = { total: number; page: number; perPage: number; rows: StockRow[] };
-type IndexRow = { symbol: string; name: string; country: string; region: IndexRegion; price: number | null; changePercent: number | null; currency: string | null };
+type IndexRow = { symbol: string; name: string; country: string; region: IndexRegion; price: number | null; changePercent: number | null; changeWeek?: number | null; changeMonth?: number | null; currency: string | null };
 
 /** The stock markets, as the server's scanners name them (providers/heatmap.ts STOCK_MARKETS). */
 const STOCK_MARKETS: Array<[string, string]> = [
@@ -92,7 +93,7 @@ const INDEX_REGIONS: Array<[IndexRegion, string]> = [
   ["Asia-Pacific", "Asia-Pasifik"],
   ["Middle East & Africa", "Timur Tengah & Afrika"],
 ];
-type ForexRow = { symbol: string; pair: string; group: ForexGroup; name: string | null; price: number; change: number | null; changePercent: number | null; high: number | null; low: number | null };
+type ForexRow = { symbol: string; pair: string; group: ForexGroup; name: string | null; price: number; change: number | null; changePercent: number | null; changeWeek?: number | null; changeMonth?: number | null; high: number | null; low: number | null };
 
 const FOREX_GROUPS: Array<[Category, string]> = [
   ["fx-all", "Forex · semua pair"],
@@ -117,6 +118,7 @@ function MyList() {
     enabled: watchlist.length > 0,
     refetchInterval: poll,
   });
+  const perf = usePerf(watchlist);
 
   return (
     <div className="flex-1 min-h-0 overflow-auto">
@@ -140,7 +142,7 @@ function MyList() {
           <tr>
             <th>Sym</th>
             <th>Last</th>
-            <th>Chg%</th>
+            <ChgHeads />
             <th>Vol</th>
             <th></th>
           </tr>
@@ -154,9 +156,7 @@ function MyList() {
                 <td>
                   <Flash value={q?.price}>{fmtPrice(q?.price)}</Flash>
                 </td>
-                <td className={pctClass(q?.changePercent)}>
-                  <Flash value={q?.changePercent}>{fmt(q?.changePercent)}%</Flash>
-                </td>
+                <ChgCells day={q?.changePercent} week={perf?.[sym]?.week} month={perf?.[sym]?.month} />
                 <td>{fmtBig(q?.volume)}</td>
                 <td>
                   <button
@@ -210,7 +210,7 @@ function ForexList({ group }: { group: ForexGroup | "all" }) {
               <th className="!text-left">Pair</th>
               {group === "all" && <th className="!text-left">Grup</th>}
               <th>Harga</th>
-              <th>Chg%</th>
+              <ChgHeads />
               <th>High</th>
               <th>Low</th>
               <th></th>
@@ -229,9 +229,7 @@ function ForexList({ group }: { group: ForexGroup | "all" }) {
                   <td>
                     <Flash value={r.price}>{fmt(r.price, d)}</Flash>
                   </td>
-                  <td className={pctClass(r.changePercent)}>
-                    <Flash value={r.changePercent}>{fmt(r.changePercent)}%</Flash>
-                  </td>
+                  <ChgCells day={r.changePercent} week={r.changeWeek} month={r.changeMonth} />
                   <td className="dim">{fmt(r.high, d)}</td>
                   <td className="dim">{fmt(r.low, d)}</td>
                   <td>
@@ -252,7 +250,7 @@ function ForexList({ group }: { group: ForexGroup | "all" }) {
             })}
             {data.length > 0 && rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="dim !text-left">
+                <td colSpan={9} className="dim !text-left">
                   Tidak ada pair yang cocok dengan “{search}”.
                 </td>
               </tr>
@@ -335,7 +333,7 @@ function StockList({ path, params: extra, kind }: { path: string; params: Record
               <th>#</th>
               <th className="!text-left">{kind === "etf" ? "ETF" : "Saham"}</th>
               <th>Harga</th>
-              <th>Chg%</th>
+              <ChgHeads />
               <th>{label.size}</th>
               <th>Vol</th>
               <th className="!text-left">{label.group}</th>
@@ -352,9 +350,7 @@ function StockList({ path, params: extra, kind }: { path: string; params: Record
                 <td>
                   <Flash value={r.price}>{fmtPrice(r.price)}</Flash> <span className="dim text-fs-9">{r.currency}</span>
                 </td>
-                <td className={pctClass(r.changePercent)}>
-                  <Flash value={r.changePercent}>{fmt(r.changePercent)}%</Flash>
-                </td>
+                <ChgCells day={r.changePercent} week={r.changeWeek} month={r.changeMonth} />
                 <td>{fmtBig(r.marketCap)}</td>
                 <td>{fmtBig(r.volume)}</td>
                 <td className="!text-left dim truncate max-w-[180px]">{r.sector}</td>
@@ -365,7 +361,7 @@ function StockList({ path, params: extra, kind }: { path: string; params: Record
             ))}
             {data && rows.length === 0 && !isFetching && (
               <tr>
-                <td colSpan={8} className="dim !text-left">
+                <td colSpan={10} className="dim !text-left">
                   Tidak ada {label.noun} yang cocok dengan “{query}”.
                 </td>
               </tr>
@@ -417,7 +413,7 @@ function FuturesList({ groups }: { groups: FuturesGroup[] }) {
               <th className="!text-left">Kontrak</th>
               {several && <th className="!text-left">Grup</th>}
               <th>Harga</th>
-              <th>Chg%</th>
+              <ChgHeads />
               <th>High</th>
               <th>Low</th>
               <th></th>
@@ -433,9 +429,7 @@ function FuturesList({ groups }: { groups: FuturesGroup[] }) {
                 <td>
                   <Flash value={r.price}>{fmtPrice(r.price)}</Flash> <span className="dim text-fs-9">{r.currency}</span>
                 </td>
-                <td className={pctClass(r.changePercent)}>
-                  <Flash value={r.changePercent}>{fmt(r.changePercent)}%</Flash>
-                </td>
+                <ChgCells day={r.changePercent} week={r.changeWeek} month={r.changeMonth} />
                 <td className="dim">{fmtPrice(r.high)}</td>
                 <td className="dim">{fmtPrice(r.low)}</td>
                 <td>
@@ -445,7 +439,7 @@ function FuturesList({ groups }: { groups: FuturesGroup[] }) {
             ))}
             {data.length > 0 && rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="dim !text-left">
+                <td colSpan={9} className="dim !text-left">
                   Tidak ada kontrak yang cocok dengan “{search}”.
                 </td>
               </tr>
@@ -480,7 +474,7 @@ function IndexList({ region }: { region: IndexRegion | "all" }) {
             <th className="!text-left">Negara</th>
             {region === "all" && <th className="!text-left">Region</th>}
             <th>Harga</th>
-            <th>Chg%</th>
+            <ChgHeads />
             <th></th>
           </tr>
         </thead>
@@ -495,9 +489,7 @@ function IndexList({ region }: { region: IndexRegion | "all" }) {
               <td>
                 <Flash value={r.price}>{fmtPrice(r.price)}</Flash>
               </td>
-              <td className={pctClass(r.changePercent)}>
-                <Flash value={r.changePercent}>{fmt(r.changePercent)}%</Flash>
-              </td>
+              <ChgCells day={r.changePercent} week={r.changeWeek} month={r.changeMonth} />
               <td>
                 <AddButton symbol={r.symbol} />
               </td>

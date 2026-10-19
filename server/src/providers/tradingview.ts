@@ -451,7 +451,7 @@ export async function peers(profile: ResearchProfile, limit = 10): Promise<PeerR
 
 // ---- batch quotes for indices and non-US listings (one request, no rate-limit games) ----
 
-const QUOTE_COLUMNS = ["description", "close", "change", "change_abs", "open", "high", "low", "volume", "currency", "exchange", "price_52_week_high", "price_52_week_low"];
+const QUOTE_COLUMNS = ["description", "close", "change", "change_abs", "open", "high", "low", "volume", "currency", "exchange", "price_52_week_high", "price_52_week_low", "Perf.W", "Perf.1M"];
 
 /** Quotes keyed by the caller's symbol; `tickersFor` lists TradingView candidates per symbol. */
 export async function batchQuotes(symbols: string[], tickersFor: (symbol: string) => string[]): Promise<Map<string, Quote>> {
@@ -467,21 +467,45 @@ export async function batchQuotes(symbols: string[], tickersFor: (symbol: string
   for (const [symbol, tickers] of wanted) {
     const d = tickers.map((t) => byTicker.get(t)).find(Boolean);
     if (!d || d[1] == null) continue;
-    const [name, close, changePct, changeAbs, open, high, low, volume, currency, exchange, hi52, lo52] = d;
+    const [name, close, changePct, changeAbs, open, high, low, volume, currency, exchange, hi52, lo52, week, month] = d;
     out.set(symbol, {
       symbol, name: name ?? null, price: close, change: changeAbs ?? null, changePercent: changePct ?? null,
       open: open ?? null, high: high ?? null, low: low ?? null,
       previousClose: changeAbs != null ? close - changeAbs : null, bid: null, ask: null, volume: volume ?? null, avgVolume: null,
       marketCap: null, pe: null, eps: null, dividendYield: null, week52High: hi52 ?? null, week52Low: lo52 ?? null, beta: null,
       sharesOutstanding: null, currency: currency ?? null, exchange: exchange ?? null, marketState: null, time: null, source: "tradingview",
+      changeWeek: week ?? null, changeMonth: month ?? null,
     });
+  }
+  return out;
+}
+
+export type Perf = { week: number | null; month: number | null };
+
+/**
+ * The change over the last week and the last month (in percent) of each symbol, keyed by the
+ * caller's symbol: one scanner request for any mix of stocks, indices, pairs, futures and coins.
+ */
+export async function perfOf(symbols: string[], tickersFor: (symbol: string) => string[]): Promise<Map<string, Perf>> {
+  const wanted = new Map<string, string[]>();
+  for (const s of symbols) {
+    const t = tickersFor(s);
+    if (t.length) wanted.set(s, t);
+  }
+  const out = new Map<string, Perf>();
+  if (wanted.size === 0) return out;
+  const rows = await globalScan({ symbols: { tickers: [...new Set([...wanted.values()].flat())] }, columns: ["Perf.W", "Perf.1M"] });
+  const byTicker = new Map(rows.map((r) => [r.s, r.d]));
+  for (const [symbol, tickers] of wanted) {
+    const d = tickers.map((t) => byTicker.get(t)).find((x) => x && (x[0] != null || x[1] != null));
+    if (d) out.set(symbol, { week: d[0] ?? null, month: d[1] ?? null });
   }
   return out;
 }
 
 // ---- crypto: TradingView's ranked coin universe (~2,500 assets, one request) ----
 
-const COIN_COLUMNS = ["base_currency", "base_currency_desc", "close", "24h_close_change|5", "market_cap_calc", "24h_vol_cmc", "crypto_total_rank", "base_currency_logoid"];
+const COIN_COLUMNS = ["base_currency", "base_currency_desc", "close", "24h_close_change|5", "market_cap_calc", "24h_vol_cmc", "crypto_total_rank", "base_currency_logoid", "Perf.W", "Perf.1M"];
 
 let coinCache: { rows: CryptoRow[]; bySymbol: Map<string, CryptoRow>; fetched: number } | null = null;
 let coinRequest: Promise<CryptoRow[]> | null = null;
@@ -501,10 +525,11 @@ export async function coinBoard(): Promise<CryptoRow[]> {
       const rows: CryptoRow[] = data
         .filter((r) => r.d[0] && r.d[2] != null)
         .map((r) => {
-          const [base, name, close, change, mcap, vol, rank, logo] = r.d;
+          const [base, name, close, change, mcap, vol, rank, logo, week, month] = r.d;
           const symbol = String(base).toUpperCase();
           return {
             id: r.s, symbol, ticker: cryptoTicker(symbol), name: name ?? symbol, price: close, changePercent24h: change ?? null,
+            changeWeek: week ?? null, changeMonth: month ?? null,
             marketCap: mcap ?? null, volume24h: vol ?? null, rank: rank ?? null, sparkline: [],
             image: logo ? `https://s3-symbol-logo.tradingview.com/${logo}.svg` : null,
           };

@@ -47,6 +47,7 @@ Every page sits in the sidebar; any of them can also be opened as a widget, drag
   - futures and commodities by group;
   - every ranked coin and token;
   - 170+ forex pairs (major, minor, exotic) and the metals.
+  - Every list shows the change over the day, the last week and the last month side by side.
 - 💸 **Money Flow:** what went into and out of an asset over a day, week, month, quarter and year.
   - Coins on Binance use their real buy and sell trades, streamed live.
   - Everything else is estimated from its bars.
