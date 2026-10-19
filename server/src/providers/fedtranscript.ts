@@ -17,6 +17,7 @@ import { findHits, indexOf, normalize, stanceOf, type Side, type Stance } from "
 import { liveTracks, segment, type LiveTracks } from "./youtubelive.js";
 import { MediaAnalyzer, stopFaceWorker, type MediaReport } from "./fedmedia.js";
 import { noteFedBroadcast } from "./reactions.js";
+import { check, claimsInLines, type Check, type Claim } from "./factcheck.js";
 
 /** On first open, read back this many 5-second segments (an hour). */
 const BACKFILL = 720;
@@ -214,7 +215,39 @@ type Session = {
   dirty: boolean;
   savedAt: number;
   scored: { key: string; result: ReturnType<typeof scoreTranscript> } | null;
+  /** The figures said about the US data, each checked against the official data (factcheck.ts). */
+  facts: { scanned: number; items: Map<string, FactItem> };
 };
+
+type FactItem = { line: number; claim: Claim; result: Check | null };
+/** A claim with the line it was said in: its check once in, else the claim alone (verdict null). */
+export type FactCheck = (Check | (Claim & { verdict: null })) & { line: number };
+const MAX_FACTS = 300;
+
+/**
+ * Reads the lines not yet read for claims (the last two wait: a caption may cut a sentence before
+ * its figure's unit or month) and checks each new one in the background.
+ */
+function scanFacts(s: Session): void {
+  const ready = s.tr.lines.length - 2;
+  if (ready <= s.facts.scanned) return;
+  // A few lines back again: a claim begun before the last read ends in the new lines.
+  const from = Math.max(0, s.facts.scanned - 8);
+  const lines = s.tr.lines.slice(from, ready);
+  // Said when it was said (a broadcast read back from disk is checked against the data of its day).
+  const at = lines.at(-1)?.at ?? Date.now();
+  const asOf = new Date(at > 1e12 ? at : Date.now());
+  for (const c of claimsInLines(lines.map((l) => l.text), asOf)) {
+    const line = from + c.line;
+    const key = `${line}:${c.indicator}:${c.value}`;
+    if (s.facts.items.has(key)) continue;
+    const item: FactItem = { line, claim: c, result: null };
+    s.facts.items.set(key, item);
+    void check(c, asOf).then((r) => (item.result = r));
+    if (s.facts.items.size > MAX_FACTS) s.facts.items.delete(s.facts.items.keys().next().value!);
+  }
+  s.facts.scanned = ready;
+}
 
 const sessions = new Map<string, Session>();
 
@@ -376,6 +409,8 @@ export type TranscriptReply = {
   sentiment: Sentiment;
   /** Layers 2 and 3: the voices, how the main speaker sounds and looks. */
   media: MediaReport;
+  /** The figures said about the US data, checked against the official data, in the order said. */
+  facts: FactCheck[];
   /**
    * The Fed Sentiment Index with all three layers: the words' index (90%) made firmer or softer by
    * the delivery's confidence (10%): index × (0.9 + 0.1 × (2 × confidence − 1)). Null until layer 2
@@ -455,6 +490,7 @@ export function transcript(videoId: string, since = 0, faces = true, fed = true,
       dirty: false,
       savedAt: Date.now(),
       scored: null,
+      facts: { scanned: 0, items: new Map() },
     };
     sessions.set(videoId, s);
     // Room for this one: drop the session asked for longest ago.
@@ -488,6 +524,10 @@ export function transcript(videoId: string, since = 0, faces = true, fed = true,
   s.lastIndex = combined?.index ?? sentiment.index;
   if (fed && sentiment.hawkish + sentiment.dovish >= 3) keepReading({ index: combined?.index ?? sentiment.index, at: new Date().toISOString(), title: s.title, videoId });
   const start = Math.max(0, Math.min(since, lines.length));
+  scanFacts(s);
+  const facts: FactCheck[] = [...s.facts.items.values()]
+    .sort((a, b) => a.line - b.line)
+    .map((f) => ({ ...(f.result ?? { ...f.claim, verdict: null }), line: f.line }));
   return {
     videoId,
     title: s.title,
@@ -500,5 +540,6 @@ export function transcript(videoId: string, since = 0, faces = true, fed = true,
     sentiment,
     media,
     combined,
+    facts,
   };
 }
