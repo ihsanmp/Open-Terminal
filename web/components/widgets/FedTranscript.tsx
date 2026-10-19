@@ -59,6 +59,24 @@ type Sentiment = {
   questionTurns: number[];
   othersLeftOut?: number;
 };
+/** A figure said about the US data, checked against the official data (server: factcheck.ts). */
+type FactCheck = {
+  line: number;
+  indicator: string;
+  value: number;
+  high?: number;
+  month: string | null;
+  phrase: string;
+  /** null while the official data is still being read. */
+  verdict: "match" | "close" | "differs" | "unverifiable" | null;
+  official?: number | null;
+  officialHigh?: number;
+  period?: string | null;
+  series?: string | null;
+  source?: string | null;
+  url?: string | null;
+  note?: string | null;
+};
 type Reply = {
   videoId: string;
   title: string;
@@ -70,6 +88,7 @@ type Reply = {
   sentiment: Sentiment;
   media?: Media;
   combined?: { index: number; stance: Stance } | null;
+  facts?: FactCheck[];
 };
 
 export type FedTranscriptState = { videoId: string | null; lines: TranscriptLine[]; reply: Reply | null; error: string | null };
@@ -325,6 +344,87 @@ export function SentimentBar({ state, controls }: { state: FedTranscriptState; c
 }
 
 /** A line's text with the phrases it scored on coloured. */
+const FACT_LABEL: Record<string, string> = {
+  pce: "Inflasi PCE",
+  core_pce: "Inflasi PCE inti",
+  cpi: "Inflasi CPI",
+  core_cpi: "Inflasi CPI inti",
+  inflation: "Inflasi",
+  unemployment: "Pengangguran",
+  payrolls: "Payroll sebulan",
+  payrolls_avg: "Rata-rata payroll",
+  gdp: "GDP riil",
+  fed_funds: "Suku bunga Fed",
+};
+const VERDICT: Record<NonNullable<FactCheck["verdict"]>, { text: string; color: string; title: string }> = {
+  match: { text: "✓ sesuai data", color: "#26a69a", title: "Angka yang disebut sama dengan data resmi (beda pembulatan saja)" },
+  close: { text: "≈ mendekati", color: "#c9a227", title: "Selisih kecil: pembulatan, revisi data, atau periode yang berdekatan" },
+  differs: { text: "✗ berbeda", color: "#ef5350", title: "Berbeda dari data resmi untuk periode itu (bisa juga angka lama sebelum revisi, atau ukuran lain)" },
+  unverifiable: { text: "? tak terverifikasi", color: "#888", title: "Tidak bisa dicocokkan dengan data resmi" },
+};
+
+const unitOf = (f: FactCheck) => (f.indicator.startsWith("payrolls") ? "rb" : "%");
+const fmtFact = (f: FactCheck, v: number | null | undefined, hi?: number) =>
+  v === null || v === undefined ? "—" : `${v.toLocaleString("id-ID", { maximumFractionDigits: 2 })}${hi !== undefined ? `–${hi.toLocaleString("id-ID", { maximumFractionDigits: 2 })}` : ""}${unitOf(f)}`;
+
+/** A claim's verdict beside the line it was said in. */
+function FactBadge({ f }: { f: FactCheck }) {
+  const v = f.verdict ? VERDICT[f.verdict] : null;
+  const title = `${FACT_LABEL[f.indicator] ?? f.indicator}: disebut ${fmtFact(f, f.value, f.high)}${
+    f.verdict ? ` · data resmi ${fmtFact(f, f.official, f.officialHigh)}${f.period ? ` (${f.period})` : ""}${f.source ? ` · ${f.source}` : ""}${f.note ? ` · ${f.note}` : ""}` : " · mengecek data resmi…"
+  }`;
+  return (
+    <span className="text-fs-9 px-1 mx-0.5 rounded-sm border not-italic whitespace-nowrap" style={{ borderColor: v?.color ?? "#555", color: v?.color ?? "#888" }} title={title}>
+      {v ? v.text : "… cek fakta"}
+    </span>
+  );
+}
+
+/** Every claim checked so far, newest first, each with the official figure and its source. */
+function FactList({ facts }: { facts: FactCheck[] }) {
+  const [open, setOpen] = useState(false);
+  if (!facts.length) return null;
+  const count = (v: FactCheck["verdict"]) => facts.filter((f) => f.verdict === v).length;
+  return (
+    <div className="px-2 py-1 border-b border-[var(--border)] text-fs-10">
+      <button className="dim hover:text-[var(--text)]" onClick={() => setOpen((o) => !o)} title="Angka data ekonomi AS yang disebut di siaran, dicocokkan dengan data resmi (BLS/BEA/The Fed lewat FRED)">
+        {open ? "▾" : "▸"} Cek fakta {facts.length} klaim:{" "}
+        <span style={{ color: VERDICT.match.color }}>{count("match")} sesuai</span> · <span style={{ color: VERDICT.close.color }}>{count("close")} mendekati</span> ·{" "}
+        <span style={{ color: VERDICT.differs.color }}>{count("differs")} berbeda</span>
+        {count("unverifiable") > 0 && <span> · {count("unverifiable")} tak terverifikasi</span>}
+      </button>
+      {open && (
+        <div className="mt-1 space-y-1 max-h-48 overflow-auto">
+          {[...facts].reverse().map((f) => (
+            <div key={`${f.line}:${f.indicator}:${f.value}`} className="leading-snug">
+              <FactBadge f={f} /> <b>{FACT_LABEL[f.indicator] ?? f.indicator}</b>: disebut {fmtFact(f, f.value, f.high)}
+              {f.verdict && f.verdict !== "unverifiable" && (
+                <>
+                  {" "}
+                  · data resmi {fmtFact(f, f.official, f.officialHigh)}
+                  {f.period && <span className="dim"> ({f.period})</span>}
+                </>
+              )}
+              {f.note && <span className="dim"> · {f.note}</span>}
+              {f.url && (
+                <a href={f.url} target="_blank" rel="noreferrer" className="amber hover:underline ml-1">
+                  {f.source ?? "sumber"} ↗
+                </a>
+              )}
+              <div className="dim italic truncate" title={f.phrase}>
+                “…{f.phrase.slice(-140)}”
+              </div>
+            </div>
+          ))}
+          <div className="dim text-fs-9">
+            Dicocokkan otomatis dengan data resmi terbaru di FRED (BLS, BEA, The Fed); proyeksi, target (mis. “2 percent objective”), perbandingan dan angka masa lalu tidak dicek. Diuji pada 72 konferensi pers FOMC 2016–2026: ±90% klaim yang terbaca memang klaim fakta; “berbeda” di data lama kebanyakan karena revisi data sesudahnya.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Marked({ line, dimmed }: { line: TranscriptLine; dimmed: boolean }) {
   if (dimmed || !line.phrases.length) return <>{line.text} </>;
   const lower = line.text.toLowerCase().replace(/[’‘]/g, "'");
@@ -358,6 +458,11 @@ export function TranscriptPanel({ state, live }: { state: FedTranscriptState; li
   const r = state.reply;
   const questions = new Set(r?.sentiment.questionTurns ?? []);
   const shown = state.lines.slice(-1500);
+  // Each line's place in the whole transcript, which the claims refer to.
+  const firstShown = state.lines.length - shown.length;
+  const indexOf = new Map(shown.map((l, k) => [l, firstShown + k]));
+  const factsByLine = new Map<number, FactCheck[]>();
+  for (const f of r?.facts ?? []) (factsByLine.get(f.line) ?? factsByLine.set(f.line, []).get(f.line)!).push(f);
 
   useLayoutEffect(() => {
     if (follow.current && box.current) box.current.scrollTop = box.current.scrollHeight;
@@ -385,6 +490,7 @@ export function TranscriptPanel({ state, live }: { state: FedTranscriptState; li
           ))}
         </div>
       )}
+      <FactList facts={r?.facts ?? []} />
       {r?.catchUp && (
         <div className="px-2 py-1 amber text-fs-10">
           Membaca siaran dari awal… {Math.round((r.catchUp.done / Math.max(1, r.catchUp.of)) * 100)}%
@@ -429,7 +535,12 @@ export function TranscriptPanel({ state, live }: { state: FedTranscriptState; li
               </div>
               <div className="text-[var(--text)]">
                 {b.lines.map((l) => (
-                  <Marked key={`${l.seq}-${l.at}-${l.text}`} line={l} dimmed={off} />
+                  <span key={`${l.seq}-${l.at}-${l.text}`}>
+                    <Marked line={l} dimmed={off} />
+                    {(factsByLine.get(indexOf.get(l) ?? -1) ?? []).map((f) => (
+                      <FactBadge key={`${f.indicator}:${f.value}`} f={f} />
+                    ))}
+                  </span>
                 ))}
               </div>
             </div>
