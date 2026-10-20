@@ -102,7 +102,7 @@ A forecaster on the server gives each market's chance of a rise over 5, 10 and 2
   - the other markets, the VIX and the yield curve;
   - US data surprises by release type (inflation read apart from 2021 on, jobs, ISM);
   - the season.
-- **Model:** an L2 logistic regression per market and horizon, tested walk‑forward a year at a time from 2016.
+- **Model:** gradient-boosted trees (XGBoost-style, depth 3) per market and horizon, tested walk‑forward a year at a time from 2016. Against the earlier L2 logistic regression: mean Brier skill −0.54% vs −1.64%, better in 21 of 30; neither beats the plain bet on a market's usual side anywhere, so no direction is called.
 - **Ranges:** each market's P10–P90 range is widened when the span holds more CPI, NFP, ISM or FOMC days than usual.
 
 Honest results, shown in the app as well:

@@ -24,8 +24,15 @@ export type GbmParams = {
 };
 
 export const GBM_DEFAULTS: GbmParams = { depth: 2, eta: 0.03, lambda: 10, minChild: 40, subsample: 0.7, colsample: 0.7, maxRounds: 400, patience: 40, bins: 32 };
+/**
+ * The forecaster's (service.ts): depth 3. Out of sample (cli/quant-compare.ts, 20 Oct 2026) its mean
+ * Brier skill was −0.54% against the logistic regression's −1.64%, better in 21 of 30; depths 4 and
+ * 5 scored the same, so the shallower is kept.
+ */
+export const GBM_FORECAST: GbmParams = { ...GBM_DEFAULTS, depth: 3, minChild: 80 };
 
-type Node = { feature: number; threshold: number; left: number; right: number } | { leaf: number };
+/** A split keeps the weight it would have as a leaf (`value`), for each feature's contribution. */
+type Node = { feature: number; threshold: number; left: number; right: number; value: number } | { leaf: number };
 export type Tree = Node[];
 export type GbmFit = { base: number; trees: Tree[]; eta: number; cols: number[] };
 
@@ -82,6 +89,32 @@ export function predictGbm(fit: GbmFit, x: number[], rounds = fit.trees.length):
   let z = fit.base;
   for (let t = 0; t < rounds; t++) z += fit.eta * treeValue(fit.trees[t], x);
   return sigmoid(z);
+}
+
+const valueOf = (n: Node) => ("leaf" in n ? n.leaf : n.value);
+
+/**
+ * The fitted chance that row x goes up, and each feature's pull on it (log-odds): along each tree's
+ * path, the change in the node's weight a split makes goes to the split's feature (Saabas' method;
+ * the pulls and the base rate add up to the log-odds).
+ */
+export function explainGbm(fit: GbmFit, x: number[], width: number): { p: number; pulls: number[] } {
+  const pulls = new Array<number>(width).fill(0);
+  let z = fit.base;
+  for (const tree of fit.trees) {
+    let k = 0;
+    z += fit.eta * valueOf(tree[0]);
+    for (;;) {
+      const n = tree[k];
+      if ("leaf" in n) break;
+      const next = x[n.feature] < n.threshold ? n.left : n.right;
+      const d = fit.eta * (valueOf(tree[next]) - n.value);
+      pulls[n.feature] += d;
+      z += d;
+      k = next;
+    }
+  }
+  return { p: sigmoid(z), pulls };
 }
 
 /**
@@ -162,7 +195,7 @@ export function fitGbm(X: number[][], y: number[], cols: number[], params: GbmPa
       const threshold = edges[bestJ][bestBin];
       const l = grow(left, depth + 1);
       const rr = grow(right, depth + 1);
-      tree[at] = { feature: cols[bestJ], threshold, left: l, right: rr };
+      tree[at] = { feature: cols[bestJ], threshold, left: l, right: rr, value: -G / (H + params.lambda) };
       return at;
     };
     grow(rows, 0);

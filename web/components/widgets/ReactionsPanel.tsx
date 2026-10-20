@@ -19,7 +19,89 @@ type Reactions = {
   summary: Array<{ key: string; label: string; surprise30: Tally; surpriseDay: Tally; call30: Tally; callDay: Tally; releases: number }>;
   broadcasts: Array<{ videoId: string; title: string; start: number; end: number; index: number; side: Bias; moves: Moves }>;
   instruments: Array<{ key: Key; label: string; unit: string; hawk: number }>;
+  delivery?: Delivery;
 };
+/** Layers 2 and 3 (voice and face) against the markets (server: providers/deliverytest.ts). */
+type Delivery = {
+  n: number;
+  needed: number;
+  rows: Array<{
+    videoId: string;
+    title: string;
+    start: number;
+    words: number;
+    delivery: { minutes: number; faceMinutes: number; confidence: number; stress: number; hesitation: number; tension: number | null };
+    reaction: number | null;
+  }>;
+  hypotheses: Array<{ id: string; label: string; stat: number | null; statLabel: string; p: number | null; shown: boolean }>;
+};
+
+/** The test of the voice and the face: its hypotheses, how far the data has come, and each broadcast. */
+function DeliveryTest({ d }: { d: Delivery }) {
+  const enough = d.n >= d.needed;
+  return (
+    <div className="border border-[var(--border)] rounded-sm">
+      <div className="px-2 py-1 bg-[#141414] text-[var(--text)] font-bold flex items-center gap-2">
+        🎙🙂 Uji suara &amp; wajah vs pasar
+        <span className={`ml-auto text-fs-10 font-normal ${enough ? "up" : "amber"}`}>
+          {enough ? `${d.n} siaran` : `mengumpulkan data: ${d.n}/${d.needed} siaran`}
+        </span>
+      </div>
+      <div className="px-2 py-1 text-fs-10 leading-relaxed dim">
+        Hipotesis ditetapkan 20 Okt 2026, sebelum datanya ada. Reaksi = gerak yield 2Y, DXY, emas, dan S&amp;P futures selama siaran, ditandai searah bacaan hawkish dan
+        diskalakan ke gerak tipikal masing-masing. p = seberapa sering acak (cara bicara diacak antar-siaran, 2.000 kali) menghasilkan angka setinggi itu. Dianggap
+        terbukti hanya bila ≥{d.needed} siaran dan p &lt; 0,05.
+      </div>
+      <div className="px-2 pb-1 flex flex-col gap-1">
+        {d.hypotheses.map((h) => (
+          <div key={h.id} className="leading-snug">
+            <b>{h.id}</b> {h.label}
+            <div className="text-fs-10 tabular-nums">
+              {h.stat === null ? <span className="dim">belum ada angka</span> : `${h.statLabel} ${h.stat > 0 ? "+" : ""}${fmt(h.stat, 3)} · p ${fmt(h.p ?? NaN, 3)}`} ·{" "}
+              {h.shown ? <span className="up font-bold">terbukti</span> : !enough ? <span className="amber">data belum cukup</span> : <span className="dim">tidak terbukti</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+      {d.rows.length === 0 ? (
+        <div className="px-2 py-1 dim text-fs-10">
+          Belum ada siaran dengan rekaman suara/wajah ≥10 menit. Perekaman berjalan otomatis saat siaran The Fed ditonton live di Live TV dengan mode Watcher (suara &amp;
+          wajah) aktif, satu sampel per menit dari pembicara utama.
+        </div>
+      ) : (
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th className="!text-left">Siaran</th>
+              <th title="Indeks kata-kata (lapisan 1)">Kata</th>
+              <th title="Keyakinan cara bicara rata-rata, 0–1">Yakin</th>
+              <th title="Stres suara (nada, variasi nada, volume vs baseline)">Stres</th>
+              <th title="Jeda dan 'uh/um'">Ragu</th>
+              <th title="Ketegangan wajah (menit dengan wajah terkunci)">Wajah</th>
+              <th title="Reaksi pasar searah hawkish, dalam satuan gerak tipikal">Reaksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {d.rows.slice(0, 20).map((r) => (
+              <tr key={r.videoId}>
+                <td className="!text-left max-w-[180px] truncate" title={r.title}>
+                  {new Date(r.start).toLocaleDateString([], { day: "numeric", month: "short", year: "2-digit" })} {r.title}
+                  <span className="dim text-fs-9"> · {r.delivery.minutes} mnt</span>
+                </td>
+                <td className={r.words >= 0.2 ? "down" : r.words <= -0.2 ? "up" : "dim"}>{fmt(r.words, 2)}</td>
+                <td className="tabular-nums">{fmt(r.delivery.confidence, 2)}</td>
+                <td className="tabular-nums">{fmt(r.delivery.stress, 2)}</td>
+                <td className="tabular-nums">{fmt(r.delivery.hesitation, 2)}</td>
+                <td className="tabular-nums">{r.delivery.tension === null ? <span className="dim">—</span> : `${fmt(r.delivery.tension, 2)} (${r.delivery.faceMinutes}m)`}</td>
+                <td className="tabular-nums">{r.reaction === null ? <span className="dim">—</span> : `${r.reaction > 0 ? "+" : ""}${fmt(r.reaction, 2)}`}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
 
 /** A hawkish side sends gold, bitcoin and stocks down, the dollar and the 2-year yield up. */
 const agrees = (side: Bias | null, hawk: number, v: number | null | undefined) =>
@@ -142,6 +224,8 @@ export default function ReactionsPanel() {
           </table>
         )}
       </div>
+
+      {data.delivery && <DeliveryTest d={data.delivery} />}
 
       <div className="border border-[var(--border)] rounded-sm overflow-auto">
         <div className="px-2 py-1 bg-[#141414] text-[var(--text)] font-bold">Rilis terakhir</div>

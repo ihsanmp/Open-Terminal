@@ -17,6 +17,7 @@ import { findHits, indexOf, normalize, stanceOf, type Side, type Stance } from "
 import { liveTracks, segment, type LiveTracks } from "./youtubelive.js";
 import { MediaAnalyzer, stopFaceWorker, type MediaReport } from "./fedmedia.js";
 import { noteFedBroadcast } from "./reactions.js";
+import type { DeliverySample } from "./deliverytest.js";
 import { check, claimsInLines, LABEL, UNIT, type Check, type Claim } from "./factcheck.js";
 import { findReports, eventPart, statements, type Evidence } from "./evidence.js";
 
@@ -220,6 +221,8 @@ export type Session = {
   facts: { scanned: number; read: number; items: Map<string, FactItem> };
   /** The events said (not figures), each looked for in the news archive (evidence.ts). */
   evidence: { scanned: number; checked: number; items: Map<string, EvidenceItem> };
+  /** The main speaker's delivery, a sample a minute of the broadcast (for deliverytest.ts), and when it was last kept. */
+  delivery: { samples: DeliverySample[]; keptAt: number };
 };
 
 type EvidenceItem = Evidence & { at: number; askedAt: number };
@@ -540,7 +543,8 @@ function keepBroadcast(s: Session): void {
   const last = s.tr.lines.at(-1);
   if (!s.fed || !sent || !first || !last || sent.hawkish + sent.dovish < 3) return;
   try {
-    noteFedBroadcast({ videoId: s.videoId, title: s.title, start: first.at, end: last.at, index: s.lastIndex ?? sent.index });
+    noteFedBroadcast({ videoId: s.videoId, title: s.title, start: first.at, end: last.at, index: s.lastIndex ?? sent.index, wordsIndex: sent.index, delivery: s.delivery.samples });
+    s.delivery.keptAt = Date.now();
   } catch (err) {
     console.warn("fed broadcast:", err instanceof Error ? err.message : err);
   }
@@ -602,6 +606,7 @@ export function transcript(videoId: string, since = 0, faces = true, fed = true,
       scored: null,
       facts: { scanned: 0, read: 0, items: new Map() },
       evidence: { scanned: 0, checked: 0, items: new Map() },
+      delivery: { samples: [], keptAt: Date.now() },
     };
     sessions.set(videoId, s);
     // Room for this one: drop the session asked for longest ago.
@@ -634,6 +639,22 @@ export function transcript(videoId: string, since = 0, faces = true, fed = true,
   s.fed = fed;
   s.lastIndex = combined?.index ?? sentiment.index;
   if (fed && sentiment.hawkish + sentiment.dovish >= 3) keepReading({ index: combined?.index ?? sentiment.index, at: new Date().toISOString(), title: s.title, videoId });
+  // A minute's delivery of the main speaker, for the voice-and-face test (deliverytest.ts): live
+  // only (layers 2 and 3 follow the newest segment), kept with the broadcast every five minutes.
+  if (fed && media.prosody && media.confidence !== null && s.status === "live") {
+    const minute = Math.floor(Date.now() / 60_000) * 60_000;
+    const lastSample = s.delivery.samples.at(-1);
+    if (!lastSample || lastSample.at < minute) {
+      s.delivery.samples.push({
+        at: minute,
+        confidence: media.confidence,
+        stress: media.prosody.stress,
+        hesitation: media.prosody.hesitation,
+        tension: media.face && media.face.lockedShare >= 0.5 ? media.face.tension : null,
+      });
+      if (Date.now() - s.delivery.keptAt > 5 * 60_000) keepBroadcast(s);
+    }
+  }
   const start = Math.max(0, Math.min(since, lines.length));
   scanFacts(s);
   scanEvidence(s);

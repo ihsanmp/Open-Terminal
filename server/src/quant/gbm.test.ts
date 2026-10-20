@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitGbm, predictGbm } from "./gbm.js";
+import { explainGbm, fitGbm, predictGbm } from "./gbm.js";
 import { fitLogistic, predict } from "./model.js";
 
 /** Rows of two features where the outcome is an interaction a straight line can't draw (XOR-like), and noise. */
@@ -41,6 +41,20 @@ describe("boosted trees", () => {
     const p = vX.map((x) => predictGbm(fit, x));
     // Close to the 55% base rate, not confident either way.
     expect(Math.max(...p.map((v) => Math.abs(v - 0.55)))).toBeLessThan(0.12);
+  });
+
+  it("splits a forecast into each feature's pull, adding up to its log-odds", () => {
+    const d = xorData(1500);
+    const fit = fitGbm(d.X, d.y, [0, 1, 2], { depth: 3, eta: 0.1, lambda: 1, minChild: 5, subsample: 1, colsample: 1, maxRounds: 40, patience: 40, bins: 32 });
+    const x = [0.4, -0.5, 0.2];
+    const { p, pulls } = explainGbm(fit, x, 3);
+    expect(p).toBeCloseTo(predictGbm(fit, x), 10);
+    const logit = Math.log(p / (1 - p));
+    // The base rate and the trees' root weights, plus the pulls, make the log-odds.
+    const roots = fit.trees.reduce((z, t) => z + fit.eta * ("leaf" in t[0] ? t[0].leaf : t[0].value), fit.base);
+    expect(roots + pulls.reduce((a, b) => a + b, 0)).toBeCloseTo(logit, 8);
+    // The noise column pulls least.
+    expect(Math.abs(pulls[2])).toBeLessThan(Math.max(Math.abs(pulls[0]), Math.abs(pulls[1])));
   });
 
   it("is deterministic", () => {

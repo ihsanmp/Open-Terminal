@@ -14,7 +14,8 @@ import { astroFeatures, seasons, type Season } from "./astrofeatures.js";
 import { bandFactor, dayWeight, eventDays, nextTradingDays, scaleBand, winterRatio, type EventKind } from "./bands.js";
 import { dailyCloses, MARKETS, type MarketKey } from "./data.js";
 import { macroFeatures } from "./macrofeatures.js";
-import { chooseLambda, dataset, fitLogistic, HORIZONS, predict, walkForward, type Horizon, type Score } from "./model.js";
+import { dataset, HORIZONS, type Horizon, type Score } from "./model.js";
+import { chooseRounds, explainGbm, fitGbm, GBM_FORECAST, walkForwardGbm } from "./gbm.js";
 
 export type Verdict = "Bullish" | "Bearish" | "Netral";
 
@@ -64,7 +65,7 @@ const dir = join(dataDir, "quant");
 const file = join(dir, "forecast.json");
 const REFRESH_MS = 6 * 3600_000;
 /** The kept forecasts' shape: a file of an older one is worked out again. */
-const VERSION = 2;
+const VERSION = 3;
 /** How far back the out-of-sample forecasts are kept for the calendar. */
 const HISTORY_FROM = Date.UTC(2018, 0, 1) / 86_400_000;
 
@@ -111,17 +112,19 @@ export async function computeForecasts(now = Date.now()): Promise<QuantResult> {
     const ratio = m.key === "btc" ? winterRatio(ds.days, ds.close, ds.close.length, sky) : null;
     const weight = dayWeight(m.key, events, ratio ? { of: sky, ratio } : undefined);
     for (const h of HORIZONS) {
-      const all = await walkForward(ds, h, "all");
-      const noAstro = await walkForward(ds, h, "noAstro");
-      const noMacro = await walkForward(ds, h, "noMacro");
+      // Boosted trees (gbm.ts): out of sample nearer the truth than the logistic regression was.
+      const all = await walkForwardGbm(ds, h, "all", GBM_FORECAST);
+      const noAstro = await walkForwardGbm(ds, h, "noAstro", GBM_FORECAST);
+      const noMacro = await walkForwardGbm(ds, h, "noMacro", GBM_FORECAST);
       // Today's forecast: fit on every row whose outcome is known.
       const known = ds.rows.filter((r) => r.i + h < ds.close.length);
       const y = known.map((r) => (ds.close[r.i + h] > ds.close[r.i] ? 1 : 0));
       const cols = ds.groups.map((_, j) => j);
       const X = known.map((r) => r.x);
-      const fit = fitLogistic(X, y, cols, chooseLambda(X, y, cols, h));
-      const { p, pulls } = predict(fit, last.x);
+      const rounds = chooseRounds(X, y, cols, h, GBM_FORECAST);
       const baseRate = y.reduce((a: number, b) => a + b, 0) / y.length;
+      // No tree kept (the features said nothing on the last two years): the base rate, no pulls.
+      const { p, pulls } = rounds ? explainGbm(fitGbm(X, y, cols, { ...GBM_FORECAST, maxRounds: rounds }), last.x, cols.length) : { p: baseRate, pulls: cols.map(() => 0) };
       const lean = p - baseRate;
       const verdict: Verdict = all.score.proven ? (p >= 0.5 && lean >= 0.03 ? "Bullish" : p < 0.5 && lean <= -0.03 ? "Bearish" : "Netral") : "Netral";
       const drivers = pulls
