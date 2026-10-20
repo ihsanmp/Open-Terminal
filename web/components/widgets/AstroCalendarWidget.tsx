@@ -7,6 +7,8 @@ import { apiGet, type Candle } from "../../lib/api";
 import { buildEvents, type AstroEvent, type EventKind } from "../../lib/astro-calendar/events";
 import { ASSETS, describeKey, describeState, extendSeries, impactOf, indexByKey, MIN_SAMPLES, outcomeOf, pricesVersion, trackRecord, verdictTrail, WALK_FORWARD, type Asset, type Impact, type Outcome, type Verdict } from "../../lib/astro-calendar/impact";
 import { useWidgetSetting } from "../../store/terminal";
+import RetrogradePanel from "./RetrogradePanel";
+import SunSignsPanel from "./SunSignsPanel";
 import { forecastFor, horizonFor, pct, useQuantForecast, useQuantHistory, verdictOf, type AssetForecast, type HorizonForecast, type QuantForecast, type QuantHistory, type QuantHorizon } from "../../lib/quant";
 
 // The astrology calendar: the month's sky events, each with the quant forecast for GOLD, BTC and DXY
@@ -402,6 +404,7 @@ export default function AstroCalendarWidget() {
   const [month, setMonth] = useState({ y: now.getFullYear(), m: now.getMonth() });
   const [shown, setShown] = useWidgetSetting<EventKind[]>("kinds", ["station", "eclipse", "lunation", "ingress"]);
   const [selected, setSelected] = useState<AstroEvent | null>(null);
+  const [view, setView] = useWidgetSetting<"calendar" | "retro" | "sun">("view", "calendar");
   const [data, setData] = useState<ReturnType<typeof getCatalogue> | null>(catalogue);
 
   // Computed after the first paint, so the page shows at once.
@@ -459,6 +462,23 @@ export default function AstroCalendarWidget() {
     <QuantContext.Provider value={quant}>
     <div className="flex h-full min-h-0 text-fs-11">
       <div className="flex-1 min-w-0 flex flex-col p-2 gap-2">
+        <div className="flex items-center gap-1">
+          <button className={`term-btn ${view === "calendar" ? "active" : ""}`} onClick={() => setView("calendar")}>
+            Kalender
+          </button>
+          <button className={`term-btn ${view === "retro" ? "active" : ""}`} onClick={() => setView("retro")} title="Periode retrograde planet per tahun, waktu sampai menit">
+            ℞ Periode Retrograde
+          </button>
+          <button className={`term-btn ${view === "sun" ? "active" : ""}`} onClick={() => setView("sun")} title="Tanggal masuk Matahari ke tiap zodiak, ekuinoks dan solstis">
+            ☉ Zodiak Matahari
+          </button>
+        </div>
+        {view === "retro" ? (
+          <RetrogradePanel />
+        ) : view === "sun" ? (
+          <SunSignsPanel />
+        ) : (
+        <>
         <div className="flex items-center gap-2 flex-wrap">
           <button className="term-btn" onClick={() => step(-1)} aria-label="Bulan sebelumnya">
             ‹
@@ -524,6 +544,8 @@ export default function AstroCalendarWidget() {
             );
           })}
         </div>
+        </>
+        )}
       </div>
       <aside className="w-[290px] shrink-0 border-l border-[var(--border)] overflow-auto">
         <div className="panel-title px-2 py-1.5">Kejadian mendatang</div>
