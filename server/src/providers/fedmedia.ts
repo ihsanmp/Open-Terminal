@@ -22,8 +22,8 @@ import { liveTracks, segment } from "./youtubelive.js";
 import type { FaceResult, FrameReply } from "./faceworker.js";
 
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
-const FRAME_W = 384;
-const FRAME_H = 216;
+export const FRAME_W = 384;
+export const FRAME_H = 216;
 /** Of each segment's five frames (one a second), the ones looked at: ~0.8 s of CPU each. */
 const FRAMES_LOOKED_AT = [1, 3];
 const KEEP_MS = 3 * 3_600_000;
@@ -294,7 +294,15 @@ export class MediaAnalyzer {
 
   private async listen(seq: number, wallMs: number, body?: Buffer): Promise<void> {
     const pcm = await ffmpeg(["-i", "pipe:0", "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "pipe:1"], body ?? (await this.fetch("audio", seq)));
-    const p = analyzeSegment(pcmToFloat(pcm));
+    this.takeAudio(wallMs, pcmToFloat(pcm));
+  }
+
+  /**
+   * A segment's audio (16 kHz mono) that started at `wallMs`: its seconds' pitch, loudness and voice.
+   * The live loop's, and a recorded broadcast's read back five seconds at a time (cli/fomc-delivery.ts).
+   */
+  takeAudio(wallMs: number, samples: Float32Array): void {
+    const p = analyzeSegment(samples);
     const ids = p.seconds.map((s) => (s.print ? this.speakers.assign(s.print) : null));
     const prev = this.seconds.at(-1);
     const smoothed = smooth([prev?.speaker ?? null, ...ids]).slice(1);
@@ -314,11 +322,17 @@ export class MediaAnalyzer {
     const size = FRAME_W * FRAME_H * 3;
     const picks = FRAMES_LOOKED_AT.filter((i) => (i + 1) * size <= raw.length);
     if (!picks.length) return;
-    const results = await lookAtFrames(picks.map((i) => new Uint8Array(raw.buffer, raw.byteOffset + i * size, size).slice()));
-    results.forEach((faces, k) => {
-      const at = wallMs + picks[k] * 1000;
-      this.frames.push({ at, faces, locked: this.lockOn(at, faces) });
-    });
+    await this.takeFrames(
+      picks.map((i) => wallMs + i * 1000),
+      picks.map((i) => new Uint8Array(raw.buffer, raw.byteOffset + i * size, size).slice()),
+    );
+  }
+
+  /** Frames (RGB, FRAME_W × FRAME_H) taken at the given moments: their faces, the main one locked. */
+  async takeFrames(at: number[], frames: Uint8Array[]): Promise<void> {
+    if (!frames.length) return;
+    const results = await lookAtFrames(frames);
+    results.forEach((faces, k) => this.frames.push({ at: at[k], faces, locked: this.lockOn(at[k], faces) }));
     this.trim();
   }
 
