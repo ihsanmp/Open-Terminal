@@ -9,6 +9,7 @@ import { ASSETS, describeKey, describeState, extendSeries, impactOf, indexByKey,
 import { useWidgetSetting } from "../../store/terminal";
 import RetrogradePanel from "./RetrogradePanel";
 import SunSignsPanel from "./SunSignsPanel";
+import AstroChat from "./AstroChat";
 import { forecastFor, horizonFor, pct, useQuantForecast, useQuantHistory, verdictOf, type AssetForecast, type HorizonForecast, type QuantForecast, type QuantHistory, type QuantHorizon } from "../../lib/quant";
 
 // The astrology calendar: the month's sky events, each with the quant forecast for GOLD, BTC and DXY
@@ -404,7 +405,7 @@ export default function AstroCalendarWidget() {
   const [month, setMonth] = useState({ y: now.getFullYear(), m: now.getMonth() });
   const [shown, setShown] = useWidgetSetting<EventKind[]>("kinds", ["station", "eclipse", "lunation", "ingress"]);
   const [selected, setSelected] = useState<AstroEvent | null>(null);
-  const [view, setView] = useWidgetSetting<"calendar" | "retro" | "sun">("view", "calendar");
+  const [view, setView] = useWidgetSetting<"calendar" | "retro" | "sun" | "chat">("view", "calendar");
   const [data, setData] = useState<ReturnType<typeof getCatalogue> | null>(catalogue);
 
   // Computed after the first paint, so the page shows at once.
@@ -472,11 +473,16 @@ export default function AstroCalendarWidget() {
           <button className={`term-btn ${view === "sun" ? "active" : ""}`} onClick={() => setView("sun")} title="Tanggal masuk Matahari ke tiap zodiak, ekuinoks dan solstis">
             ☉ Zodiak Matahari
           </button>
+          <button className={`term-btn ${view === "chat" ? "active" : ""}`} onClick={() => setView("chat")} title="Tanya jawab dan diskusi: jadwal langit, pengaruhnya ke harga, data historis, price action (offline)">
+            💬 Tanya
+          </button>
         </div>
         {view === "retro" ? (
           <RetrogradePanel />
         ) : view === "sun" ? (
           <SunSignsPanel />
+        ) : view === "chat" ? (
+          <AstroChat events={data?.events ?? null} forecast={forecast.data} />
         ) : (
         <>
         <div className="flex items-center gap-2 flex-wrap">

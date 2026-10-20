@@ -90,6 +90,7 @@ Every page sits in the sidebar; any of them can also be opened as a widget, drag
     - the first five minutes of gold, bitcoin, S&P futures, the dollar and the 2‑year yield.
 - 🔭 **Astro Calendar:** the month's sky events (retrogrades, eclipses, moon phases, ingresses and aspects) with the quant forecast for gold, bitcoin and the dollar over each event's span, and how it turned out. The astrology's own event study is kept beside it, labelled for what it is.
   - Each planet's retrograde periods of the year, to the minute, with their degrees, shadows and whether each is over, running or ahead; and the dates the Sun enters each sign, the equinoxes and solstices marked. Computed from the planets' precise positions, and checked against the published 2026 tables.
+  - A chat (offline, no paid AI) that answers from the app's own data: when the next retrograde, eclipse or full moon is, where a planet stands, how gold, bitcoin and the dollar index moved during or after such events against ordinary days, a date's close, a span's performance, drawdowns, streaks, seasonality, correlations, the quant forecast, and ~30 topics of price action, financial astrology and macro. A view stated ("Mercury retrograde sinks gold") is tested against the data and answered with a question back; replying to one of its messages carries on that thread, a message sent without replying starts a new one.
 - 🤖 **AI Assist** (optional): ask Claude about the symbol you're looking at, with the terminal's data as context.
 
 ### Quant forecasts, and what they're worth
