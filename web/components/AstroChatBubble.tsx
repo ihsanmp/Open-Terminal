@@ -139,7 +139,6 @@ export default function AstroChatBubble() {
               ✦
             </span>
             <span className="font-bold text-[#c9b8ff]">Asisten Astro</span>
-            <span className="text-fs-9 px-1.5 rounded-sm bg-[#ffffff12] dim">offline</span>
             <span className="ml-auto" />
             <ClearButton />
             <button className="dim hover:text-[var(--text)] px-1 text-[16px] leading-none" onPointerDown={(e) => e.stopPropagation()} onClick={() => setOpen(false)} title="Tutup (percakapan tetap tersimpan)" aria-label="Tutup">
@@ -162,7 +161,7 @@ export default function AstroChatBubble() {
             toggle();
           }
         }}
-        title="Asisten Astro (offline): klik untuk bertanya, seret untuk memindah"
+        title="Asisten Astro: klik untuk bertanya, seret untuk memindah"
         aria-label="Buka Asisten Astro"
         aria-expanded={open}
       >

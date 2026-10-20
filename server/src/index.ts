@@ -3,6 +3,7 @@ import cors from "cors";
 import { marketRouter } from "./routes/market.js";
 import { portfolioRouter } from "./routes/portfolio.js";
 import { aiRouter } from "./routes/ai.js";
+import { astroChatRouter } from "./routes/astrochat.js";
 import { researchRouter } from "./routes/research.js";
 import { workspaceRouter } from "./routes/workspace.js";
 import { allStats } from "./providers/registry.js";
@@ -56,6 +57,8 @@ app.use("/api/research", researchRouter);
 app.use("/api/social", requireApiKey, socialRouter);
 app.use("/api/notify", requireApiKey, notifyRouter);
 app.use("/api", marketRouter);
+// The Astro chat's online mode runs Claude on the user's own account: the shared secret, and a few a minute.
+app.use("/api/astro-chat", requireApiKey, rateLimit({ windowMs: 60_000, max: 8 }), astroChatRouter);
 // The paid AI endpoint requires a shared secret; see auth.ts.
 app.use(
   "/api/ai",
