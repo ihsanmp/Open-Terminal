@@ -8,6 +8,7 @@ import { useAiAvailable, useStatus } from "../lib/status";
 import PageView from "./PageView";
 import Workspace from "./Workspace";
 import CommandPalette from "./CommandPalette";
+import AstroChatBubble from "./AstroChatBubble";
 import { followOtherWindows, useTerminal } from "../store/terminal";
 import { startWorkspaceBackup } from "../store/workspace-backup";
 
@@ -116,6 +117,8 @@ export default function Terminal() {
         </main>
       </div>
       <CommandPalette />
+      {/* The Astro chat, floating over every page. */}
+      <AstroChatBubble />
     </div>
   );
 }

@@ -4,12 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { apiGet, type Candle } from "../../lib/api";
-import { buildEvents, type AstroEvent, type EventKind } from "../../lib/astro-calendar/events";
-import { ASSETS, describeKey, describeState, extendSeries, impactOf, indexByKey, MIN_SAMPLES, outcomeOf, pricesVersion, trackRecord, verdictTrail, WALK_FORWARD, type Asset, type Impact, type Outcome, type Verdict } from "../../lib/astro-calendar/impact";
+import { type AstroEvent, type EventKind } from "../../lib/astro-calendar/events";
+import { ASSETS, describeKey, describeState, extendSeries, impactOf, MIN_SAMPLES, outcomeOf, pricesVersion, trackRecord, verdictTrail, WALK_FORWARD, type Asset, type Impact, type Outcome, type Verdict } from "../../lib/astro-calendar/impact";
 import { useWidgetSetting } from "../../store/terminal";
 import RetrogradePanel from "./RetrogradePanel";
 import SunSignsPanel from "./SunSignsPanel";
-import AstroChat from "./AstroChat";
+import { catalogueIfReady, getCatalogue } from "../../lib/astro-calendar/catalogue";
 import { forecastFor, horizonFor, pct, useQuantForecast, useQuantHistory, verdictOf, type AssetForecast, type HorizonForecast, type QuantForecast, type QuantHistory, type QuantHorizon } from "../../lib/quant";
 
 // The astrology calendar: the month's sky events, each with the quant forecast for GOLD, BTC and DXY
@@ -19,7 +19,6 @@ import { forecastFor, horizonFor, pct, useQuantForecast, useQuantHistory, verdic
 // historical pattern: tested, it was right about as often as a coin.
 
 const DAY = 86_400;
-const FIRST_DAY = Math.floor(Date.UTC(1990, 0, 1) / 1000 / DAY);
 const MONTHS = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 const WEEKDAYS = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"];
 const KINDS: Array<{ kind: EventKind; label: string }> = [
@@ -54,16 +53,6 @@ function quantFor(event: AstroEvent, asset: Asset, q: QuantData): EventQuant | n
   return { h, live, f, point, verdict: verdictOf(point.pUp, f) };
 }
 
-// The whole catalogue is computed once (under a second) and shared by every calendar.
-let catalogue: { events: AstroEvent[]; byKey: Map<string, number[]> } | null = null;
-function getCatalogue() {
-  if (!catalogue) {
-    const today = Math.floor(Date.now() / 1000 / DAY);
-    const events = buildEvents(FIRST_DAY, today + 500);
-    catalogue = { events, byKey: indexByKey(events) };
-  }
-  return catalogue;
-}
 
 const localDay = (time: number) => {
   const d = new Date(time * 1000);
@@ -406,7 +395,9 @@ export default function AstroCalendarWidget() {
   const [shown, setShown] = useWidgetSetting<EventKind[]>("kinds", ["station", "eclipse", "lunation", "ingress"]);
   const [selected, setSelected] = useState<AstroEvent | null>(null);
   const [view, setView] = useWidgetSetting<"calendar" | "retro" | "sun" | "chat">("view", "calendar");
-  const [data, setData] = useState<ReturnType<typeof getCatalogue> | null>(catalogue);
+  // The chat moved to the floating bubble (AstroChatBubble): a view left on it shows the calendar.
+  const shownView = view === "chat" ? "calendar" : view;
+  const [data, setData] = useState<ReturnType<typeof getCatalogue> | null>(catalogueIfReady);
 
   // Computed after the first paint, so the page shows at once.
   useEffect(() => {
@@ -464,7 +455,7 @@ export default function AstroCalendarWidget() {
     <div className="flex h-full min-h-0 text-fs-11">
       <div className="flex-1 min-w-0 flex flex-col p-2 gap-2">
         <div className="flex items-center gap-1">
-          <button className={`term-btn ${view === "calendar" ? "active" : ""}`} onClick={() => setView("calendar")}>
+          <button className={`term-btn ${shownView === "calendar" ? "active" : ""}`} onClick={() => setView("calendar")}>
             Kalender
           </button>
           <button className={`term-btn ${view === "retro" ? "active" : ""}`} onClick={() => setView("retro")} title="Periode retrograde planet per tahun, waktu sampai menit">
@@ -473,16 +464,11 @@ export default function AstroCalendarWidget() {
           <button className={`term-btn ${view === "sun" ? "active" : ""}`} onClick={() => setView("sun")} title="Tanggal masuk Matahari ke tiap zodiak, ekuinoks dan solstis">
             ☉ Zodiak Matahari
           </button>
-          <button className={`term-btn ${view === "chat" ? "active" : ""}`} onClick={() => setView("chat")} title="Tanya jawab dan diskusi: jadwal langit, pengaruhnya ke harga, data historis, price action (offline)">
-            💬 Tanya
-          </button>
         </div>
-        {view === "retro" ? (
+        {shownView === "retro" ? (
           <RetrogradePanel />
-        ) : view === "sun" ? (
+        ) : shownView === "sun" ? (
           <SunSignsPanel />
-        ) : view === "chat" ? (
-          <AstroChat events={data?.events ?? null} forecast={forecast.data} />
         ) : (
         <>
         <div className="flex items-center gap-2 flex-wrap">
