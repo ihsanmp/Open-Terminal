@@ -5,19 +5,46 @@ import type { AstroEvent } from "../../lib/astro-calendar/events";
 import { respond, type Context } from "../../lib/astro-chat/answer";
 import { chatEnv } from "../../lib/astro-chat/env";
 import type { QuantForecast } from "../../lib/quant";
+import { apiGet, apiPost } from "../../lib/api";
 
 // The Astro Calendar's chat (offline: lib/astro-chat), in the floating bubble's panel
 // (AstroChatBubble). A reply to one of its messages carries on from that message's thread (its asset,
 // planet, topic); a message sent without replying starts a new one. The conversation is kept in this
 // browser (localStorage), across tabs and restarts.
 
-export type Msg = { id: string; role: "user" | "bot"; text: string; ctx?: Context; replyTo?: string; suggestions?: string[] };
+export type Msg = {
+  id: string;
+  role: "user" | "bot";
+  text: string;
+  ctx?: Context;
+  replyTo?: string;
+  suggestions?: string[];
+  /** Who answered: Claude (its model, how long) or the offline engine (and why, when Claude couldn't). */
+  engine?: "claude" | "offline";
+  model?: string;
+  ms?: number;
+  note?: string;
+};
+type Engine = "online" | "offline";
+const ENGINE_KEY = "ot-astro-engine";
+const readEngine = (): Engine => {
+  try {
+    return window.localStorage.getItem(ENGINE_KEY) === "offline" ? "offline" : "online";
+  } catch {
+    return "online";
+  }
+};
+/** "claude-sonnet-5-5" → "Sonnet 5.5". */
+const modelName = (m?: string) => {
+  const x = /claude-(\w+)-(\d+)-(\d+)/.exec(m ?? "");
+  return x ? `${x[1][0].toUpperCase()}${x[1].slice(1)} ${x[2]}.${x[3]}` : m ?? "";
+};
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 const WELCOME: Msg = {
   id: "welcome",
   role: "bot",
-  text: "Halo! Saya asisten offline Astro Calendar. Tanyakan jadwal langit, pengaruhnya ke harga emas/BTC/DXY, data historis, price action, atau ajak saya berdiskusi.\n**Balas** sebuah pesan saya untuk melanjutkan topiknya; pesan tanpa membalas dianggap topik baru.",
+  text: "Halo! Saya Asisten Astro. Tanyakan jadwal langit, pengaruhnya ke harga emas/BTC/DXY, data historis, price action, atau ajak saya berdiskusi.\n• **✦ Claude**: jawaban disusun Claude (akun Claude Anda) dari data yang dikumpulkan aplikasi dan riset Crypto-Analis.\n• **Offline**: langsung dari hitungan aplikasi, tanpa internet.\n**Balas** sebuah pesan saya untuk melanjutkan topiknya; pesan tanpa membalas dianggap topik baru.",
   suggestions: ["Kapan Merkurius retrograde berikutnya?", "Bagaimana emas selama Merkurius retrograde?", "Saya rasa gerhana bikin bitcoin turun", "Menurutmu astrologi berpengaruh ke harga?", "Pola musiman emas", "Apa itu support dan resistance?"],
 };
 
@@ -79,6 +106,23 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
   const box = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const env = useMemo(() => chatEnv(events, forecast), [events, forecast]);
+  const [engine, setEngineState] = useState<Engine>(readEngine);
+  const setEngine = (e: Engine) => {
+    setEngineState(e);
+    try {
+      window.localStorage.setItem(ENGINE_KEY, e);
+    } catch {
+      // Kept for this session only.
+    }
+  };
+  // Whether Claude Code is installed on this machine (the server asks it).
+  const [claude, setClaude] = useState<{ ok: boolean; version: string | null } | null>(null);
+  useEffect(() => {
+    apiGet<{ claude: boolean; version: string | null }>("/api/astro-chat/status")
+      .then((s) => setClaude({ ok: s.claude, version: s.version }))
+      .catch(() => setClaude({ ok: false, version: null }));
+  }, []);
+  const online = engine === "online" && claude?.ok !== false;
 
   useEffect(() => {
     box.current?.scrollTo({ top: box.current.scrollHeight });
@@ -86,24 +130,49 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
 
   const byId = (id: string | null | undefined) => (id ? messages.find((m) => m.id === id) : undefined);
 
+  const threadOf = (target: Msg | undefined) => {
+    const out: Array<{ role: "user" | "assistant"; text: string }> = [];
+    let m = target;
+    while (m && out.length < 8) {
+      if (m.id !== "welcome") out.unshift({ role: m.role === "user" ? "user" : "assistant", text: m.text });
+      m = byId(m.replyTo);
+    }
+    return out;
+  };
+
   const send = (text: string, reply: string | null) => {
     const q = text.trim();
     if (!q || busy) return;
     const target = byId(reply);
+    const thread = threadOf(target);
     const user: Msg = { id: newId(), role: "user", text: q, replyTo: target?.id };
     setBusy(true);
     setInput("");
     setReplyTo(null);
     update((prev) => [...(prev.length ? prev : [WELCOME]), user]);
-    // Worked out after the question shows (some answers read decades of prices).
-    setTimeout(() => {
-      let bot: Msg;
+    // The offline answer first (after the question shows: some read decades of prices). Online, it
+    // goes to Claude as the app's own numbers, with the thread replied to; if Claude can't answer,
+    // it's shown itself.
+    setTimeout(async () => {
+      let r: ReturnType<typeof respond> | null = null;
       try {
-        const r = respond(q, env, target?.ctx ?? {});
-        bot = { id: newId(), role: "bot", text: r.text, ctx: r.ctx, suggestions: r.suggestions, replyTo: user.id };
-      } catch (err) {
-        bot = { id: newId(), role: "bot", text: `Maaf, terjadi kesalahan saat menghitung: ${err instanceof Error ? err.message : String(err)}` };
+        r = respond(q, env, target?.ctx ?? {});
+      } catch {
+        r = null;
       }
+      const offlineMsg = (note?: string): Msg =>
+        r
+          ? { id: newId(), role: "bot", text: r.text, ctx: r.ctx, suggestions: r.suggestions, replyTo: user.id, engine: "offline", note }
+          : { id: newId(), role: "bot", text: "Maaf, terjadi kesalahan saat menghitung.", replyTo: user.id, engine: "offline", note };
+      let bot: Msg;
+      if (online) {
+        try {
+          const c = await apiPost<{ text: string; model: string; ms: number }>("/api/astro-chat", { question: q, thread, offline: r?.text ?? "" });
+          bot = { id: newId(), role: "bot", text: c.text, ctx: r?.ctx, suggestions: r?.suggestions, replyTo: user.id, engine: "claude", model: c.model, ms: c.ms };
+        } catch (err) {
+          bot = offlineMsg(`Claude tidak menjawab (${err instanceof Error ? err.message : String(err)}); ini jawaban offline.`);
+        }
+      } else bot = offlineMsg();
       update((prev) => [...prev, bot]);
       setBusy(false);
     }, 20);
@@ -114,6 +183,24 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
 
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-2">
+      <div className="flex items-center gap-1 px-2 pt-1.5 text-fs-10">
+        <button
+          className={`px-2 py-0.5 rounded-full border ${online ? "border-[#9b87f5] text-[#c9b8ff] bg-[#9b87f51a]" : "border-[var(--border)] dim"}`}
+          onClick={() => setEngine("online")}
+          disabled={claude?.ok === false}
+          title={claude?.ok === false ? "Claude Code CLI tidak ditemukan di komputer ini" : "Jawaban disusun Claude (akun Claude Anda, lewat Claude Code), dengan data dan hitungan aplikasi"}
+        >
+          ✦ Claude{claude?.ok === false ? " (tidak tersedia)" : ""}
+        </button>
+        <button
+          className={`px-2 py-0.5 rounded-full border ${!online ? "border-[#c8963c] text-[#e0b860] bg-[#c8963c1a]" : "border-[var(--border)] dim"}`}
+          onClick={() => setEngine("offline")}
+          title="Tanpa internet: jawaban langsung dari hitungan aplikasi"
+        >
+          Offline
+        </button>
+        <span className="ml-auto dim truncate">{online ? "online · data dikumpulkan aplikasi" : "hitungan aplikasi saja"}</span>
+      </div>
       <div ref={box} className="flex-1 min-h-0 overflow-auto flex flex-col gap-2 px-2 pt-2">
         {messages.map((m) => {
           const quoted = byId(m.replyTo);
@@ -128,6 +215,12 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
               <div className={`rounded-xl px-3 py-2 leading-relaxed text-fs-11 ${isUser ? "bg-[#3b2a14] text-[#f6ead6]" : "bg-[#1a1a1a] border border-[var(--border)] text-[#d8d8d8]"}`}>
                 <Rich text={m.text} />
               </div>
+              {!isUser && m.id !== "welcome" && (m.engine || m.note) && (
+                <div className="text-fs-9 dim mt-0.5">
+                  {m.engine === "claude" ? `✦ Claude ${modelName(m.model)}${m.ms ? ` · ${Math.round(m.ms / 1000)} dtk` : ""}` : "offline"}
+                  {m.note && <span className="text-[#e0a050]"> · {m.note}</span>}
+                </div>
+              )}
               {!isUser && (
                 <div className={`mt-1 ${m.id === "welcome" ? "flex flex-col items-start gap-1" : "flex flex-wrap items-center gap-1"}`}>
                   {m.id !== "welcome" && (
@@ -163,7 +256,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
             </div>
           );
         })}
-        {busy && <div className="self-start dim text-fs-10">Menghitung…</div>}
+        {busy && <div className="self-start dim text-fs-10">{online ? "✦ Claude sedang menyusun jawaban… (biasanya 10–40 detik)" : "Menghitung…"}</div>}
       </div>
       <div className="border border-[var(--border)] rounded-xl bg-[var(--panel-2)] mx-2 mb-2">
         {replying && (
