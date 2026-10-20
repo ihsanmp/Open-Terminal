@@ -9,10 +9,15 @@ import { GBM_DEFAULTS, walkForwardGbm, type GbmParams } from "../quant/gbm.js";
 import { macroFeatures } from "../quant/macrofeatures.js";
 import { dataset, HORIZONS, walkForward, type Score } from "../quant/model.js";
 
-const VARIANTS: Array<{ name: string; params: GbmParams }> = [
-  { name: "gbm d2", params: GBM_DEFAULTS },
+const ALL_VARIANTS: Array<{ name: string; params: GbmParams }> = [
+  { name: "gbm d2", params: { ...GBM_DEFAULTS, depth: 2, minChild: 40 } },
   { name: "gbm d3", params: { ...GBM_DEFAULTS, depth: 3, minChild: 80 } },
+  { name: "gbm d4", params: { ...GBM_DEFAULTS, depth: 4, minChild: 80 } },
+  { name: "gbm d5", params: { ...GBM_DEFAULTS, depth: 5, minChild: 80 } },
 ];
+// GBM_DEPTHS=3,4 picks some of them (all by default).
+const depths = process.env.GBM_DEPTHS?.split(",").map(Number);
+const VARIANTS = ALL_VARIANTS.filter((v) => !depths || depths.includes(v.params.depth));
 
 const fmt = (s: Score) => `acc ${(s.acc * 100).toFixed(1)} base ${(s.baseAcc * 100).toFixed(1)} z ${s.z.toFixed(2).padStart(5)} bss ${(s.bss * 100).toFixed(2).padStart(6)}%${s.proven ? " ✓" : ""}`;
 

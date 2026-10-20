@@ -7,7 +7,8 @@
 //   - the sky: the season, from the Sun (astrofeatures.ts; the moon, eclipses and retrogrades were
 //     tested by the research the forecaster follows and found to move nothing).
 //
-// A logistic regression (L2-regularised, on standardised features) per market and horizon, tested
+// The features here; the model is boosted trees (gbm.ts, chosen 20 Oct 2026 over the logistic regression
+// below, which stays as the yardstick in cli/quant-compare.ts). Each per market and horizon, tested
 // walk-forward a year at a time: each year forecast by a model fit only on the days whose outcome
 // was known before that year began. The same test is run without the sky and without the US data,
 // so what each adds (or takes away) out of sample is measured, not assumed.

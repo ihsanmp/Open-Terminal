@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { dataDir } from "../db.js";
 import { bars, type TvBar } from "./tvchart.js";
 import { biasOf, rows, TARGETS, walkForward, type Bias, type Inputs } from "./macroengine.js";
+import { deliveryTest, mergeSamples, type DeliveryReport, type DeliverySample } from "./deliverytest.js";
 
 const dir = join(dataDir, "macro-engine");
 
@@ -175,7 +176,17 @@ function count(t: Tally, side: Bias | null, moves: Moves): void {
   }
 }
 
-export type FedBroadcast = { videoId: string; title: string; start: number; end: number; index: number };
+export type FedBroadcast = {
+  videoId: string;
+  title: string;
+  start: number;
+  end: number;
+  /** The index shown (the words, firmed or softened by the delivery when it was heard). */
+  index: number;
+  /** The words' index alone, and the main speaker's delivery minute by minute (layers 2 and 3). */
+  wordsIndex?: number;
+  delivery?: DeliverySample[];
+};
 export type BroadcastReaction = FedBroadcast & { side: Bias; moves: Moves };
 
 const fedFile = () => join(dir, "fed-broadcasts.json");
@@ -184,7 +195,8 @@ const fedFile = () => join(dir, "fed-broadcasts.json");
 export function noteFedBroadcast(b: FedBroadcast): void {
   const all = read<FedBroadcast[]>(fedFile()) ?? [];
   const i = all.findIndex((x) => x.videoId === b.videoId);
-  if (i >= 0) all[i] = { ...b, start: Math.min(all[i].start, b.start) };
+  // An app restarted mid-way keeps the minutes heard before as well.
+  if (i >= 0) all[i] = { ...b, start: Math.min(all[i].start, b.start), delivery: mergeSamples(all[i].delivery, b.delivery) };
   else all.push(b);
   write(fedFile(), all.slice(-200));
 }
@@ -195,6 +207,8 @@ export type Reactions = {
   /** By target: how often each instrument moved the surprise's way (~30 min / day), and the engine's call's. */
   summary: Array<{ key: string; label: string; surprise30: Tally; surpriseDay: Tally; call30: Tally; callDay: Tally; releases: number }>;
   broadcasts: BroadcastReaction[];
+  /** Layers 2 and 3 against the markets (deliverytest.ts). */
+  delivery: DeliveryReport;
   instruments: Array<{ key: string; label: string; unit: string; hawk: number; group: string }>;
 };
 
@@ -241,7 +255,8 @@ export async function reactions(inputs: Inputs, now = Date.now()): Promise<React
     asOf: new Date(now).toISOString(),
     releases: out.filter((r) => Object.values(r.m30).some((v) => v !== null) || Object.values(r.day).some((v) => v !== null)).sort((a, b) => b.date.localeCompare(a.date)),
     summary,
-    broadcasts: broadcasts.sort((a, b) => b.start - a.start),
+    broadcasts: broadcasts.sort((a, b) => b.start - a.start).map(({ delivery: _d, ...b }) => b),
+    delivery: deliveryTest(broadcasts),
     instruments: INSTRUMENTS.map((i) => ({ key: i.key, label: i.label, unit: i.unit, hawk: i.hawk, group: i.group })),
   };
 }

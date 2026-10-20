@@ -337,7 +337,7 @@ function EventDialog({ event, events, byKey, version, onClose }: { event: AstroE
           {info && (
             <div className="text-fs-11 dim px-1 space-y-1">
               <p>
-                Prakiraan: model quant di server (regresi logistik per aset dan horizon) dari momentum, tren, volatilitas, aset lain, surprise data AS per jenis
+                Prakiraan: model quant di server (gradient-boosted trees gaya XGBoost per aset dan horizon) dari momentum, tren, volatilitas, aset lain, surprise data AS per jenis
                 rilis dan musim (posisi Matahari). Retrograde, fase bulan, gerhana dan aspek tidak dipakai: riset 2005–2026 tidak menemukan pengaruhnya pada harga. Untuk kejadian lampau ditampilkan prakiraan H-1 (hanya data
                 sampai hari itu); untuk kejadian mendatang, prakiraan hari ini. Bullish/Bearish hanya bila uji walk-forwardnya mengalahkan tebakan sederhana
                 secara signifikan.

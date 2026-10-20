@@ -155,7 +155,7 @@ export default function QuantPanel() {
         {data.season && <span className="dim"> · musim {SEASON_LABEL[data.season]}</span>}
       </div>
       <div className="dim text-fs-10">
-        Model regresi logistik per aset dan horizon, dari momentum, tren, volatilitas, aset lain (DXY, yield, kurva, VIX, saham, minyak, emas, BTC), surprise
+        Model gradient-boosted trees (gaya XGBoost, kedalaman 3; di uji walk-forward lebih dekat ke kenyataan daripada regresi logistik sebelumnya, tapi belum mengalahkan tebakan sederhana) per aset dan horizon, dari momentum, tren, volatilitas, aset lain (DXY, yield, kurva, VIX, saham, minyak, emas, BTC), surprise
         data AS per jenis rilis (inflasi/CPI, dibaca terpisah sejak 2021; tenaga kerja; ISM; lainnya) dan musim (posisi Matahari). Fase bulan, gerhana, retrograde
         dan aspek tidak dipakai lagi: riset 2005–2026 tidak menemukan pengaruhnya. Diuji walk-forward per tahun: tiap tahun diprakirakan dengan model yang hanya
         belajar dari tahun-tahun sebelumnya. Bullish/Bearish hanya muncul bila hasil uji mengalahkan tebakan sederhana secara signifikan. Angka dalam kurung =
