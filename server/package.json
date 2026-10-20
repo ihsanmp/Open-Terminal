@@ -10,7 +10,8 @@
     "test": "vitest run",
     "engine": "node dist/cli/engine.js",
     "seed:fomc": "node dist/cli/fomc-seed.js",
-    "quant:compare": "node dist/cli/quant-compare.js"
+    "quant:compare": "node dist/cli/quant-compare.js",
+    "fomc:delivery": "node dist/cli/fomc-delivery.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

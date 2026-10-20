@@ -52,6 +52,15 @@ function DeliveryTest({ d }: { d: Delivery }) {
         diskalakan ke gerak tipikal masing-masing. p = seberapa sering acak (cara bicara diacak antar-siaran, 2.000 kali) menghasilkan angka setinggi itu. Dianggap
         terbukti hanya bila ≥{d.needed} siaran dan p &lt; 0,05.
       </div>
+      <div className="px-2 pb-1 text-fs-10 leading-relaxed">
+        <span className="text-[var(--text)]">Pembanding, kata-kata saja</span>
+        <span className="dim">
+          {" "}
+          (caption 57 konferensi pers FOMC 2019–2026, harga 1 menit histdata.com, uji 20 Okt 2026): indeks kata vs reaksi pasar selama konferensi pers r 0,23 (p 0,04),
+          tetapi dengan uji peringkat hanya ρ 0,14 (p 0,17), karena didorong beberapa reaksi besar 2022; 2023–2026 ρ 0,02. Jadi kata-kata Fed menunjukkan sikapnya,
+          bukan kejutannya bagi pasar. Lapisan suara dan wajah harus mengalahkan angka ini untuk berarti.
+        </span>
+      </div>
       <div className="px-2 pb-1 flex flex-col gap-1">
         {d.hypotheses.map((h) => (
           <div key={h.id} className="leading-snug">
@@ -65,7 +74,7 @@ function DeliveryTest({ d }: { d: Delivery }) {
       </div>
       {d.rows.length === 0 ? (
         <div className="px-2 py-1 dim text-fs-10">
-          Belum ada siaran dengan rekaman suara/wajah ≥10 menit. Perekaman berjalan otomatis saat siaran The Fed ditonton live di Live TV dengan mode Watcher (suara &amp;
+          Belum ada siaran dengan rekaman suara/wajah ≥10 menit (rekaman konferensi pers lama tidak bisa diunduh: YouTube kini menolaknya tanpa token anti-bot). Perekaman berjalan otomatis saat siaran The Fed ditonton live di Live TV dengan mode Watcher (suara &amp;
           wajah) aktif, satu sampel per menit dari pembicara utama.
         </div>
       ) : (
