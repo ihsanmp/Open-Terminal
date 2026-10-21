@@ -6,8 +6,9 @@ import { apiGet } from "../../lib/api";
 import { usePoll } from "../../lib/refresh";
 import { useWidgetSetting } from "../../store/terminal";
 
-// Watcher Guru (watcher.guru/news): its latest articles by section or search, newest first, and
-// the chosen one to read on the right, as the server cleaned it (server/src/providers/watcherguru.ts).
+// Watcher Guru: its Telegram channel's breaking lines (t.me/WatcherGuru, every "JUST IN", by
+// default), or the site's articles (watcher.guru/news) by section or search with the chosen one to
+// read on the right, as the server cleaned it (server/src/providers/watcherguru.ts).
 
 type Post = {
   id: number;
@@ -102,7 +103,110 @@ function Reader({ post }: { post: Post }) {
   );
 }
 
+type Flash = { id: number; text: string; images: string[]; video: boolean; time: number; url: string; links: Array<{ text: string; url: string }> };
+type FlashPage = { posts: Flash[]; oldest: number | null };
+
+const wib = (ms: number) => {
+  const d = new Date(ms);
+  const today = new Date().toDateString() === d.toDateString();
+  return `${today ? "" : `${d.toLocaleDateString("id-ID", { day: "numeric", month: "short", timeZone: "Asia/Jakarta" })} `}${d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jakarta" })} WIB`;
+};
+
+/** A message's text: its "JUST IN:" (or "BREAKING:") lead in bold, its links clickable. */
+function FlashText({ f }: { f: Flash }) {
+  const lead = /^([A-Z][A-Z0-9 '’&-]{2,30}:)\s*/.exec(f.text);
+  const rest = lead ? f.text.slice(lead[0].length) : f.text;
+  const parts: React.ReactNode[] = [];
+  let i = 0;
+  for (const l of f.links) {
+    const at = rest.indexOf(l.text, i);
+    if (at < 0) continue;
+    parts.push(rest.slice(i, at));
+    parts.push(
+      <a key={`${l.url}-${at}`} href={l.url} target="_blank" rel="noreferrer" className="amber hover:underline break-all">
+        {l.text}
+      </a>,
+    );
+    i = at + l.text.length;
+  }
+  parts.push(rest.slice(i));
+  return (
+    <div className="whitespace-pre-wrap leading-relaxed text-[var(--text)]">
+      {lead && <b className={/BREAKING|ALERT/.test(lead[1]) ? "down" : "amber"}>{lead[1]} </b>}
+      {parts}
+    </div>
+  );
+}
+
+/** The channel's breaking lines, newest first, refreshed every half minute; older pages on demand. */
+function TelegramFeed({ filter }: { filter: string }) {
+  const poll = usePoll(30_000);
+  const { data, error, isLoading, isFetching, fetchNextPage, hasNextPage, isFetchingNextPage, dataUpdatedAt } = useInfiniteQuery({
+    queryKey: ["watcher-telegram"],
+    queryFn: ({ pageParam }) => apiGet<FlashPage>(`/api/watcher/telegram${pageParam ? `?before=${pageParam}` : ""}`),
+    initialPageParam: 0,
+    getNextPageParam: (last) => (last.oldest && last.oldest > 1 ? last.oldest : undefined),
+    refetchInterval: poll,
+  });
+  const all = data?.pages.flatMap((p) => p.posts) ?? [];
+  const unique = all.filter((p, i) => all.findIndex((x) => x.id === p.id) === i).sort((a, b) => b.id - a.id);
+  const f = filter.toLowerCase();
+  const shown = f ? unique.filter((p) => p.text.toLowerCase().includes(f)) : unique;
+  const now = Date.now();
+  return (
+    <div className="flex-1 min-h-0 overflow-auto">
+      <div className="px-3 py-1 dim text-fs-10 border-b border-[#161616]">
+        <span className={error ? "down" : "up"}>●</span> t.me/WatcherGuru · {unique.length} pesan dimuat
+        {dataUpdatedAt ? ` · diperbarui ${ago(new Date(dataUpdatedAt).toISOString())}` : ""}
+        {isFetching && !isFetchingNextPage ? " · memuat…" : ""}
+      </div>
+      {error && <div className="p-2 down">Kanal Telegram tidak terbaca: {(error as Error).message}</div>}
+      {isLoading && <div className="p-2 dim">Memuat kanal Telegram Watcher Guru…</div>}
+      {!isLoading && shown.length === 0 && !error && <div className="p-2 dim">{f ? `Tidak ada pesan yang memuat “${filter}” di yang sudah dimuat.` : "Belum ada pesan."}</div>}
+      <div className="max-w-[820px]">
+        {shown.map((p) => {
+          const fresh = now - p.time < 15 * 60_000;
+          return (
+            <div key={p.id} className="flex gap-3 px-3 py-2 border-b border-[#161616] hover:bg-[#121212]" style={fresh ? { boxShadow: "inset 2px 0 0 var(--amber)" } : undefined}>
+              <div className="w-[78px] shrink-0 text-fs-10 tabular-nums dim pt-0.5" title={new Date(p.time).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })}>
+                {wib(p.time)}
+                <div className={fresh ? "amber" : ""}>{ago(new Date(p.time).toISOString(), now)}</div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <FlashText f={p} />
+                {(p.images.length > 0 || p.video) && (
+                  <div className="flex gap-1.5 mt-1.5">
+                    {p.images.slice(0, 3).map((src) => (
+                      <a key={src} href={p.url} target="_blank" rel="noreferrer">
+                        <img src={src} alt="" loading="lazy" className="h-[90px] max-w-[160px] object-cover rounded-sm bg-[var(--panel-2)]" />
+                      </a>
+                    ))}
+                    {p.video && (
+                      <a href={p.url} target="_blank" rel="noreferrer" className="h-[24px] px-2 flex items-center rounded-sm border border-[var(--border)] dim hover:text-[var(--text)] text-fs-10">
+                        ▶ video
+                      </a>
+                    )}
+                  </div>
+                )}
+                <a href={p.url} target="_blank" rel="noreferrer" className="dim text-fs-9 hover:text-[var(--text)]">
+                  buka di Telegram ↗
+                </a>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {hasNextPage && (
+        <button className="w-full max-w-[820px] p-2 amber hover:bg-[#161616]" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+          {isFetchingNextPage ? "Memuat…" : "Muat pesan sebelumnya"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function WatcherWidget() {
+  const [mode, setMode] = useWidgetSetting<"telegram" | "articles">("wgMode", "telegram");
   const [section, setSection] = useWidgetSetting<number | null>("wgSection", null);
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
@@ -125,6 +229,7 @@ export default function WatcherWidget() {
     getNextPageParam: (last) => (last.page < Math.min(last.totalPages, 50) ? last.page + 1 : undefined),
     placeholderData: keepPreviousData,
     refetchInterval: poll,
+    enabled: mode === "articles",
   });
   const posts = data?.pages.flatMap((p) => p.posts) ?? [];
   // The same article may move to the next page while pages load: each once.
@@ -134,6 +239,17 @@ export default function WatcherWidget() {
   return (
     <div className="flex flex-col h-full min-h-0 text-fs-11">
       <div className="flex flex-wrap gap-1 p-1 items-center border-b border-[var(--border)]">
+        <button className={`term-btn ${mode === "telegram" ? "active" : ""}`} onClick={() => setMode("telegram")} title="Semua berita kilat kanal Telegram @WatcherGuru">
+          ✈ TELEGRAM
+        </button>
+        <button className={`term-btn ${mode === "articles" ? "active" : ""}`} onClick={() => setMode("articles")} title="Artikel lengkap di watcher.guru">
+          ARTIKEL
+        </button>
+        <span className="w-px h-4 bg-[var(--border)] mx-1" />
+        {mode === "telegram" ? (
+          <input className="flex-1 min-w-[120px]" placeholder="saring pesan (mis. bitcoin, trump, fed)…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        ) : (
+        <>
         {SECTIONS.map(([id, label]) => (
           <button key={label} className={`term-btn ${section === id ? "active" : ""}`} onClick={() => setSection(id)}>
             {label}
@@ -144,7 +260,12 @@ export default function WatcherWidget() {
           <span className={error ? "down" : "up"}>●</span> watcher.guru{dataUpdatedAt ? ` · ${ago(new Date(dataUpdatedAt).toISOString())}` : ""}
           {isFetching && !isFetchingNextPage ? " · memuat…" : ""}
         </span>
+        </>
+        )}
       </div>
+      {mode === "telegram" ? (
+        <TelegramFeed filter={q} />
+      ) : (
       <div className="flex flex-1 min-h-0">
         <div className="w-[min(460px,42%)] shrink-0 overflow-auto border-r border-[var(--border)]">
           {error && <div className="p-2 down">Error: {(error as Error).message}</div>}
@@ -174,6 +295,7 @@ export default function WatcherWidget() {
         </div>
         <div className="flex-1 min-w-0 overflow-auto">{open ? <Reader key={open.id} post={open} /> : null}</div>
       </div>
+      )}
     </div>
   );
 }
