@@ -80,7 +80,8 @@ export type Fiscal = {
 };
 
 export async function fiscal(): Promise<Fiscal> {
-  return cached("fiscal:all", 3 * 3_600_000, async () => {
+  // An hour: the daily files (debt, TGA) come out each afternoon US time.
+  return cached("fiscal:all", 3_600_000, async () => {
     const [debtRaw, mtsRaw, intRaw, rateRaw, tgaRaw] = await Promise.all([
       rows("v2/accounting/od/debt_to_penny", "sort=-record_date&page[size]=800&fields=record_date,tot_pub_debt_out_amt,debt_held_public_amt,intragov_hold_amt"),
       // src_line_nbr keeps the rows apart: with only the other fields the API adds up the two

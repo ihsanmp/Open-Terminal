@@ -7,6 +7,7 @@ import * as etfboard from "../providers/etfboard.js";
 import * as fiscal from "../providers/fiscal.js";
 import * as geopolitics from "../providers/geopolitics.js";
 import * as paircontext from "../providers/paircontext.js";
+import * as factorreg from "../providers/factorreg.js";
 import * as regime from "../providers/regime.js";
 import * as tradingview from "../providers/tradingview.js";
 import * as watcherguru from "../providers/watcherguru.js";
@@ -45,6 +46,7 @@ const pairSymbol = (req: import("express").Request) => {
 };
 deskRouter.get("/pair", send((req) => paircontext.pairContext(pairSymbol(req))));
 deskRouter.get("/pair/brief", send((req) => paircontext.pairBrief(pairSymbol(req))));
+deskRouter.get("/regression", send((req) => factorreg.factorRegression(pairSymbol(req), req.query.freq === "weekly" ? "weekly" : "daily")));
 
 /** A part of the dashboard, or null if it fails or takes longer than `ms` (the rest still shows). */
 async function part<T>(f: () => Promise<T>, ms = 12_000): Promise<T | null> {

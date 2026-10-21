@@ -18,6 +18,7 @@
 
 import { cached } from "../cache.js";
 import * as fred from "./fred.js";
+import * as tradingview from "./tradingview.js";
 import * as tvchart from "./tvchart.js";
 
 export type Quadrant = "goldilocks" | "reflation" | "stagflation" | "deflation";
@@ -174,6 +175,8 @@ export type Regime = {
   shortlist: { long: Array<{ key: string; label: string; why: string }>; avoid: Array<{ key: string; label: string; why: string }> };
   risk: Risk;
   sinceMonth: string;
+  /** How recent each input is: the official data's last month, the daily series' last day. */
+  sources: { indpro: string | null; cpi: string | null; vix: string | null; hy: string | null; curve: string | null; markets: string | null };
   asOf: number;
   caveat: string;
 };
@@ -228,7 +231,7 @@ export const barsMonthly = (bars: tvchart.TvBar[] | null | undefined): Monthly =
 };
 
 /** The whole reading: the regime now, its history and record, the shortlist and the risk overlay. */
-export function analyse(inp: Inputs, closes: Record<string, Monthly>, risk: Risk, now = Date.now()): Regime | null {
+export function analyse(inp: Inputs, closes: Record<string, Monthly>, risk: Risk, now = Date.now(), sources: Regime["sources"] = { indpro: null, cpi: null, vix: null, hy: null, curve: null, markets: null }): Regime | null {
   const thisMonth = monthKey(now);
   const start = "2002-01";
   const history: Reading[] = [];
@@ -318,29 +321,48 @@ export function analyse(inp: Inputs, closes: Record<string, Monthly>, risk: Risk
     shortlist: { long, avoid },
     risk,
     sinceMonth: history[0].month,
+    sources,
     asOf: now,
     caveat:
       "Data industri dan CPI dari FRED adalah angka yang sudah direvisi, bukan rilis pertama, jadi rekam jejak sedikit lebih baik daripada yang bisa dicapai saat itu. Rata-rata bulanan bukan janji: rentangnya lebar dan satu bulan bisa jauh dari rata-rata.",
   };
 }
 
-/** The regime now; an hour in the cache (the official inputs change monthly, the markets daily). */
+/** The regime now; a quarter of an hour in the cache (the official inputs change monthly, the markets by the minute). */
 export function regime(now = Date.now()): Promise<Regime> {
-  return cached("regime:now", 3_600_000, async () => {
-    const [indpro, cpi, vix, hy, curve, bars] = await Promise.all([
+  return cached("regime:now", 15 * 60_000, async () => {
+    const [indpro, cpi, vixHist, hy, curveHist, bars, live] = await Promise.all([
       fred.series("INDPRO", 400),
       fred.series("CPIAUCSL", 400),
       fred.series("VIXCLS", 400),
       fred.series("BAMLH0A0HYM2", 400),
       fred.series("T10Y2Y", 400),
       tvchart.bars(ASSETS.map((a) => a.tv), "1M", 300, 30_000),
+      // FRED posts the VIX and the 2s10s a day or two late: today's from TradingView, on top of its history.
+      tradingview.batchQuotes(["TVC:VIX", "TVC:US10Y", "TVC:US02Y"], (s) => [s]).catch(() => new Map()),
     ]);
+    const today = new Date(now).toISOString().slice(0, 10);
+    const withToday = (s: fred.SeriesPoint[], v: number | null | undefined) => (v != null && Number.isFinite(v) ? [...s.filter((p) => p.date < today), { date: today, value: v }] : s);
+    const vix = withToday(vixHist, live.get("TVC:VIX")?.price);
+    const y10 = live.get("TVC:US10Y")?.price;
+    const y2 = live.get("TVC:US02Y")?.price;
+    const curve = withToday(curveHist, y10 != null && y2 != null ? Math.round((y10 - y2) * 100) / 100 : null);
     const closes: Record<string, Monthly> = {};
     for (const a of ASSETS) closes[a.key] = barsMonthly(bars[a.tv]);
     const dxyKey = [...closes.dxy.keys()].sort().at(-1);
     const dxy3m = dxyKey ? change(closes.dxy, dxyKey, 3) : null;
     const inputs: Inputs = { indpro: toMonthly(indpro), cpi: toMonthly(cpi), copper: closes.copper, gold: closes.gold, oil: closes.oil };
-    const out = analyse(inputs, closes, riskOf(vix, hy, curve, dxy3m), now);
+    const lastMonth = (s: fred.SeriesPoint[]) => s.at(-1)?.date.slice(0, 7) ?? null;
+    const lastBar = Object.values(bars).flatMap((b) => (b?.length ? [b[b.length - 1].time] : [])).sort((a, b) => b - a)[0];
+    const sources: Regime["sources"] = {
+      indpro: lastMonth(indpro),
+      cpi: lastMonth(cpi),
+      vix: vix.at(-1)?.date ?? null,
+      hy: hy.at(-1)?.date ?? null,
+      curve: curve.at(-1)?.date ?? null,
+      markets: lastBar ? new Date(now).toISOString().slice(0, 10) : null,
+    };
+    const out = analyse(inputs, closes, riskOf(vix, hy, curve, dxy3m), now, sources);
     if (!out) throw new Error("regime: not enough data");
     return out;
   });

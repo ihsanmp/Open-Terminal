@@ -210,6 +210,22 @@ export const MODULES: Module[] = [
         quiz: [{ q: "Model akurasi 54% vs tebakan dasar 55%. Artinya?", options: ["Model bagus", "Model tidak menambah nilai dibanding tebakan dasar", "Pasti untung", "Perlu leverage lebih besar"], answer: 1, why: "Yang dihitung adalah kelebihan atas tebakan dasar." }],
       },
       {
+        id: "regression",
+        title: "Regresi multifaktor: membaca beta",
+        minutes: 5,
+        body: [
+          "Regresi multifaktor mengukur seberapa besar sebuah pair ikut bergerak bersama beberapa penggerak besar sekaligus — S&P 500, dolar, yield 10 tahun, VIX, emas, minyak, bitcoin — dengan faktor lain dianggap tetap.",
+          "Beta −1,4 untuk dolar pada emas berarti: di hari dolar naik 1%, emas rata-rata turun 1,4%. Statistik t (di atas ±2) dan nilai p (di bawah 0,05) menunjukkan apakah hubungan itu nyata atau bisa kebetulan. Standar error Newey-West dipakai agar volatilitas yang bergerombol tidak membuat hasil tampak lebih yakin dari seharusnya.",
+          "R² memberi tahu berapa bagian gerak pair yang dijelaskan faktor-faktor itu; sisanya adalah gerak khas pair sendiri. VIF di atas 5 berarti dua faktor terlalu mirip sehingga beta masing-masing tidak bisa dipercaya terpisah. Bandingkan beta paruh awal dan akhir: beta yang berbalik tanda menandakan hubungan yang tidak stabil.",
+          "Yang terpenting: ini sensitivitas pada hari yang sama, bukan ramalan. Uji ramal di aplikasi (faktor kemarin → pair hari ini, di luar sampel) hampir selalu tidak berdaya. Pakai beta untuk lindung nilai, ukuran posisi, dan memahami rilis mana yang akan menggerakkan pair Anda.",
+        ],
+        practice: { view: "quant", label: "Buka regresi di Quantitative" },
+        quiz: [
+          { q: "Beta pair terhadap S&P 500 = 1,0 dengan t = 5. Artinya?", options: ["Pair pasti naik besok", "Di hari S&P naik 1%, pair rata-rata naik ±1%, dan hubungannya nyata", "Pair dan S&P adalah aset yang sama", "Tidak ada hubungan"], answer: 1, why: "Beta = ukuran ikut-bergerak; t = 5 jauh di atas 2." },
+          { q: "R² di luar sampel untuk ramalan hari berikutnya negatif. Kesimpulannya?", options: ["Model ramalan bagus", "Faktor kemarin tidak bisa meramal pair hari ini", "Datanya salah", "Perlu leverage"], answer: 1, why: "R² negatif = lebih buruk dari menebak rata-rata." },
+        ],
+      },
+      {
         id: "chart",
         title: "Validasi teknikal dan timing",
         minutes: 3,
