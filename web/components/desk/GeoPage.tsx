@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../../lib/api";
 import { usePoll } from "../../lib/refresh";
 import { useWidgetSetting } from "../../store/terminal";
+import { usePairContext } from "../../lib/pair";
+import PairBanner from "./PairBanner";
 import { ago, Failed, Loading, Pct, Section, wib } from "./ui";
 
 // Geopolitics: which geopolitical themes are loud in the news now against their own usual week,
@@ -48,14 +50,44 @@ export default function GeoPage() {
   const poll = usePoll(120_000);
   const [open, setOpen] = useWidgetSetting<string>("geoTheme", "");
   const { data, error, isLoading } = useQuery({ queryKey: ["desk-geo"], queryFn: () => apiGet<Geo>("/api/desk/geopolitics"), refetchInterval: poll });
+  const { symbol, ctx } = usePairContext();
   if (isLoading) return <Loading what="peta geopolitik" />;
   if (error || !data) return <Failed error={error} />;
   const active = data.themes.filter((t) => t.week > 0);
   const chosen = data.themes.find((t) => t.id === open) ?? active[0] ?? data.themes[0];
   const now = Date.now();
+  const gk = ctx?.geo?.key ?? null;
+  const sign = ctx?.geo?.sign ?? 1;
+  // The themes that usually move the pair, loudest first, with the direction for the pair itself.
+  const moving = gk ? data.themes.map((t) => ({ t, dir: (t.usual[gk] ?? 0) * sign })).filter((x) => x.dir !== 0 && x.t.week > 0) : [];
 
   return (
     <div className="p-2 grid gap-2 grid-cols-1 xl:grid-cols-12 text-fs-11">
+      <div className="xl:col-span-12">
+        <PairBanner symbol={symbol} ctx={ctx}>
+          {gk ? (
+            moving.length ? (
+              <>
+                tema yang lazim menggerakkannya:{" "}
+                {moving.slice(0, 4).map(({ t, dir }, i) => (
+                  <span key={t.id}>
+                    {i > 0 && ", "}
+                    <span className={dir > 0 ? "up" : "down"}>
+                      {dir > 0 ? "▲" : "▼"} {t.label}
+                    </span>{" "}
+                    ({t.week})
+                  </span>
+                ))}
+                {sign < 0 ? " · arah dibalik karena pair bergerak berlawanan dengan dolar" : ""}
+              </>
+            ) : (
+              "tidak ada tema aktif yang lazim menggerakkannya"
+            )
+          ) : ctx ? (
+            "pair ini tidak terpetakan ke aset safe haven"
+          ) : null}
+        </PairBanner>
+      </div>
       <Section title="Pengukur aset safe haven" note="hari ini / minggu ini" className="xl:col-span-12">
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
           {data.gauges.map((g) => (
@@ -123,7 +155,10 @@ export default function GeoPage() {
               <tr>
                 <th>Tema</th>
                 {ASSETS.map((a) => (
-                  <th key={a}>{SHORT[a]}</th>
+                  <th key={a} className={a === gk ? "!text-[var(--amber)]" : ""}>
+                    {a === gk ? "● " : ""}
+                    {SHORT[a]}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -134,7 +169,7 @@ export default function GeoPage() {
                   {ASSETS.map((a) => {
                     const v = t.usual[a];
                     return (
-                      <td key={a} className={v === 1 ? "up" : v === -1 ? "down" : "dim"}>
+                      <td key={a} className={`${v === 1 ? "up" : v === -1 ? "down" : "dim"} ${a === gk ? "bg-[#2a2210]" : ""}`}>
                         {v === 1 ? "▲" : v === -1 ? "▼" : "·"}
                       </td>
                     );

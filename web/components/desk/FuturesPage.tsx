@@ -5,7 +5,8 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 import { apiGet } from "../../lib/api";
 import { fontPx } from "../../lib/font-scale";
 import { usePoll } from "../../lib/refresh";
-import { useWidgetSetting } from "../../store/terminal";
+import { useFollowPair, usePairContext } from "../../lib/pair";
+import PairBanner from "./PairBanner";
 import { Failed, Loading, Pct, Section, signed, wib } from "./ui";
 
 // Futures: forward pricing. Every market's contract months front to back (server/src/providers/
@@ -50,7 +51,8 @@ function readOf(c: Curve): string {
 
 export default function FuturesPage() {
   const poll = usePoll(60_000);
-  const [selected, setSelected] = useWidgetSetting<string>("curve", "sr3");
+  const { symbol, ctx } = usePairContext();
+  const [selected, setSelected] = useFollowPair<string>("curve", "sr3", ctx?.curveId, ctx !== null);
   const { data, error, isLoading } = useQuery({ queryKey: ["desk-curves"], queryFn: () => apiGet<Curve[]>("/api/desk/curves"), refetchInterval: poll });
   if (isLoading) return <Loading what="kurva forward futures" />;
   if (error || !data) return <Failed error={error} />;
@@ -60,6 +62,11 @@ export default function FuturesPage() {
 
   return (
     <div className="p-2 grid gap-2 grid-cols-1 xl:grid-cols-12 text-fs-11">
+      <div className="xl:col-span-12">
+        <PairBanner symbol={symbol} ctx={ctx}>
+          {ctx?.curveId ? `kurva ${data.find((x) => x.id === ctx.curveId)?.label ?? ctx.curveId} dipilih otomatis (●)` : ctx ? "pair ini tidak punya kurva futures; pilih kurva lain di kiri" : null}
+        </PairBanner>
+      </div>
       <Section title="Semua kurva" note="klik untuk melihat" className="xl:col-span-6">
         <table className="data-table w-full text-fs-10">
           <thead>
@@ -83,7 +90,10 @@ export default function FuturesPage() {
                 </tr>,
                 ...rows.map((x) => (
                   <tr key={x.id} onClick={() => setSelected(x.id)} className={`cursor-pointer ${x.id === c.id ? "bg-[#1a1a1a]" : "hover:bg-[#121212]"}`}>
-                    <td className={x.id === c.id ? "amber" : ""}>{x.label}</td>
+                    <td className={x.id === c.id ? "amber" : ""}>
+                      {x.id === ctx?.curveId && <span className="amber">● </span>}
+                      {x.label}
+                    </td>
                     <td className="tabular-nums">{x.points[0] ? (x.kind === "rate" ? `${x.points[0].value.toFixed(2)}%` : price(x.points[0].price)) : "—"}</td>
                     <td className={x.shape === "backwardation" || x.shape === "hikes" ? "down" : x.shape === "contango" || x.shape === "cuts" ? "up" : "dim"}>
                       {x.shape === "cuts" ? "pemotongan" : x.shape === "hikes" ? "kenaikan" : x.shape === "flat" ? "datar" : x.shape ?? "—"}

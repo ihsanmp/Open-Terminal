@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { newId, useJournal } from "../../lib/journal";
 import type { Plan } from "../../lib/plan";
-import { useTerminal } from "../../store/terminal";
+import { useChartSymbol } from "../../lib/pair";
 import { wib } from "./ui";
 
 // Notepad: the research journal — notes with a symbol, tags and a link to a trade plan (the
@@ -35,7 +35,8 @@ const tagsOf = (s: string) =>
     .filter(Boolean);
 
 export default function NotepadPage() {
-  const activeSymbol = useTerminal((s) => s.activeSymbol);
+  const activeSymbol = useChartSymbol();
+  const [scope, setScope] = useState<"pair" | "all">("pair");
   const { list, isLoading, error, upsert, update, remove } = useJournal<Note>("notes");
   const plans = useJournal<Plan>("plans").list;
   const [openId, setOpenId] = useState<string | null>(null);
@@ -44,7 +45,8 @@ export default function NotepadPage() {
   const note = list.find((n) => n.id === openId) ?? null;
 
   const allTags = useMemo(() => [...new Set(list.flatMap((n) => n.tags))].sort(), [list]);
-  const shown = list
+  const forPair = list.filter((n) => n.symbol.toUpperCase() === activeSymbol.toUpperCase());
+  const shown = (scope === "pair" ? forPair : list)
     .filter((n) => (!tag || n.tags.includes(tag)) && (!q || `${n.title} ${n.body} ${n.symbol}`.toLowerCase().includes(q.toLowerCase())))
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
 
@@ -77,6 +79,14 @@ export default function NotepadPage() {
                 <option key={name}>{name}</option>
               ))}
             </select>
+          </div>
+          <div className="flex gap-1 text-fs-10">
+            <button className={`term-btn ${scope === "pair" ? "active" : ""}`} onClick={() => setScope("pair")} title="Pair yang terbuka di Charting">
+              {activeSymbol} ({forPair.length})
+            </button>
+            <button className={`term-btn ${scope === "all" ? "active" : ""}`} onClick={() => setScope("all")}>
+              Semua ({list.length})
+            </button>
           </div>
           <input placeholder="Cari catatan…" value={q} onChange={(e) => setQ(e.target.value)} />
           {allTags.length > 0 && (

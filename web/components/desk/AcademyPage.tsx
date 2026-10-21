@@ -3,6 +3,14 @@
 import { useEffect, useState } from "react";
 import { allLessons, MODULES, type Lesson } from "../../lib/academy";
 import { useTerminal, useWidgetSetting } from "../../store/terminal";
+import { usePairContext, type PairContext } from "../../lib/pair";
+
+/** The lessons that matter most for a kind of market. */
+const FOR_KIND: Record<PairContext["kind"], string[]> = {
+  fx: ["fed", "fiscal", "cot"], dollar: ["fed", "fiscal", "cot"], rate: ["fed", "fiscal", "curves"], crypto: ["cot", "risk", "quant"],
+  metal: ["curves", "cot", "geo"], energy: ["curves", "cot", "geo"], agri: ["curves", "cot", "regime"], stock: ["fundamentals", "breadth", "rotation"],
+  etf: ["rotation", "breadth", "regime"], index: ["regime", "breadth", "risk"], volatility: ["risk", "curves", "geo"], other: ["regime", "plan", "journal"],
+};
 
 // Academy: short lessons along the menu's six groups, each ending with the tool to practise in
 // and a question or two; lessons read are ticked (kept in this browser).
@@ -34,6 +42,8 @@ export default function AcademyPage() {
       return next;
     });
   const idx = allLessons.findIndex((l) => l.id === lesson.id);
+  const { symbol, ctx } = usePairContext();
+  const suggested = ctx ? FOR_KIND[ctx.kind].map((id) => allLessons.find((l) => l.id === id)).filter((l): l is (typeof allLessons)[number] => Boolean(l)) : [];
 
   return (
     <div className="h-full flex min-h-0 text-fs-11 portrait:flex-col">
@@ -47,6 +57,18 @@ export default function AcademyPage() {
             <div className="h-full bg-[var(--amber)] rounded-sm" style={{ width: `${(done.length / allLessons.length) * 100}%` }} />
           </div>
         </div>
+        {suggested.length > 0 && (
+          <div className="border-b border-[#161616] pb-1 bg-[#16130b]">
+            <div className="px-2 pt-2 text-fs-9 font-bold uppercase tracking-wide amber">Untuk {symbol}</div>
+            <div className="px-2 text-fs-9 dim mb-1">Pelajaran yang paling relevan untuk {ctx?.label}</div>
+            {suggested.map((l) => (
+              <button key={l.id} onClick={() => setLessonId(l.id)} className={`w-full text-left px-2 py-1 flex gap-2 ${l.id === lesson.id ? "bg-[#1a1a1a] text-[var(--amber)]" : "hover:bg-[#121212]"}`}>
+                <span className={done.includes(l.id) ? "up" : "dim"}>{done.includes(l.id) ? "✓" : "○"}</span>
+                <span className="flex-1">{l.title}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {MODULES.map((m) => (
           <div key={m.id} className="border-b border-[#161616] pb-1">
             <div className="px-2 pt-2 text-fs-9 font-bold uppercase tracking-wide text-[#7f93b8]">{m.title}</div>

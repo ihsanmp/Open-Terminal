@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { EVENT_LABEL, pct, QUANT_HORIZONS, SEASON_LABEL, signedPts, useQuantForecast, type AssetForecast, type HorizonForecast, type QuantHorizon } from "../../lib/quant";
 import { useTerminal, useWidgetSetting } from "../../store/terminal";
 
@@ -72,11 +72,13 @@ function Detail({ a, h }: { a: AssetForecast; h: QuantHorizon }) {
   );
 }
 
-export default function QuantPanel() {
+/** `focus`: an asset to mark and open (the chart's pair, on the Quantitative page). */
+export default function QuantPanel({ focus = null }: { focus?: string | null } = {}) {
   const { data, error, isLoading } = useQuantForecast();
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
   const [h, setH] = useWidgetSetting<QuantHorizon>("quantHorizon", 10);
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(focus);
+  useEffect(() => setOpen(focus), [focus]);
 
   if (isLoading) return <div className="p-2 dim">Menghitung model quant (pertama kali ±1 menit)…</div>;
   if (error || !data) return <div className="p-2 down">Prakiraan gagal dimuat: {(error as Error)?.message}</div>;
@@ -115,8 +117,9 @@ export default function QuantPanel() {
             const f = a.horizons[h];
             const lean = f.pUp - f.baseRate;
             return [
-              <tr key={a.key} onClick={() => setOpen(open === a.key ? null : a.key)} className="cursor-pointer" title="Klik untuk rincian">
+              <tr key={a.key} onClick={() => setOpen(open === a.key ? null : a.key)} className={`cursor-pointer ${a.key === focus ? "bg-[#2a2210]" : ""}`} title="Klik untuk rincian">
                 <td className="!text-left !whitespace-normal">
+                  {a.key === focus && <span className="amber">● </span>}
                   <button
                     className="hover:underline text-left"
                     onClick={(e) => {

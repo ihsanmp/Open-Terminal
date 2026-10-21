@@ -1,6 +1,8 @@
 "use client";
 
 import { useWidgetSetting } from "../../store/terminal";
+import { usePairContext } from "../../lib/pair";
+import PairBanner from "./PairBanner";
 import QuantPanel from "../widgets/QuantPanel";
 import EnginePanel from "../widgets/EnginePanel";
 import NowcastPanel from "../widgets/NowcastPanel";
@@ -22,6 +24,7 @@ const TABS: Array<[string, string, string]> = [
 export default function QuantPage() {
   const [tab, setTab] = useWidgetSetting<string>("quantTab", "quant");
   const current = TABS.find((t) => t[0] === tab) ?? TABS[0];
+  const { symbol, ctx } = usePairContext();
   return (
     <div className="h-full flex flex-col min-h-0 text-fs-11">
       <div className="flex flex-wrap gap-1 p-1 items-center border-b border-[var(--border)]">
@@ -33,8 +36,13 @@ export default function QuantPage() {
         <span className="dim text-fs-10 ml-2">{current[2]}</span>
       </div>
       <div className="flex-1 min-h-0 overflow-auto">
+        <div className="px-2 pt-2">
+          <PairBanner symbol={symbol} ctx={ctx}>
+            {ctx?.quantKey ? "barisnya ditandai ● dan dibuka di Prakiraan aset" : ctx ? "tidak dicakup model quant; aset terdekat bisa dilihat di tabel" : null}
+          </PairBanner>
+        </div>
         <div>
-          {current[0] === "quant" && <QuantPanel />}
+          {current[0] === "quant" && <QuantPanel focus={ctx?.quantKey ?? null} />}
           {current[0] === "engine" && (
             <>
               <EnginePanel />

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../../lib/api";
 import { usePoll } from "../../lib/refresh";
 import { useTerminal, type View } from "../../store/terminal";
+import PairCard from "./PairCard";
 import { ago, Failed, Loading, Pct, ScoreBar, Section, wib } from "./ui";
 
 // Macro Command Center's first page: the big picture before a trade idea. The macro regime and
@@ -64,6 +65,8 @@ export default function DashboardPage() {
   const r = data.regime;
   return (
     <div className="p-2 grid gap-2 grid-cols-1 xl:grid-cols-12 text-fs-11">
+      {/* The chart's pair through every tool */}
+      <PairCard />
       {/* Regime and risk */}
       <Section title="Regime makro" note="arah pertumbuhan × inflasi" right={<Go to="regime">Macro Regime</Go>} className="xl:col-span-5">
         {r ? (

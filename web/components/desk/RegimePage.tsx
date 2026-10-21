@@ -2,6 +2,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../../lib/api";
+import { usePairContext } from "../../lib/pair";
+import PairBanner from "./PairBanner";
 import { Failed, Loading, Pct, ScoreBar, Section, signed } from "./ui";
 
 // Macro Regime: the quadrant growth and inflation make now, how it was read, the last three
@@ -43,12 +45,30 @@ function cellColor(s: Stat): string {
 
 export default function RegimePage() {
   const { data, error, isLoading } = useQuery({ queryKey: ["desk-regime"], queryFn: () => apiGet<Regime>("/api/desk/regime"), refetchInterval: 15 * 60_000 });
+  const { symbol, ctx } = usePairContext();
   if (isLoading) return <Loading what="regime makro (±25 tahun data bulanan)" />;
   if (error || !data) return <Failed error={error} />;
   const cur = data.current;
   const q = Q[cur.quadrant];
+  const mine = ctx?.regimeKey ? data.assets.find((a) => a.key === ctx.regimeKey) ?? null : null;
+  const mineStat = mine?.byRegime[cur.quadrant] ?? null;
   return (
     <div className="p-2 grid gap-2 grid-cols-1 xl:grid-cols-12 text-fs-11">
+      <div className="xl:col-span-12">
+        <PairBanner symbol={symbol} ctx={ctx}>
+          {mine ? (
+            <>
+              dibaca lewat baris <b className="text-[var(--text)]">{mine.label}</b>
+              {ctx?.regimeProxy ? " (padanan terdekat)" : ""}: di {q.label} rata-rata{" "}
+              <b className={(mineStat?.mean ?? 0) >= 0 ? "up" : "down"}>{mineStat ? signed(mineStat.mean, 2) : "—"}</b>/bln
+              {mineStat ? `, naik ${mineStat.hit.toFixed(0)}% dari ${mineStat.n} bln` : ""} (biasanya {mine.all ? signed(mine.all.mean, 2) : "—"}) · teori {mine.textbook > 0 ? "mendukung" : mine.textbook < 0 ? "menekan" : "netral"} ·{" "}
+              {mine.measured === "positive" ? "terukur unggul" : mine.measured === "negative" ? "terukur tertinggal" : "perbedaannya tidak nyata"} · tren 10 bln {mine.aboveSma10 == null ? "—" : mine.aboveSma10 ? "naik" : "turun"}
+            </>
+          ) : ctx ? (
+            "pair ini tidak punya padanan di tabel regime"
+          ) : null}
+        </PairBanner>
+      </div>
       <Section title="Regime sekarang" note={`bulan ${monthLabel(cur.month)} (bulan berjalan: bisa berubah sampai akhir bulan)`} className="xl:col-span-5">
         <div className="text-fs-20 font-bold" style={{ color: q.color }}>
           {q.label}
@@ -156,8 +176,11 @@ export default function RegimePage() {
             </thead>
             <tbody>
               {data.assets.map((a) => (
-                <tr key={a.key}>
-                  <td className="whitespace-nowrap">{a.label}</td>
+                <tr key={a.key} className={a.key === mine?.key ? "bg-[#2a2210]" : ""} title={a.key === mine?.key ? `Baris untuk ${symbol}` : undefined}>
+                  <td className="whitespace-nowrap">
+                    {a.key === mine?.key && <span className="amber">● </span>}
+                    {a.label}
+                  </td>
                   <td className={a.aboveSma10 == null ? "dim" : a.aboveSma10 ? "up" : "down"}>{a.aboveSma10 == null ? "—" : a.aboveSma10 ? "naik" : "turun"}</td>
                   <td>
                     <Pct v={a.change1m} digits={1} />

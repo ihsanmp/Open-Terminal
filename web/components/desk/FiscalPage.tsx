@@ -4,7 +4,19 @@ import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { apiGet } from "../../lib/api";
 import { fontPx } from "../../lib/font-scale";
+import { usePairContext, type PairContext } from "../../lib/pair";
+import PairBanner from "./PairBanner";
 import { Failed, Loading, Section, signed, Spark, Stat, usd, wib } from "./ui";
+
+/** Why the US budget matters to the pair, in a line. */
+function relevance(ctx: PairContext): string {
+  if (ctx.kind === "rate") return "relevan langsung: defisit dan pasokan obligasi menentukan yield yang Anda pantau";
+  if (ctx.kind === "dollar" || (ctx.kind === "fx" && ctx.currencies.includes("USD"))) return "relevan untuk sisi dolar: tekanan fiskal dan TGA memengaruhi yield dan likuiditas dolar";
+  if (ctx.kind === "metal") return "relevan tidak langsung: tekanan fiskal dan yield riil sering jadi alasan permintaan emas/logam";
+  if (ctx.kind === "crypto") return "relevan lewat likuiditas: TGA yang naik menyedot likuiditas yang biasanya juga menopang kripto";
+  if (ctx.country === "US" && (ctx.kind === "stock" || ctx.kind === "index" || ctx.kind === "etf")) return "relevan lewat yield: pasokan obligasi yang deras menaikkan yield dan menekan valuasi saham";
+  return "pengaruhnya tidak langsung, lewat dolar dan yield global";
+}
 
 // Fiscal Policy: how much the US government borrows and what it costs — the debt, each month's
 // deficit, the interest bill and the average rate paid, and the Treasury's cash at the Fed (the
@@ -27,6 +39,7 @@ const tick = { fill: "#808080", fontSize: fontPx(9) };
 
 export default function FiscalPage() {
   const { data, error, isLoading } = useQuery({ queryKey: ["desk-fiscal"], queryFn: () => apiGet<Fiscal>("/api/desk/fiscal"), refetchInterval: 60 * 60_000 });
+  const { symbol, ctx } = usePairContext();
   if (isLoading) return <Loading what="data fiskal Departemen Keuangan AS" />;
   if (error || !data) return <Failed error={error} />;
   const b = data.budget;
@@ -39,6 +52,11 @@ export default function FiscalPage() {
 
   return (
     <div className="p-2 grid gap-2 grid-cols-1 xl:grid-cols-12 text-fs-11">
+      <div className="xl:col-span-12">
+        <PairBanner symbol={symbol} ctx={ctx}>
+          {ctx ? relevance(ctx) : null}
+        </PairBanner>
+      </div>
       <Section title="Utang pemerintah AS" note={data.debt.latest ? `per ${data.debt.latest.date}` : ""} className="xl:col-span-6">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-2">
           <Stat label="Total utang" value={usd(data.debt.latest?.value ?? null)} />
