@@ -51,3 +51,16 @@ describe("chart style (TradingView's Symbol and Canvas settings)", () => {
     expect(utcOffsetLabel("Asia/Kolkata")).toBe("(UTC+5:30)");
   });
 });
+
+describe("the chart's timezone", () => {
+  it("is WIB by default, and for a chart saved when the exchange's zone was only the default", () => {
+    expect(DEFAULT_CHART_STYLE.timezone).toBe("Asia/Jakarta");
+    expect(resolveChartStyle(undefined).timezone).toBe("Asia/Jakarta");
+    expect(resolveChartStyle({ timezone: "exchange" }).timezone).toBe("Asia/Jakarta");
+  });
+
+  it("keeps a zone picked in the settings, the exchange's too", () => {
+    expect(resolveChartStyle({ timezone: "exchange", timezoneChosen: true }).timezone).toBe("exchange");
+    expect(resolveChartStyle({ timezone: "America/New_York" }).timezone).toBe("America/New_York");
+  });
+});
