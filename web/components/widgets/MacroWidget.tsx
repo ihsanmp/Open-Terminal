@@ -9,6 +9,7 @@ import { newsImpact } from "../../lib/news-impact";
 import { usePoll } from "../../lib/refresh";
 import { useWidgetSetting } from "../../store/terminal";
 import CalendarWidget from "./CalendarWidget";
+import { useFollowPair, usePairContext } from "../../lib/pair";
 
 // The Macro page, after SoSoValue's: the economic calendar by day with each release's history
 // (its actual, forecast and previous, a line through two years of them and the table), the
@@ -158,7 +159,10 @@ function EventDetail({ event }: { event: EconEvent }) {
 
 function MacroCalendar() {
   const [tab, setTab] = useWidgetSetting<Tab>("macroTab", "calendar");
-  const [country, setCountry] = useWidgetSetting("macroCountry", "US");
+  // The chart's pair picks the country (EURUSD: the euro area, BBCA.JK: Indonesia); a pick by hand stays until the pair changes.
+  const { ctx } = usePairContext();
+  const pairCountry = ctx?.country && COUNTRIES.some(([c]) => c === ctx.country) ? ctx.country : null;
+  const [country, setCountry] = useFollowPair<string>("macroCountry", "US", pairCountry, ctx !== null);
   const [picked, setPicked] = useState<string | null>(null);
   const poll = usePoll(300_000);
   // From yesterday, two weeks on.

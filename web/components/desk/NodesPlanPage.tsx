@@ -6,6 +6,7 @@ import { apiGet, fmtPrice, type Quote } from "../../lib/api";
 import { newId, useJournal } from "../../lib/journal";
 import { CHECKS, emptyPlan, liveState, nodesDone, positionSize, rewardRisk, riskPerUnit, type Plan, type PlanStatus } from "../../lib/plan";
 import { useTerminal } from "../../store/terminal";
+import { useChartSymbol } from "../../lib/pair";
 import { wib } from "./ui";
 
 // Nodes Plan: a thesis turned into an execution blueprint, as six nodes in a row — thesis,
@@ -68,12 +69,14 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 export default function NodesPlanPage() {
-  const activeSymbol = useTerminal((s) => s.activeSymbol);
+  const activeSymbol = useChartSymbol();
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
   const setView = useTerminal((s) => s.setView);
   const { list, isLoading, error, upsert, update, remove } = useJournal<Plan>("plans");
   const [openId, setOpenId] = useState<string | null>(null);
   const [filter, setFilter] = useState<PlanStatus | "semua">("semua");
+  const [scope, setScope] = useState<"pair" | "all">("pair");
+  const forPair = list.filter((p) => p.symbol.toUpperCase() === activeSymbol.toUpperCase());
   const plan = list.find((p) => p.id === openId) ?? null;
 
   const quote = useQuery({
@@ -91,7 +94,7 @@ export default function NodesPlanPage() {
     setOpenId(p.id);
   };
 
-  const shown = list.filter((p) => filter === "semua" || p.status === filter).sort((a, b) => b.updatedAt - a.updatedAt);
+  const shown = (scope === "pair" ? forPair : list).filter((p) => filter === "semua" || p.status === filter).sort((a, b) => b.updatedAt - a.updatedAt);
 
   return (
     <div className="h-full flex min-h-0 text-fs-11 portrait:flex-col">
@@ -109,9 +112,18 @@ export default function NodesPlanPage() {
             ))}
           </select>
         </div>
+        <div className="flex gap-1 px-2 py-1 border-b border-[var(--border)] text-fs-10">
+          <button className={`term-btn ${scope === "pair" ? "active" : ""}`} onClick={() => setScope("pair")} title="Pair yang terbuka di Charting">
+            {activeSymbol} ({forPair.length})
+          </button>
+          <button className={`term-btn ${scope === "all" ? "active" : ""}`} onClick={() => setScope("all")}>
+            Semua ({list.length})
+          </button>
+        </div>
         <div className="flex-1 overflow-auto">
           {isLoading && <div className="p-2 dim">Memuat…</div>}
           {error && <div className="p-2 down">Gagal memuat rencana.</div>}
+          {!isLoading && scope === "pair" && forPair.length === 0 && list.length > 0 && <div className="px-3 pt-2 dim">Belum ada rencana untuk {activeSymbol}.</div>}
           {!isLoading && shown.length === 0 && <div className="p-3 dim leading-relaxed">Belum ada rencana. Mulai dari tesis: apa yang Anda yakini akan terjadi, dan kenapa.</div>}
           {shown.map((p) => {
             const st = STATUSES.find((s) => s[0] === p.status)!;

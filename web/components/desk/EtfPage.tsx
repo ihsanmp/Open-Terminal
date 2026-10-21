@@ -5,7 +5,9 @@ import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer,
 import { apiGet } from "../../lib/api";
 import { fontPx } from "../../lib/font-scale";
 import { usePoll } from "../../lib/refresh";
-import { useTerminal, useWidgetSetting } from "../../store/terminal";
+import { useTerminal } from "../../store/terminal";
+import { useFollowPair, usePairContext } from "../../lib/pair";
+import PairBanner from "./PairBanner";
 import { Failed, Loading, Pct, Section, signed } from "./ui";
 
 // ETF: sector rotation, ETF breadth and where the money goes. The main US ETFs by theme with their
@@ -35,10 +37,14 @@ const tip = { background: "#111", border: "1px solid #333", fontSize: fontPx(10)
 
 export default function EtfPage() {
   const poll = usePoll(60_000);
-  const [group, setGroup] = useWidgetSetting<string>("etfGroup", "sectors");
+  const { symbol, ctx } = usePairContext();
+  const mineEtfs = new Set(ctx?.etfs ?? []);
   const setActiveSymbol = useTerminal((s) => s.setActiveSymbol);
   const setView = useTerminal((s) => s.setView);
   const board = useQuery({ queryKey: ["desk-etf"], queryFn: () => apiGet<Etf[]>("/api/desk/etf"), refetchInterval: poll });
+  // The group holding the pair's first ETF, once both are known.
+  const pairGroup = ctx && board.data ? (board.data.find((e) => ctx.etfs.includes(e.symbol))?.group ?? null) : undefined;
+  const [group, setGroup] = useFollowPair<string>("etfGroup", "sectors", pairGroup, pairGroup !== undefined);
   const breadth = useQuery({ queryKey: ["desk-breadth"], queryFn: () => apiGet<Breadth>("/api/desk/breadth"), refetchInterval: poll });
   const flows = useQuery({ queryKey: ["desk-crypto-flows"], queryFn: () => apiGet<Flows>("/api/desk/crypto-etf-flows"), refetchInterval: 30 * 60_000 });
 
@@ -48,6 +54,11 @@ export default function EtfPage() {
 
   return (
     <div className="p-2 grid gap-2 grid-cols-1 xl:grid-cols-12 text-fs-11">
+      <div className="xl:col-span-12">
+        <PairBanner symbol={symbol} ctx={ctx}>
+          {ctx?.etfs.length ? `ETF terkait ditandai ●: ${ctx.etfs.join(", ")}${ctx.sector ? ` · sektor ${ctx.sector} ditandai di breadth` : ""}` : ctx ? "tidak ada ETF yang dipetakan untuk pair ini" : null}
+        </PairBanner>
+      </div>
       <Section
         title="Papan ETF"
         note="RelVol = volume hari ini ÷ rata-rata 10 hari (>1,5: uang masuk/keluar deras)"
@@ -88,7 +99,7 @@ export default function EtfPage() {
                 {rows.map((e) => (
                   <tr
                     key={e.symbol}
-                    className="cursor-pointer hover:bg-[#121212]"
+                    className={`cursor-pointer hover:bg-[#121212] ${mineEtfs.has(e.symbol) ? "bg-[#2a2210]" : ""}`}
                     title="Buka di chart"
                     onClick={() => {
                       setActiveSymbol(e.symbol);
@@ -96,6 +107,7 @@ export default function EtfPage() {
                     }}
                   >
                     <td className="whitespace-nowrap">
+                      {mineEtfs.has(e.symbol) && <span className="amber">● </span>}
                       <b>{e.symbol}</b> <span className="dim">{e.label}</span>
                     </td>
                     <td className="tabular-nums">{e.price?.toFixed(2) ?? "—"}</td>
@@ -199,8 +211,11 @@ export default function EtfPage() {
               </thead>
               <tbody>
                 {breadth.data.sectors.map((s) => (
-                  <tr key={s.sector}>
-                    <td>{s.sector}</td>
+                  <tr key={s.sector} className={s.sector === ctx?.sector ? "bg-[#2a2210]" : ""}>
+                    <td>
+                      {s.sector === ctx?.sector && <span className="amber">● </span>}
+                      {s.sector}
+                    </td>
                     <td className="dim tabular-nums">{s.members}</td>
                     <PctCell v={s.above50} />
                     <PctCell v={s.above200} />

@@ -6,6 +6,7 @@ import * as econcalendar from "../providers/econcalendar.js";
 import * as etfboard from "../providers/etfboard.js";
 import * as fiscal from "../providers/fiscal.js";
 import * as geopolitics from "../providers/geopolitics.js";
+import * as paircontext from "../providers/paircontext.js";
 import * as regime from "../providers/regime.js";
 import * as tradingview from "../providers/tradingview.js";
 import * as watcherguru from "../providers/watcherguru.js";
@@ -35,6 +36,15 @@ deskRouter.get("/etf", send(() => etfboard.etfBoard()));
 deskRouter.get("/breadth", send(() => etfboard.breadth()));
 deskRouter.get("/crypto-etf-flows", send(() => etfboard.cryptoEtfFlows()));
 deskRouter.get("/geopolitics", send(() => geopolitics.geopolitics()));
+
+// The pair open on the chart: where it belongs in each tool, and everything they know about it.
+const pairSymbol = (req: import("express").Request) => {
+  const s = String(req.query.symbol ?? "").trim();
+  if (!/^[A-Za-z0-9^._:=!\-]{1,48}$/.test(s)) throw new Error("symbol required");
+  return s;
+};
+deskRouter.get("/pair", send((req) => paircontext.pairContext(pairSymbol(req))));
+deskRouter.get("/pair/brief", send((req) => paircontext.pairBrief(pairSymbol(req))));
 
 /** A part of the dashboard, or null if it fails or takes longer than `ms` (the rest still shows). */
 async function part<T>(f: () => Promise<T>, ms = 12_000): Promise<T | null> {

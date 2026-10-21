@@ -4,7 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { apiGet } from "../../lib/api";
 import { fontPx } from "../../lib/font-scale";
-import { useWidgetSetting } from "../../store/terminal";
+import { useFollowPair, usePairContext } from "../../lib/pair";
+import PairBanner from "./PairBanner";
 import { Failed, Loading, Section } from "./ui";
 
 // Market Participant · Positioning: the CFTC's Commitments of Traders for 25 futures markets —
@@ -46,7 +47,8 @@ function IndexBar({ v }: { v: number | null }) {
 }
 
 export default function CotPage() {
-  const [selected, setSelected] = useWidgetSetting<string>("cotMarket", "gc");
+  const { symbol, ctx } = usePairContext();
+  const [selected, setSelected] = useFollowPair<string>("cotMarket", "gc", ctx?.cotId, ctx !== null);
   const { data, error, isLoading } = useQuery({ queryKey: ["desk-cot"], queryFn: () => apiGet<Series[]>("/api/desk/cot"), refetchInterval: 6 * 3_600_000 });
   if (isLoading) return <Loading what="laporan Commitments of Traders (CFTC)" />;
   if (error || !data) return <Failed error={error} />;
@@ -57,6 +59,11 @@ export default function CotPage() {
 
   return (
     <div className="p-2 grid gap-2 grid-cols-1 xl:grid-cols-12 text-fs-11">
+      <div className="xl:col-span-12">
+        <PairBanner symbol={symbol} ctx={ctx}>
+          {ctx?.cotId ? `pasar ${data.find((x) => x.id === ctx.cotId)?.label ?? ctx.cotId} dipilih otomatis (●)` : ctx ? "pair ini tidak dilaporkan CFTC; pilih pasar lain" : null}
+        </PairBanner>
+      </div>
       <Section title="Posisi bersih per pasar" note={date ? `posisi per Selasa ${date} (terbit Jumat)` : ""} className="xl:col-span-7">
         <div className="overflow-x-auto">
           <table className="data-table w-full text-fs-10">
@@ -83,6 +90,7 @@ export default function CotPage() {
                   .map((x) => (
                     <tr key={x.id} onClick={() => setSelected(x.id)} className={`cursor-pointer ${x.id === s.id ? "bg-[#1a1a1a]" : "hover:bg-[#121212]"}`}>
                       <td className={x.id === s.id ? "amber" : ""}>
+                        {x.id === ctx?.cotId && <span className="amber">● </span>}
                         {x.label}
                         {x.crowding && <span className={`ml-1 text-fs-9 ${x.crowding === "crowded-long" ? "up" : "down"}`}>{x.crowding === "crowded-long" ? "● long penuh" : "● short penuh"}</span>}
                       </td>

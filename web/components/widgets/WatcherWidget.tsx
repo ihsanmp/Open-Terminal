@@ -2,6 +2,7 @@
 
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { mentions, usePairContext } from "../../lib/pair";
 import { apiGet } from "../../lib/api";
 import { usePoll } from "../../lib/refresh";
 import { useWidgetSetting } from "../../store/terminal";
@@ -141,6 +142,9 @@ function FlashText({ f }: { f: Flash }) {
 /** The channel's breaking lines, newest first, refreshed every half minute; older pages on demand. */
 function TelegramFeed({ filter }: { filter: string }) {
   const poll = usePoll(30_000);
+  const { symbol, ctx } = usePairContext();
+  const [onlyPair, setOnlyPair] = useState(false);
+  const names = (p: Flash) => Boolean(ctx && ctx.keywords.length && mentions(p.text, ctx.keywords));
   const { data, error, isLoading, isFetching, fetchNextPage, hasNextPage, isFetchingNextPage, dataUpdatedAt } = useInfiniteQuery({
     queryKey: ["watcher-telegram"],
     queryFn: ({ pageParam }) => apiGet<FlashPage>(`/api/watcher/telegram${pageParam ? `?before=${pageParam}` : ""}`),
@@ -151,7 +155,8 @@ function TelegramFeed({ filter }: { filter: string }) {
   const all = data?.pages.flatMap((p) => p.posts) ?? [];
   const unique = all.filter((p, i) => all.findIndex((x) => x.id === p.id) === i).sort((a, b) => b.id - a.id);
   const f = filter.toLowerCase();
-  const shown = f ? unique.filter((p) => p.text.toLowerCase().includes(f)) : unique;
+  const related = unique.filter(names);
+  const shown = (onlyPair ? related : unique).filter((p) => !f || p.text.toLowerCase().includes(f));
   const now = Date.now();
   return (
     <div className="flex-1 min-h-0 overflow-auto">
@@ -159,6 +164,11 @@ function TelegramFeed({ filter }: { filter: string }) {
         <span className={error ? "down" : "up"}>●</span> t.me/WatcherGuru · {unique.length} pesan dimuat
         {dataUpdatedAt ? ` · diperbarui ${ago(new Date(dataUpdatedAt).toISOString())}` : ""}
         {isFetching && !isFetchingNextPage ? " · memuat…" : ""}
+        {ctx && ctx.keywords.length > 0 && (
+          <button className={`ml-3 px-1.5 rounded-sm border ${onlyPair ? "border-[var(--amber)] text-[var(--amber)]" : "border-[#333] hover:text-[var(--text)]"}`} onClick={() => setOnlyPair(!onlyPair)} title={`Pesan yang menyebut ${ctx.label} (pair di Charting: ${symbol})`}>
+            ● terkait {ctx.label} ({related.length}){onlyPair ? " · tampilkan semua" : ""}
+          </button>
+        )}
       </div>
       {error && <div className="p-2 down">Kanal Telegram tidak terbaca: {(error as Error).message}</div>}
       {isLoading && <div className="p-2 dim">Memuat kanal Telegram Watcher Guru…</div>}
@@ -166,13 +176,15 @@ function TelegramFeed({ filter }: { filter: string }) {
       <div>
         {shown.map((p) => {
           const fresh = now - p.time < 15 * 60_000;
+          const mine = names(p);
           return (
-            <div key={p.id} className="flex gap-3 px-3 py-2 border-b border-[#161616] hover:bg-[#121212]" style={fresh ? { boxShadow: "inset 2px 0 0 var(--amber)" } : undefined}>
+            <div key={p.id} className={`flex gap-3 px-3 py-2 border-b border-[#161616] hover:bg-[#121212] ${mine ? "bg-[#16130b]" : ""}`} style={fresh ? { boxShadow: "inset 2px 0 0 var(--amber)" } : undefined}>
               <div className="w-[78px] shrink-0 text-fs-10 tabular-nums dim pt-0.5" title={new Date(p.time).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })}>
                 {wib(p.time)}
                 <div className={fresh ? "amber" : ""}>{ago(new Date(p.time).toISOString(), now)}</div>
               </div>
               <div className="min-w-0 flex-1">
+                {mine && <div className="text-fs-9 amber">● menyebut {ctx?.label}</div>}
                 <FlashText f={p} />
                 {(p.images.length > 0 || p.video) && (
                   <div className="flex gap-1.5 mt-1.5">
