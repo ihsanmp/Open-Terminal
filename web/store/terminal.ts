@@ -24,7 +24,20 @@ export type WidgetType =
   | "insider"
   | "tv"
   | "research"
-  | "astrocal";
+  | "astrocal"
+  // The desk's tools (the menu's groups): Macro Command Center, Policy & Expectations, Flow &
+  // Participants, Intelligence & Risk, Analysis & Execution, Fundamental Research & Learning.
+  | "dashboard"
+  | "regime"
+  | "fiscal"
+  | "futures"
+  | "etf"
+  | "cot"
+  | "geo"
+  | "quant"
+  | "nodes"
+  | "notepad"
+  | "academy";
 
 export type ChartScaleMode = "normal" | "log" | "percent" | "indexed";
 
@@ -50,7 +63,10 @@ export const DEFAULT_CHART_INDICATORS: IndicatorInstance[] = [
 export type LayoutItem = { i: string; x: number; y: number; w: number; h: number };
 
 /** What the main area shows: one feature full-page, or the free-form widget workspace. */
-export type View = WidgetType | "workspace";
+export type View = WidgetType | "workspace" | HubId;
+
+/** Pages made of other pages, one at a time behind tabs (Market: Watchlist, Screener, Heatmap …). */
+export type HubId = "market" | "monetary" | "participants" | "intel";
 
 /**
  * One tab of the app, like a browser tab: its own symbol, page and workspace. The watchlist
@@ -158,6 +174,17 @@ const SIZE_BY_TYPE: Record<WidgetType, { w: number; h: number }> = {
   tv: { w: 6, h: 11 },
   research: { w: 7, h: 16 },
   astrocal: { w: 12, h: 16 },
+  dashboard: { w: 12, h: 18 },
+  regime: { w: 12, h: 18 },
+  fiscal: { w: 12, h: 16 },
+  futures: { w: 12, h: 14 },
+  etf: { w: 12, h: 16 },
+  cot: { w: 12, h: 14 },
+  geo: { w: 12, h: 16 },
+  quant: { w: 12, h: 16 },
+  nodes: { w: 12, h: 16 },
+  notepad: { w: 12, h: 14 },
+  academy: { w: 12, h: 16 },
 };
 
 /** Apply a change to the widget with this id, whether it's in the workspace or a page. */
@@ -599,7 +626,11 @@ export function followOtherWindows(): () => void {
 
 /** What a tab is called on the tab bar: its name, or its symbol and page. */
 /** Pages whose name isn't their id capitalized. */
-const PAGE_LABELS: Record<string, string> = { workspace: "Workspace", astrocal: "Astro Calendar", moneyflow: "Money Flow", calendar: "Macro" };
+const PAGE_LABELS: Record<string, string> = {
+  workspace: "Workspace", astrocal: "Astro Calendar", moneyflow: "Money Flow", calendar: "Macro",
+  regime: "Macro Regime", fiscal: "Fiscal Policy", etf: "ETF", cot: "Positioning (COT)", geo: "Geopolitics", quant: "Quantitative",
+  nodes: "Nodes Plan", monetary: "Monetary Policy", participants: "Market Participant", intel: "Market Intelligence",
+};
 
 export function tabLabel(tab: TabData): string {
   if (tab.title) return tab.title;

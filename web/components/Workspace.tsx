@@ -25,6 +25,20 @@ import ResearchWidget from "./widgets/ResearchWidget";
 // Loaded when first shown: it carries 35 years of gold and bitcoin closes for its offline statistics.
 const AstroCalendarWidget = dynamic(() => import("./widgets/AstroCalendarWidget"), { ssr: false, loading: () => <div className="p-2 dim">Memuat kalender astrologi…</div> });
 
+// The desk's tools, each loaded the first time it's shown.
+const loading = () => <div className="p-2 dim">Memuat…</div>;
+const DashboardPage = dynamic(() => import("./desk/DashboardPage"), { ssr: false, loading });
+const RegimePage = dynamic(() => import("./desk/RegimePage"), { ssr: false, loading });
+const FiscalPage = dynamic(() => import("./desk/FiscalPage"), { ssr: false, loading });
+const FuturesPage = dynamic(() => import("./desk/FuturesPage"), { ssr: false, loading });
+const EtfPage = dynamic(() => import("./desk/EtfPage"), { ssr: false, loading });
+const CotPage = dynamic(() => import("./desk/CotPage"), { ssr: false, loading });
+const GeoPage = dynamic(() => import("./desk/GeoPage"), { ssr: false, loading });
+const QuantPage = dynamic(() => import("./desk/QuantPage"), { ssr: false, loading });
+const NodesPlanPage = dynamic(() => import("./desk/NodesPlanPage"), { ssr: false, loading });
+const NotepadPage = dynamic(() => import("./desk/NotepadPage"), { ssr: false, loading });
+const AcademyPage = dynamic(() => import("./desk/AcademyPage"), { ssr: false, loading });
+
 const Grid = WidthProvider(GridLayout);
 
 /** A widget, with its id available to useWidgetSetting so its choices are saved with it. */
@@ -53,6 +67,17 @@ function WidgetContent({ widget }: { widget: WidgetInstance }) {
     case "tv": return <TvWidget />;
     case "research": return <ResearchWidget widget={widget} />;
     case "astrocal": return <AstroCalendarWidget />;
+    case "dashboard": return <DashboardPage />;
+    case "regime": return <RegimePage />;
+    case "fiscal": return <FiscalPage />;
+    case "futures": return <FuturesPage />;
+    case "etf": return <EtfPage />;
+    case "cot": return <CotPage />;
+    case "geo": return <GeoPage />;
+    case "quant": return <QuantPage />;
+    case "nodes": return <NodesPlanPage />;
+    case "notepad": return <NotepadPage />;
+    case "academy": return <AcademyPage />;
   }
 }
 
@@ -125,7 +150,10 @@ export const TITLES: Record<string, string> = {
   heatmap: "Heatmap", screener: "Screener",
   watcher: "Watcher Guru", bonds: "US Bonds", portfolio: "Portfolio", ai: "AI Assistant",
   calendar: "Macro", insider: "Insider", tv: "Live TV",
-  research: "Equity Research",
+  research: "Equity Research", astrocal: "Astro Calendar",
+  dashboard: "Dashboard", regime: "Macro Regime", fiscal: "Fiscal Policy", futures: "Futures & Forward Curve",
+  etf: "ETF & Breadth", cot: "Positioning (COT)", geo: "Geopolitics & Event Risk", quant: "Quantitative",
+  nodes: "Nodes Plan", notepad: "Notepad", academy: "Academy",
 };
 
 /** Widgets that show one symbol (their own, or the active one when linked). */
