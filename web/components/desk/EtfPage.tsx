@@ -61,7 +61,7 @@ export default function EtfPage() {
       </div>
       <Section
         title="Papan ETF"
-        note="RelVol = volume hari ini ÷ rata-rata 10 hari (>1,5: uang masuk/keluar deras)"
+        note={`RelVol = volume hari ini ÷ rata-rata 10 hari (>1,5: uang masuk/keluar deras)${board.dataUpdatedAt ? ` · diperbarui ${new Date(board.dataUpdatedAt).toLocaleTimeString("id-ID", { timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit" })} WIB` : ""}`}
         className="xl:col-span-12"
         right={
           <div className="flex gap-1 flex-wrap">
@@ -174,7 +174,7 @@ export default function EtfPage() {
         </div>
       </Section>
 
-      <Section title="Breadth S&P 500" note={breadth.data ? `${breadth.data.members} saham anggota` : ""} className="xl:col-span-8">
+      <Section title="Breadth S&P 500" note={breadth.data ? `${breadth.data.members} saham anggota · diperbarui ${new Date(breadth.dataUpdatedAt).toLocaleTimeString("id-ID", { timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit" })} WIB` : ""} className="xl:col-span-8">
         {breadth.isLoading ? (
           <Loading what="breadth" />
         ) : breadth.error || !breadth.data ? (
@@ -228,7 +228,7 @@ export default function EtfPage() {
         )}
       </Section>
 
-      <Section title="Arus ETF kripto spot AS" note="juta US$ per hari (Farside)" className="xl:col-span-12">
+      <Section title="Arus ETF kripto spot AS" note={`juta US$ per hari (Farside)${flows.data?.[0]?.days.at(-1) ? ` · data s.d. ${flows.data[0].days.at(-1)!.date}` : ""}`} className="xl:col-span-12">
         {flows.isLoading ? (
           <Loading what="arus ETF kripto" />
         ) : flows.error || !flows.data ? (

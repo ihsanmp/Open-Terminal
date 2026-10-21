@@ -49,7 +49,7 @@ function IndexBar({ v }: { v: number | null }) {
 export default function CotPage() {
   const { symbol, ctx } = usePairContext();
   const [selected, setSelected] = useFollowPair<string>("cotMarket", "gc", ctx?.cotId, ctx !== null);
-  const { data, error, isLoading } = useQuery({ queryKey: ["desk-cot"], queryFn: () => apiGet<Series[]>("/api/desk/cot"), refetchInterval: 6 * 3_600_000 });
+  const { data, error, isLoading } = useQuery({ queryKey: ["desk-cot"], queryFn: () => apiGet<Series[]>("/api/desk/cot"), refetchInterval: 3_600_000 });
   if (isLoading) return <Loading what="laporan Commitments of Traders (CFTC)" />;
   if (error || !data) return <Failed error={error} />;
   const s = data.find((x) => x.id === selected) ?? data[0];

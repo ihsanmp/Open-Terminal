@@ -8,6 +8,7 @@ import EnginePanel from "../widgets/EnginePanel";
 import NowcastPanel from "../widgets/NowcastPanel";
 import ImpactPanel from "../widgets/ImpactPanel";
 import ReactionsPanel from "../widgets/ReactionsPanel";
+import RegressionPanel from "./RegressionPanel";
 
 // Quantitative: the app's models in one place, full width — the asset forecaster (walk-forward
 // tested, with its record), the macro release engine and the inflation/GDP nowcasts, how markets
@@ -15,6 +16,7 @@ import ReactionsPanel from "../widgets/ReactionsPanel";
 // keeps beside the broadcast.
 
 const TABS: Array<[string, string, string]> = [
+  ["regression", "Regresi multifaktor", "Sensitivitas pair di Charting terhadap S&P 500, dolar, yield, VIX, emas, minyak, bitcoin."],
   ["quant", "Prakiraan aset", "Peluang naik 5/10/20 hari tiap aset, rentang wajar, rekam jejak walk-forward."],
   ["engine", "Engine rilis & nowcast", "P10/P50/P90 rilis makro AS berikutnya vs konsensus, nowcast inflasi dan GDP."],
   ["impact", "Dampak berita", "Seberapa besar pasar bergerak setelah jenis berita tertentu, terukur dari arsip."],
@@ -22,7 +24,7 @@ const TABS: Array<[string, string, string]> = [
 ];
 
 export default function QuantPage() {
-  const [tab, setTab] = useWidgetSetting<string>("quantTab", "quant");
+  const [tab, setTab] = useWidgetSetting<string>("quantTab", "regression");
   const current = TABS.find((t) => t[0] === tab) ?? TABS[0];
   const { symbol, ctx } = usePairContext();
   return (
@@ -42,6 +44,7 @@ export default function QuantPage() {
           </PairBanner>
         </div>
         <div>
+          {current[0] === "regression" && <RegressionPanel />}
           {current[0] === "quant" && <QuantPanel focus={ctx?.quantKey ?? null} />}
           {current[0] === "engine" && (
             <>

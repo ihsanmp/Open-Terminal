@@ -88,7 +88,7 @@ export default function GeoPage() {
           ) : null}
         </PairBanner>
       </div>
-      <Section title="Pengukur aset safe haven" note="hari ini / minggu ini" className="xl:col-span-12">
+      <Section title="Pengukur aset safe haven" note={`hari ini / minggu ini · diperbarui ${wib(data.asOf)}${data.themes.some((t) => t.latest.length) ? ` · berita terbaru ${ago(Math.max(...data.themes.flatMap((t) => t.latest.map((h) => h.time))), now)}` : ""}`} className="xl:col-span-12">
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
           {data.gauges.map((g) => (
             <div key={g.key}>

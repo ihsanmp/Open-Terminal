@@ -133,9 +133,9 @@ async function fetchReport(report: CotReport, since: string): Promise<Array<Reco
   return (await res.json()) as Array<Record<string, unknown>>;
 }
 
-/** Every market's last three years; six hours in the cache (the report is weekly). */
+/** Every market's last three years; an hour in the cache (weekly, but Friday's report is picked up within the hour). */
 export function cotBoard(now = Date.now()): Promise<CotSeries[]> {
-  return cached("cot:board", 6 * 3_600_000, async () => {
+  return cached("cot:board", 3_600_000, async () => {
     const since = new Date(now - 3 * 366 * 86_400_000).toISOString().slice(0, 10);
     const [tff, dis] = await Promise.all([fetchReport("tff", since), fetchReport("dis", since)]);
     const byCode = new Map<string, CotWeek[]>();

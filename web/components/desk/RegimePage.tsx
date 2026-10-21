@@ -24,6 +24,8 @@ type Regime = {
   shortlist: { long: Array<{ key: string; label: string; why: string }>; avoid: Array<{ key: string; label: string; why: string }> };
   risk: { label: string; notes: string[]; vix: number | null; hySpread: number | null; curve2s10s: number | null };
   sinceMonth: string;
+  sources?: { indpro: string | null; cpi: string | null; vix: string | null; hy: string | null; curve: string | null; markets: string | null };
+  asOf: number;
   caveat: string;
 };
 
@@ -110,6 +112,12 @@ export default function RegimePage() {
         <div className="text-fs-9 dim mt-2">Atas: pertumbuhan naik · bawah: turun · kiri: inflasi naik · kanan: turun.</div>
       </Section>
 
+      {data.sources && (
+        <div className="xl:col-span-12 text-fs-9 dim px-1">
+          Data per: produksi industri & CPI s.d. {data.sources.indpro ? monthLabel(data.sources.indpro) : "—"} / {data.sources.cpi ? monthLabel(data.sources.cpi) : "—"} (rilis resmi terbaru) · harga pasar & VIX & kurva 2s10s hari ini ({data.sources.vix ?? "—"}) · spread high-yield {data.sources.hy ?? "—"} (FRED, terlambat 1–2 hari) · dihitung{" "}
+          {new Date(data.asOf).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} WIB
+        </div>
+      )}
       <Section title="Overlay risiko" note="stres pasar sekarang" className="xl:col-span-3">
         <div className={`text-fs-15 font-bold uppercase ${data.risk.label === "risk-on" ? "up" : data.risk.label === "risk-off" ? "down" : "amber"}`}>{data.risk.label}</div>
         <ul className="list-disc pl-4 mt-1 text-fs-10 grid gap-1">
