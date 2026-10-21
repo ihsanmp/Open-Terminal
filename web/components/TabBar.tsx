@@ -180,7 +180,7 @@ export default function TabBar() {
   }, [active]);
 
   return (
-    <nav role="tablist" className="flex items-stretch self-stretch min-w-0 shrink overflow-x-auto overflow-y-hidden [scrollbar-width:none] border-l border-[var(--border)] text-fs-11">
+    <nav role="tablist" className="menu-scale flex items-stretch self-stretch min-w-0 shrink overflow-x-auto overflow-y-hidden [scrollbar-width:none] border-l border-[var(--border)] text-fs-11">
       {tabs.map((t) => (
         <Tab key={t.id} tab={t} active={t.id === activeTab} only={tabs.length < 2} />
       ))}

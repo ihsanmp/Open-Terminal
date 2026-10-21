@@ -12,7 +12,7 @@ export default function HubView({ hub, type }: { hub: HubId; type: WidgetType })
   useEffect(() => rememberHubTab(hub, type), [hub, type]);
   return (
     <div className="h-full flex flex-col min-h-0">
-      <div className="flex items-end gap-0.5 px-2 pt-1 border-b border-[var(--border)] bg-[var(--panel)] shrink-0 overflow-x-auto">
+      <div className="menu-scale flex items-end gap-0.5 px-2 pt-1 border-b border-[var(--border)] bg-[var(--panel)] shrink-0 overflow-x-auto">
         <span className="text-fs-9 font-bold uppercase tracking-wide text-[#7f93b8] mr-2 mb-1.5 whitespace-nowrap">{def.label}</span>
         {def.tabs.map((t) => (
           <button

@@ -30,6 +30,23 @@
   --text-fs-20: calc(20px * var(--font-scale));
 }
 
+/* The menus (the sidebar, the tab bar, a hub's tabs) drawn 10% larger than the rest: the scale
+   and the sizes made from it, set again on them (a variable made of another is fixed where it's
+   declared, so the scale alone wouldn't reach the sizes). */
+.menu-scale {
+  --font-scale: calc(1.25 * 1.1);
+  --text-fs-9: calc(9px * var(--font-scale));
+  --text-fs-10: calc(10px * var(--font-scale));
+  --text-fs-11: calc(11px * var(--font-scale));
+  --text-fs-12: calc(12px * var(--font-scale));
+  --text-fs-13: calc(13px * var(--font-scale));
+  --text-fs-14: calc(14px * var(--font-scale));
+  --text-fs-15: calc(15px * var(--font-scale));
+  --text-fs-17: calc(17px * var(--font-scale));
+  --text-fs-18: calc(18px * var(--font-scale));
+  --text-fs-20: calc(20px * var(--font-scale));
+}
+
 /* The root size stays (it is the unit of the rem spacing); the text starts at the body. */
 html,
 body {

@@ -64,7 +64,7 @@ export default function Sidebar() {
     });
 
   return (
-    <nav className="w-[calc(10.5rem*var(--font-scale))] bg-[var(--panel)] border-r border-[var(--border)] flex flex-col shrink-0 overflow-auto portrait:w-full portrait:flex-row portrait:flex-wrap portrait:border-r-0 portrait:border-b portrait:overflow-y-hidden max-sm:portrait:flex-nowrap max-sm:portrait:overflow-x-auto">
+    <nav className="menu-scale w-[calc(10.5rem*var(--font-scale))] bg-[var(--panel)] border-r border-[var(--border)] flex flex-col shrink-0 overflow-auto portrait:w-full portrait:flex-row portrait:flex-wrap portrait:border-r-0 portrait:border-b portrait:overflow-y-hidden max-sm:portrait:flex-nowrap max-sm:portrait:overflow-x-auto">
       {GROUPS.map((g) => {
         const items = g.items.filter((i) => i.view !== "ai" || aiAvailable);
         if (!items.length) return null;
