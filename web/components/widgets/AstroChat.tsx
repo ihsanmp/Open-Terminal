@@ -185,7 +185,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
     <div className="flex-1 min-h-0 flex flex-col gap-2">
       <div className="flex items-center gap-1 px-2 pt-1.5 text-fs-10">
         <button
-          className={`px-2 py-0.5 rounded-full border ${online ? "border-[#9b87f5] text-[#c9b8ff] bg-[#9b87f51a]" : "border-[var(--border)] dim"}`}
+          className={`px-2 py-0.5 rounded-full border whitespace-nowrap shrink-0 ${online ? "border-[#9b87f5] text-[#c9b8ff] bg-[#9b87f51a]" : "border-[var(--border)] dim"}`}
           onClick={() => setEngine("online")}
           disabled={claude?.ok === false}
           title={claude?.ok === false ? "Claude Code CLI tidak ditemukan di komputer ini" : "Jawaban disusun Claude (akun Claude Anda, lewat Claude Code), dengan data dan hitungan aplikasi"}
@@ -193,7 +193,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
           ✦ Claude{claude?.ok === false ? " (tidak tersedia)" : ""}
         </button>
         <button
-          className={`px-2 py-0.5 rounded-full border ${!online ? "border-[#c8963c] text-[#e0b860] bg-[#c8963c1a]" : "border-[var(--border)] dim"}`}
+          className={`px-2 py-0.5 rounded-full border whitespace-nowrap shrink-0 ${!online ? "border-[#c8963c] text-[#e0b860] bg-[#c8963c1a]" : "border-[var(--border)] dim"}`}
           onClick={() => setEngine("offline")}
           title="Tanpa internet: jawaban langsung dari hitungan aplikasi"
         >
@@ -241,8 +241,8 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
                         key={s}
                         className={
                           m.id === "welcome"
-                            ? "text-fs-11 px-2.5 py-1.5 rounded-lg bg-[#1f1f1f] border border-[var(--border)] text-[#e6e6e6] hover:border-[#c8963c] text-left"
-                            : "text-fs-10 px-1.5 rounded-sm border border-[#c8963c55] text-[#e0b860] hover:bg-[#c8963c22]"
+                            ? "text-fs-11 px-2.5 py-1.5 rounded-lg bg-[#f0c040] border border-[#f0c040] text-[#1a1200] font-semibold hover:bg-[#ffd25a] text-left"
+                            : "text-fs-10 px-1.5 rounded-sm bg-[#f0c04026] border border-[#f0c04099] text-[#f0c040] hover:bg-[#f0c04040]"
                         }
                         // A suggestion follows from this message: sent as a reply to it.
                         onClick={() => send(s, m.id === "welcome" ? null : m.id)}
