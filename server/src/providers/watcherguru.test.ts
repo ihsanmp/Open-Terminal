@@ -71,3 +71,23 @@ describe("Watcher Guru", () => {
     expect(decode("&#x1F600;&hellip;")).toBe("😀…");
   });
 });
+
+describe("the Telegram channel", () => {
+  const msg = (id: number, time: string, body: string, photo = "") => `
+    <div class="tgme_widget_message_wrap js-widget_message_wrap"><div class="tgme_widget_message js-widget_message" data-post="WatcherGuru/${id}">
+    ${photo ? `<a class="tgme_widget_message_photo_wrap blur" style="width:800px;background-image:url('${photo}')"></a>` : ""}
+    <div class="tgme_widget_message_text js-message_text" dir="auto">${body}</div>
+    <a class="tgme_widget_message_date" href="https://t.me/WatcherGuru/${id}"><time datetime="${time}" class="time">10:00</time></a></div></div>`;
+
+  it("reads the breaking lines newest first, without the channel's sign-off", async () => {
+    const { parseFlashes } = await import("./watcherguru.js");
+    const html = `<meta property="og:title" content="Watcher Guru">${msg(101, "2026-10-20T10:00:00+00:00", "<b>JUST IN:</b> Switzerland approves its first spot Bitcoin ETF.<br/><br/><a href=\"https://t.me/WatcherGuru\">@WatcherGuru</a>")}${msg(102, "2026-10-20T11:00:00+00:00", "<b>JUST IN:</b> SpaceX reports &#036;14.58 billion in revenue.<br/><br/><a href=\"https://watcher.guru/news/x\">watcher.guru/news/x</a>", "https://cdn/p.jpg")}`;
+    const page = parseFlashes(html);
+    expect(page.posts.map((p) => p.id)).toEqual([102, 101]);
+    expect(page.oldest).toBe(101);
+    expect(page.posts[1].text).toBe("JUST IN: Switzerland approves its first spot Bitcoin ETF.");
+    expect(page.posts[1].links).toEqual([]);
+    expect(page.posts[0]).toMatchObject({ text: "JUST IN: SpaceX reports $14.58 billion in revenue.\n\nwatcher.guru/news/x", images: ["https://cdn/p.jpg"], url: "https://t.me/WatcherGuru/102", time: Date.parse("2026-10-20T11:00:00Z") });
+    expect(page.posts[0].links).toEqual([{ text: "watcher.guru/news/x", url: "https://watcher.guru/news/x" }]);
+  });
+});

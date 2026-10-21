@@ -842,6 +842,20 @@ marketRouter.get("/watcher/posts", async (req, res) => {
   }
 });
 
+// Its Telegram channel's breaking lines: the newest (shared for 30 s), or the page before a message id.
+marketRouter.get("/watcher/telegram", async (req, res) => {
+  const before = Number(req.query.before) || undefined;
+  if (before !== undefined && (!Number.isInteger(before) || before <= 0)) {
+    res.status(400).json({ error: "bad message id" });
+    return;
+  }
+  try {
+    res.json(await cached(`watcher:telegram:${before ?? "latest"}`, before ? 3_600_000 : 30_000, () => watcherguru.flashes(before)));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
 marketRouter.get("/watcher/posts/:id", async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) {

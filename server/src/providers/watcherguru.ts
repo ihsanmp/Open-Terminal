@@ -3,6 +3,8 @@
 // in the app. The article HTML is cut down to plain text markup (paragraphs, headings, lists,
 // links, images) before it leaves the server.
 
+import { parseTelegram } from "./socialfeed.js";
+
 const API = "https://watcher.guru/news/wp-json/wp/v2";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
 
@@ -166,4 +168,45 @@ export async function article(id: number): Promise<WGArticle> {
   const res = await get(`${API}/posts/${id}?${q}`);
   const raw = (await res.json()) as Raw;
   return { ...toPost(raw), html: sanitize(raw.content?.rendered ?? "") };
+}
+
+// ---------------------------------------------------------------- the Telegram channel
+
+
+/**
+ * Its Telegram channel (t.me/WatcherGuru): every breaking line ("JUST IN: …"), far more than the
+ * site's articles, from the channel's public web preview (no sign-in): twenty messages a page, the
+ * newest, or those before a message id for scrolling back.
+ */
+export type WGFlash = { id: number; text: string; images: string[]; video: boolean; time: number; url: string; links: Array<{ text: string; url: string }> };
+export type WGFlashPage = { posts: WGFlash[]; oldest: number | null };
+
+export const WG_CHANNEL = "WatcherGuru";
+
+/** A page of the channel's preview, newest last as Telegram gives it, turned newest first. */
+export function parseFlashes(html: string): WGFlashPage {
+  const { posts } = parseTelegram(html, WG_CHANNEL, null);
+  const out = posts
+    .map((p): WGFlash => ({
+      id: Number(p.url.split("/").pop()),
+      // The channel's sign-off on every message.
+      text: p.text.replace(/\s*@WatcherGuru\s*$/i, "").trim(),
+      images: p.images,
+      video: Boolean(p.video),
+      time: p.time,
+      url: p.url,
+      links: p.links.filter((l) => !/^https?:\/\/t\.me\/WatcherGuru\/?$/i.test(l.url)),
+    }))
+    .filter((p) => Number.isFinite(p.id))
+    .sort((a, b) => b.id - a.id);
+  return { posts: out, oldest: out.length ? out[out.length - 1].id : null };
+}
+
+export async function flashes(before?: number): Promise<WGFlashPage> {
+  const url = `https://t.me/s/${WG_CHANNEL}${before ? `?before=${before}` : ""}`;
+  const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "text/html" }, signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) throw new Error(`t.me ${res.status}`);
+  const html = await res.text();
+  if (!/tgme_widget_message/.test(html)) throw new Error("kanal Telegram Watcher Guru tidak terbaca");
+  return parseFlashes(html);
 }
