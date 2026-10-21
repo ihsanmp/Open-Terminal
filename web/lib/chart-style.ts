@@ -11,8 +11,10 @@ export type ChartStyle = {
   wick: UpDown;
   /** Decimals on the price scale and legend, or the symbol's own. */
   precision: "default" | number;
-  /** "exchange" (the symbol's exchange), "UTC", or an IANA zone. */
+  /** "exchange" (the symbol's exchange), "UTC", or an IANA zone; WIB (Asia/Jakarta) by default. */
   timezone: string;
+  /** Set once a timezone is picked in the settings: an older saved "exchange" was only the default then. */
+  timezoneChosen?: boolean;
   background: string;
   vertGrid: { visible: boolean; color: string };
   horzGrid: { visible: boolean; color: string };
@@ -27,7 +29,7 @@ export const DEFAULT_CHART_STYLE: ChartStyle = {
   borders: { visible: true, up: UP_COLOR, down: DOWN_COLOR },
   wick: { visible: true, up: UP_COLOR, down: DOWN_COLOR },
   precision: "default",
-  timezone: "exchange",
+  timezone: "Asia/Jakarta",
   background: "#0a0a0a",
   vertGrid: { visible: true, color: "#1a1a1a" },
   horzGrid: { visible: true, color: "#1a1a1a" },
@@ -36,9 +38,12 @@ export const DEFAULT_CHART_STYLE: ChartStyle = {
 /** A saved (possibly partial or older) style, completed with the defaults. */
 export function resolveChartStyle(saved: Partial<ChartStyle> | undefined): ChartStyle {
   const s = saved ?? {};
+  // A chart saved when the exchange's zone was the default (not picked) shows WIB, as new ones do.
+  const timezone = s.timezone && (s.timezone !== "exchange" || s.timezoneChosen) ? s.timezone : DEFAULT_CHART_STYLE.timezone;
   return {
     ...DEFAULT_CHART_STYLE,
     ...s,
+    timezone,
     body: { ...DEFAULT_CHART_STYLE.body, ...s.body },
     borders: { ...DEFAULT_CHART_STYLE.borders, ...s.borders },
     wick: { ...DEFAULT_CHART_STYLE.wick, ...s.wick },
@@ -102,7 +107,7 @@ export const TIMEZONES: Array<[string, string]> = [
   ["Asia/Dubai", "Dubai"],
   ["Asia/Kolkata", "Kolkata"],
   ["Asia/Bangkok", "Bangkok"],
-  ["Asia/Jakarta", "Jakarta"],
+  ["Asia/Jakarta", "Jakarta (WIB)"],
   ["Asia/Singapore", "Singapore"],
   ["Asia/Hong_Kong", "Hong Kong"],
   ["Asia/Shanghai", "Shanghai"],

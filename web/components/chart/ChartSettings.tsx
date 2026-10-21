@@ -125,7 +125,7 @@ export function ChartSettings({ style, exchangeZone, onApply, onClose }: Props) 
                   </label>
                   <label className="flex items-center gap-3 text-fs-12">
                     <span className="w-24">Timezone</span>
-                    <select className="w-48" value={draft.timezone} onChange={(e) => setDraft((d) => ({ ...d, timezone: e.target.value }))}>
+                    <select className="w-48" value={draft.timezone} onChange={(e) => setDraft((d) => ({ ...d, timezone: e.target.value, timezoneChosen: true }))}>
                       <option value="exchange">Exchange {utcOffsetLabel(exchangeZone)}</option>
                       {TIMEZONES.map(([zone, name]) => (
                         <option key={zone} value={zone}>

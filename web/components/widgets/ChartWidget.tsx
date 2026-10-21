@@ -217,6 +217,9 @@ function formatValue(v: number | undefined, precision: number): string {
 /** The drawing copied with Ctrl+C, for Ctrl+V on any chart. */
 let copiedDrawing: Drawing | null = null;
 
+/** Indonesia's zones by the names they go by. */
+const ZONE_NAME: Record<string, string> = { "Asia/Jakarta": "WIB", "Asia/Pontianak": "WIB", "Asia/Makassar": "WITA", "Asia/Jayapura": "WIT" };
+
 /** The time now in the chart's zone, as TradingView shows under its chart. */
 function ChartClock({ zone }: { zone: string }) {
   const [now, setNow] = useState(() => Date.now());
@@ -234,7 +237,7 @@ function ChartClock({ zone }: { zone: string }) {
   }
   return (
     <span className="tabular-nums">
-      {text} <span className="dim max-sm:hidden">{zone.replace(/_/g, " ")}</span>
+      {text} <span className="dim max-sm:hidden">{ZONE_NAME[zone] ?? zone.replace(/_/g, " ")}</span>
     </span>
   );
 }
