@@ -6,6 +6,8 @@ import { aiRouter } from "./routes/ai.js";
 import { astroChatRouter } from "./routes/astrochat.js";
 import { researchRouter } from "./routes/research.js";
 import { workspaceRouter } from "./routes/workspace.js";
+import { deskRouter } from "./routes/desk.js";
+import { journalRouter } from "./routes/journal.js";
 import { allStats } from "./providers/registry.js";
 import { requireApiKey } from "./auth.js";
 import { rateLimit } from "./rateLimit.js";
@@ -51,9 +53,12 @@ app.use("/api/workspace", requireApiKey, workspaceRouter);
 // Portfolio data requires a shared secret (see auth.ts); its own body limit carries chart photos
 // and journal workbooks as base64.
 app.use("/api/portfolios", requireApiKey, express.json({ limit: "40mb" }), portfolioRouter);
+// The research journal and trade plans: their own, larger limit for long notes.
+app.use("/api/journal", requireApiKey, express.json({ limit: "10mb" }), journalRouter);
 app.use(express.json());
 
 app.use("/api/research", researchRouter);
+app.use("/api/desk", deskRouter);
 app.use("/api/social", requireApiKey, socialRouter);
 app.use("/api/notify", requireApiKey, notifyRouter);
 app.use("/api", marketRouter);

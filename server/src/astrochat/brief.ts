@@ -14,7 +14,7 @@ const MARKETS: Array<{ label: string; ticker: string; unit: "%" | "bp"; digits: 
   { label: "Ethereum", ticker: "BITSTAMP:ETHUSD", unit: "%", digits: 2 },
   { label: "Indeks dolar (DXY)", ticker: "TVC:DXY", unit: "%", digits: 2 },
   { label: "S&P 500", ticker: "SP:SPX", unit: "%", digits: 2 },
-  { label: "Minyak WTI", ticker: "TVC:USOIL", unit: "%", digits: 2 },
+  { label: "Minyak WTI", ticker: "NYMEX:CL1!", unit: "%", digits: 2 },
   { label: "Yield US 10Y", ticker: "TVC:US10Y", unit: "bp", digits: 3 },
   { label: "EUR/USD", ticker: "FX:EURUSD", unit: "%", digits: 4 },
   { label: "USD/JPY", ticker: "FX:USDJPY", unit: "%", digits: 3 },

@@ -6,10 +6,12 @@ import { openTabWindow } from "./TabBar";
 import Sidebar, { shownMenu } from "./Sidebar";
 import { useAiAvailable, useStatus } from "../lib/status";
 import PageView from "./PageView";
+import HubView from "./HubView";
+import { hubOf, hubTab, isHub, pageFor } from "../lib/menu";
 import Workspace from "./Workspace";
 import CommandPalette from "./CommandPalette";
 import AstroChatBubble from "./AstroChatBubble";
-import { followOtherWindows, useTerminal } from "../store/terminal";
+import { followOtherWindows, useTerminal, type View, type WidgetType } from "../store/terminal";
 import { startWorkspaceBackup } from "../store/workspace-backup";
 
 const isField = (el: Element | null) => el instanceof HTMLElement && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
@@ -21,6 +23,13 @@ function typingOpensSearch(): boolean {
   if (st.view !== "chart" || st.commandOpen || st.typedInterval !== null) return false;
   if (isField(document.activeElement)) return false;
   return !document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]');
+}
+
+/** A page, with its hub's tabs above it when it's one of a hub's (a hub saved as the view opens its tab). */
+function HubOrPage({ view }: { view: View }) {
+  const hub = hubOf(view);
+  if (!hub) return <PageView key={view} type={view as WidgetType} />;
+  return <HubView hub={hub} type={isHub(view) ? hubTab(hub) : (view as WidgetType)} />;
 }
 
 export default function Terminal() {
@@ -98,7 +107,7 @@ export default function Terminal() {
         const n = Number(e.key);
         e.preventDefault();
         const item = shownMenuRef.current[n - 1];
-        if (n === 0 || item) setView(n === 0 ? "workspace" : item.type);
+        if (n === 0 || item) setView(n === 0 ? "workspace" : pageFor(item.view));
       }
     };
     window.addEventListener("keydown", onKey);
@@ -113,7 +122,7 @@ export default function Terminal() {
         <Sidebar />
         {/* A tab starts fresh: its charts don't inherit the last tab's zoom and scroll. */}
         <main key={activeTab} className="flex-1 min-h-0 overflow-auto">
-          {view === "workspace" ? <Workspace /> : <PageView key={view} type={view} />}
+          {view === "workspace" ? <Workspace /> : <HubOrPage view={view} />}
         </main>
       </div>
       <CommandPalette />
