@@ -70,7 +70,7 @@ export default function AstroChatBubble() {
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState<Pos | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const drag = useRef<{ kind: "bubble" | "panel"; start: Pos; at: Pos; moved: boolean } | null>(null);
+  const drag = useRef<{ kind: "bubble" | "panel"; start: Pos; bubbleAt: Pos; panelAt: Pos | null; moved: boolean } | null>(null);
 
   // A smaller window keeps both on screen.
   useEffect(() => {
@@ -95,8 +95,10 @@ export default function AstroChatBubble() {
   const down = (kind: "bubble" | "panel") => (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    drag.current = { kind, start: { x: e.clientX, y: e.clientY }, at: kind === "bubble" ? bubble : panel!, moved: false };
+    drag.current = { kind, start: { x: e.clientX, y: e.clientY }, bubbleAt: bubble, panelAt: panel, moved: false };
   };
+  // The two move together: the open panel stays beside the dragged bubble (switching sides as it
+  // crosses the middle), and the bubble keeps its place beside the dragged panel.
   const move = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d) return;
@@ -104,17 +106,23 @@ export default function AstroChatBubble() {
     const dy = e.clientY - d.start.y;
     if (!d.moved && Math.hypot(dx, dy) < 5) return;
     d.moved = true;
-    if (d.kind === "bubble") setBubble(clamp({ x: d.at.x + dx, y: d.at.y + dy }, SIZE, SIZE));
-    else setPanel(clamp({ x: d.at.x + dx, y: d.at.y + dy }, panelSize().w, panelSize().h));
+    if (d.kind === "bubble") {
+      const b = clamp({ x: d.bubbleAt.x + dx, y: d.bubbleAt.y + dy }, SIZE, SIZE);
+      setBubble(b);
+      if (open) setPanel(panelBeside(b));
+    } else if (d.panelAt) {
+      const { w, h } = panelSize();
+      const p = clamp({ x: d.panelAt.x + dx, y: d.panelAt.y + dy }, w, h);
+      setPanel(p);
+      setBubble(clamp({ x: d.bubbleAt.x + (p.x - d.panelAt.x), y: d.bubbleAt.y + (p.y - d.panelAt.y) }, SIZE, SIZE));
+    }
   };
   const up = () => {
     const d = drag.current;
     drag.current = null;
     if (!d) return;
-    if (d.kind === "bubble") {
-      if (!d.moved) toggle();
-      else setBubble((b) => (write(BUBBLE_KEY, b), b));
-    }
+    if (d.moved) setBubble((b) => (write(BUBBLE_KEY, b), b));
+    else if (d.kind === "bubble") toggle();
   };
 
   const size = panelSize();
