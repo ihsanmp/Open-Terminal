@@ -163,7 +163,7 @@ function TelegramFeed({ filter }: { filter: string }) {
       {error && <div className="p-2 down">Kanal Telegram tidak terbaca: {(error as Error).message}</div>}
       {isLoading && <div className="p-2 dim">Memuat kanal Telegram Watcher Guru…</div>}
       {!isLoading && shown.length === 0 && !error && <div className="p-2 dim">{f ? `Tidak ada pesan yang memuat “${filter}” di yang sudah dimuat.` : "Belum ada pesan."}</div>}
-      <div className="max-w-[820px]">
+      <div>
         {shown.map((p) => {
           const fresh = now - p.time < 15 * 60_000;
           return (
@@ -178,7 +178,7 @@ function TelegramFeed({ filter }: { filter: string }) {
                   <div className="flex gap-1.5 mt-1.5">
                     {p.images.slice(0, 3).map((src) => (
                       <a key={src} href={p.url} target="_blank" rel="noreferrer">
-                        <img src={src} alt="" loading="lazy" className="h-[90px] max-w-[160px] object-cover rounded-sm bg-[var(--panel-2)]" />
+                        <img src={src} alt="" loading="lazy" className="h-[120px] max-w-[220px] object-cover rounded-sm bg-[var(--panel-2)]" />
                       </a>
                     ))}
                     {p.video && (
@@ -197,7 +197,7 @@ function TelegramFeed({ filter }: { filter: string }) {
         })}
       </div>
       {hasNextPage && (
-        <button className="w-full max-w-[820px] p-2 amber hover:bg-[#161616]" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+        <button className="w-full p-2 amber hover:bg-[#161616]" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
           {isFetchingNextPage ? "Memuat…" : "Muat pesan sebelumnya"}
         </button>
       )}
