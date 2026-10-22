@@ -259,14 +259,14 @@ class DrawingsRenderer implements IPrimitivePaneRenderer {
         ctx.stroke();
       }
 
-      for (const lb of this.labels) drawLabel(ctx, lb);
+      for (const lb of this.labels) drawLabel(ctx, lb, width);
       ctx.restore();
     });
   }
 }
 
 /** One label, in any of Pine's styles; text may span several lines. */
-function drawLabel(ctx: CanvasRenderingContext2D, lb: PlacedLabel) {
+function drawLabel(ctx: CanvasRenderingContext2D, lb: PlacedLabel, paneWidth: number) {
   if (lb.style === "circle") {
     ctx.fillStyle = lb.bg ?? "#2962FF";
     ctx.beginPath();
@@ -321,6 +321,7 @@ function drawLabel(ctx: CanvasRenderingContext2D, lb: PlacedLabel) {
       bx = lb.x - boxW / 2;
       by = lb.y - boxH / 2;
   }
+  if (lb.pinRight) bx = Math.min(bx, paneWidth - boxW - 2);
   const filled = lb.bg && lb.style !== "none";
   if (filled) {
     ctx.fillStyle = lb.bg!;
@@ -455,7 +456,7 @@ export class DrawingsPrimitive extends PrimitiveBase {
     }
     const labels: PlacedLabel[] = [];
     for (const lb of this.spec.labels) {
-      if (lb.index < from || lb.index > to) continue;
+      if (lb.index < from || (lb.index > to && !lb.pinRight)) continue;
       const lx = x(lb.index);
       const ly = y(lb.price);
       if (lx !== null && ly !== null) labels.push({ ...lb, x: lx, y: ly });

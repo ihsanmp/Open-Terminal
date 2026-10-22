@@ -14,12 +14,13 @@ import { whaleAlerts } from "./indicators/whale-alerts";
 import { astroCycles } from "./indicators/astro-cycles";
 import { astroTimeIndicators } from "./indicators/astro-time";
 import { pivotHilo } from "./indicators/pivot-hilo";
+import { periodOpensIndicator } from "./indicators/period-opens";
 import type { Category, ExternalData, IndicatorDef, IndicatorInstance, IndicatorResult, Params } from "./types";
 
 export * from "./types";
 export type { Bars, Series } from "./core";
 
-export const INDICATORS: IndicatorDef[] = [...averages, ...bands, ...oscillators, ...volume, ...volatility, ...community, ...luxalgo, ...more, ...luxalgo2, lorentzian, ...community2, pivotHilo, btcSplMvrv, btcPlMomentum, whaleAlerts, astroCycles, ...astroTimeIndicators].sort(
+export const INDICATORS: IndicatorDef[] = [...averages, ...bands, ...oscillators, ...volume, ...volatility, ...community, ...luxalgo, ...more, ...luxalgo2, lorentzian, ...community2, pivotHilo, periodOpensIndicator, btcSplMvrv, btcPlMomentum, whaleAlerts, astroCycles, ...astroTimeIndicators].sort(
   (a, b) => a.name.localeCompare(b.name)
 );
 

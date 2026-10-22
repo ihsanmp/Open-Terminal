@@ -82,6 +82,9 @@ export type Label = {
   textColor?: string;
   bg?: string;
   size: DrawSize;
+  /** Kept in the pane: a label past its right edge (an open's label, out in the future) is drawn
+   *  against the edge instead, so it reads without scrolling into the blank. */
+  pinRight?: boolean;
 };
 
 /** Pine box.new(): bar indices and prices, drawn behind the candles. */
