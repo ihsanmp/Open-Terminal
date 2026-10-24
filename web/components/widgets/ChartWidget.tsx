@@ -21,7 +21,7 @@ import {
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { apiGet, apiGetWithStale, fmt, fmtBig, fmtPrice, type Candle } from "../../lib/api";
+import { apiGet, apiGetWithStale, fmt, fmtBig, fmtPrice, scaleLabel, type Candle } from "../../lib/api";
 import {
   INDICATOR_BY_ID,
   candlesToBars,
@@ -629,7 +629,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     const viewKey = `${symbol}:${range}:${interval}`;
     const priceKey = `${viewKey}:${scaleMode}:${invert}`;
     const pxPrecision = chartStyle.precision === "default" ? pricePrecision(candles) : chartStyle.precision;
-    const mainFormat = { type: "price" as const, precision: pxPrecision, minMove: 1 / 10 ** pxPrecision };
+    // Market caps and totals (CRYPTOCAP:ZEC, 21 billion) read as 21.046B on the scale, as on TradingView.
+    const mainFormat = { type: "custom" as const, minMove: 1 / 10 ** pxPrecision, formatter: (v: number) => scaleLabel(v, pxPrecision) };
     const intraday = isIntradayInterval(intervalSeconds);
 
     const chart: IChartApi = createChart(el, {
@@ -728,7 +729,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       const priceFormat =
         it.def.volumeOverlay || precision === 0
           ? ({ type: "volume" } as const)
-          : ({ type: "price", precision, minMove: 1 / 10 ** precision } as const);
+          : ({ type: "custom", minMove: 1 / 10 ** precision, formatter: (v: number) => scaleLabel(v, precision) } as const);
       const scaleId = it.def.volumeOverlay ? `vol-${it.inst.uid}` : undefined;
       let anchor: ISeriesApi<SeriesType> | null = it.def.overlay && !scaleId ? main : null;
 
