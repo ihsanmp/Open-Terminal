@@ -27,6 +27,7 @@ import * as stocklist from "../providers/stocklist.js";
 import * as quant from "../quant/service.js";
 import { fxTickers } from "../providers/forex.js";
 import * as futures from "../providers/futures.js";
+import * as newcoins from "../providers/newcoins.js";
 import { futuresTickers } from "../providers/futures.js";
 import * as moneyflow from "../providers/moneyflow.js";
 import * as transfers from "../providers/transfers.js";
@@ -1029,6 +1030,16 @@ marketRouter.get("/options/:symbol", async (req, res) => {
 });
 
 // ---- crypto ----
+
+// New altcoins: the last weeks' listings (CoinMarketCap, OKX, Gate), each with its best TradingView pair.
+marketRouter.get("/crypto/new", async (req, res) => {
+  const days = Math.max(1, Math.min(90, Number(req.query.days) || 30));
+  try {
+    res.json(await newcoins.newCoins(days));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
 
 marketRouter.get("/crypto", async (req, res) => {
   try {
