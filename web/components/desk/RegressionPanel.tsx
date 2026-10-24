@@ -13,6 +13,23 @@ import { Section, signed, wib } from "./ui";
 // the last day taken apart, and whether yesterday's factors foretell today (out of sample).
 
 type FactorRow = { key: string; label: string; unit: "%" | "bp"; beta: number; se: number; t: number; p: number; stdBeta: number; vif: number; betaEarly: number | null; betaLate: number | null };
+type ModelSize = { keys: string[]; k: number; aic: number; bic: number; adjR2: number; trainR2: number | null; testR2: number | null; cvR2: number | null };
+type Overfit = {
+  trainR2: number;
+  testR2: number;
+  gap: number;
+  verdict: "ok" | "watch" | "overfit" | "shift";
+  cv: { folds: Array<{ from: string; to: string; n: number; trainR2: number; testR2: number; testR2Simple: number | null }>; meanTest: number; sdTest: number; meanTestSimple: number | null };
+  complexity: { full: ModelSize; simple: ModelSize | null; preferred: "full" | "simple" };
+};
+
+const VERDICT: Record<Overfit["verdict"], { label: string; cls: string; text: string }> = {
+  ok: { label: "Tidak ada tanda overfitting", cls: "up", text: "R² di data uji hampir sama dengan di data latih: hubungan yang ditemukan berlaku juga pada data yang tidak dipakai untuk melatih." },
+  watch: { label: "Sedikit menurun — perhatikan", cls: "amber", text: "R² di data uji turun 5–15 poin dari data latih. Masih wajar untuk data pasar, tapi beta sebaiknya dibaca dengan hati-hati." },
+  overfit: { label: "Indikasi overfitting", cls: "down", text: "Model penuh turun jauh di data uji, sementara model sederhana (hanya faktor signifikan) bertahan: kelebihan variabel ikut mempelajari noise. Pakai model sederhana." },
+  shift: { label: "Hubungan berubah (bukan overfitting)", cls: "amber", text: "Model penuh dan model sederhana sama-sama turun di data uji: bukan karena terlalu banyak variabel, tapi karena hubungan pair dengan pasar berubah di periode terakhir. Beta terbaru lebih relevan dari beta seluruh periode." },
+};
+
 type Regression = {
   symbol: string;
   label: string;
@@ -29,6 +46,7 @@ type Regression = {
   oosR2: number | null;
   predictive: { oosR2: number; hit: number; baseHit: number; n: number } | null;
   latest: { date: string; actual: number; fitted: number; parts: Array<{ key: string; label: string; move: number; contribution: number }> } | null;
+  overfit?: Overfit | null;
   asOf: number;
 };
 
@@ -178,6 +196,8 @@ export default function RegressionPanel() {
         </div>
       </Section>
 
+      {data.overfit && <OverfitSection o={data.overfit} period={period} labelOf={(k) => data.factors.find((f) => f.key === k)?.label ?? k} />}
+
       <Section title="Artinya" className="xl:col-span-6">
         {sig.length ? (
           <ul className="list-disc pl-4 grid gap-1 leading-relaxed">
@@ -249,5 +269,115 @@ export default function RegressionPanel() {
         </div>
       </Section>
     </div>
+  );
+}
+
+/** The overfitting checks: training vs testing R², walk-forward cross-validation, full vs simple model. */
+function OverfitSection({ o, period, labelOf }: { o: Overfit; period: string; labelOf: (key: string) => string }) {
+  const v = VERDICT[o.verdict];
+  const c = o.complexity;
+  const rows: Array<[string, ModelSize]> = [["Penuh", c.full], ...(c.simple ? ([["Sederhana", c.simple]] as Array<[string, ModelSize]>) : [])];
+  const r2 = (x: number | null | undefined) => (x == null ? "—" : pct(x));
+  return (
+    <Section title="Cek overfitting" note="data latih vs uji · validasi silang · kompleksitas model" className="xl:col-span-12">
+      <div className="grid gap-4 xl:grid-cols-2">
+        <div>
+          <div className={`font-bold ${v.cls}`}>{v.label}</div>
+          <div className="text-fs-10 dim leading-relaxed mt-1">{v.text}</div>
+          <div className="grid grid-cols-3 gap-2 mt-2">
+            <div>
+              <div className="text-fs-9 dim">R² data latih (70% awal)</div>
+              <div className="font-bold">{pct(o.trainR2)}</div>
+            </div>
+            <div>
+              <div className="text-fs-9 dim">R² data uji (30% akhir)</div>
+              <div className={`font-bold ${o.testR2 < 0 ? "down" : ""}`}>{pct(o.testR2)}</div>
+            </div>
+            <div>
+              <div className="text-fs-9 dim">Selisih</div>
+              <div className={`font-bold ${o.gap > 0.15 ? "down" : o.gap > 0.05 ? "amber" : "up"}`}>{signed(o.gap * 100, 1, " pp")}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <div className="text-fs-10 font-bold mb-1">Validasi silang walk-forward ({o.cv.folds.length} lipatan)</div>
+          <table className="data-table w-full text-fs-10">
+            <thead>
+              <tr>
+                <th>Diuji pada</th>
+                <th>{period}</th>
+                <th>R² latih</th>
+                <th>R² uji</th>
+                <th title="Model hanya dengan faktor yang signifikan di data latih lipatan itu">R² uji sederhana</th>
+              </tr>
+            </thead>
+            <tbody>
+              {o.cv.folds.map((f) => (
+                <tr key={f.from}>
+                  <td className="whitespace-nowrap">
+                    {day(f.from)} – {day(f.to)}
+                  </td>
+                  <td className="tabular-nums dim">{f.n}</td>
+                  <td className="tabular-nums">{pct(f.trainR2)}</td>
+                  <td className={`tabular-nums ${f.testR2 < 0 ? "down" : ""}`}>{pct(f.testR2)}</td>
+                  <td className="tabular-nums dim">{r2(f.testR2Simple)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="text-fs-9 dim mt-1">
+            Rata-rata R² uji {pct(o.cv.meanTest)} ± {pct(o.cv.sdTest)}
+            {o.cv.meanTestSimple != null ? ` · model sederhana ${pct(o.cv.meanTestSimple)}` : ""}. Tiap lipatan dilatih hanya dengan data sebelum periodenya, jadi masa depan tidak bocor ke data latih.
+          </div>
+        </div>
+
+        <div className="xl:col-span-2 overflow-x-auto">
+          <div className="text-fs-10 font-bold mb-1">Kompleksitas: model penuh vs sederhana</div>
+          <table className="data-table w-full text-fs-10">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Faktor</th>
+                <th title="Jumlah parameter, termasuk konstanta">k</th>
+                <th>R² adj</th>
+                <th title="Akaike: makin kecil makin baik">AIC</th>
+                <th title="Bayesian (Schwarz): menghukum variabel lebih keras; makin kecil makin baik">BIC</th>
+                <th>R² uji</th>
+                <th>R² CV</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(([name, m]) => {
+                const chosen = (name === "Penuh" ? "full" : "simple") === c.preferred;
+                return (
+                  <tr key={name} className={chosen ? "bg-[#14301f]" : ""}>
+                    <td className={chosen ? "up font-bold" : ""}>
+                      {chosen ? "✓ " : ""}
+                      {name}
+                    </td>
+                    <td className="!whitespace-normal !text-left min-w-[180px]">{m.keys.map(labelOf).join(", ")}</td>
+                    <td className="tabular-nums">{m.k}</td>
+                    <td className="tabular-nums">{pct(m.adjR2)}</td>
+                    <td className="tabular-nums dim">{m.aic.toFixed(1)}</td>
+                    <td className="tabular-nums">{m.bic.toFixed(1)}</td>
+                    <td className="tabular-nums">{r2(m.testR2)}</td>
+                    <td className="tabular-nums">{r2(m.cvR2)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="text-fs-9 dim mt-1 leading-relaxed">
+            {c.simple
+              ? c.preferred === "simple"
+                ? "Model sederhana dipilih: BIC lebih kecil dan R² validasi silang tidak lebih buruk — faktor tambahan tidak menambah daya jelas di luar sampel."
+                : "Model penuh dipertahankan: faktor tambahan masih menambah daya jelas (BIC atau R² validasi silang lebih baik)."
+              : "Semua faktor signifikan di data latih: tidak ada model yang lebih sederhana untuk dibandingkan."}{" "}
+            Faktor model sederhana dipilih dari data latih saja, bukan seluruh data.
+          </div>
+        </div>
+      </div>
+    </Section>
   );
 }

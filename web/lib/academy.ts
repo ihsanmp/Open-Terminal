@@ -218,6 +218,7 @@ export const MODULES: Module[] = [
           "Beta −1,4 untuk dolar pada emas berarti: di hari dolar naik 1%, emas rata-rata turun 1,4%. Statistik t (di atas ±2) dan nilai p (di bawah 0,05) menunjukkan apakah hubungan itu nyata atau bisa kebetulan. Standar error Newey-West dipakai agar volatilitas yang bergerombol tidak membuat hasil tampak lebih yakin dari seharusnya.",
           "R² memberi tahu berapa bagian gerak pair yang dijelaskan faktor-faktor itu; sisanya adalah gerak khas pair sendiri. VIF di atas 5 berarti dua faktor terlalu mirip sehingga beta masing-masing tidak bisa dipercaya terpisah. Bandingkan beta paruh awal dan akhir: beta yang berbalik tanda menandakan hubungan yang tidak stabil.",
           "Yang terpenting: ini sensitivitas pada hari yang sama, bukan ramalan. Uji ramal di aplikasi (faktor kemarin → pair hari ini, di luar sampel) hampir selalu tidak berdaya. Pakai beta untuk lindung nilai, ukuran posisi, dan memahami rilis mana yang akan menggerakkan pair Anda.",
+          "Cek overfitting di bawah tabel: bandingkan R² data latih dengan R² data uji (selisih kecil = aman), lihat apakah R² tetap positif di setiap lipatan validasi silang, dan apakah model sederhana (hanya faktor signifikan) sama baiknya dengan model penuh — kalau ya, pilih yang sederhana (BIC lebih kecil). Kalau model penuh dan sederhana sama-sama turun di data uji, itu bukan overfitting tapi hubungan pasar yang berubah.",
         ],
         practice: { view: "quant", label: "Buka regresi di Quantitative" },
         quiz: [
