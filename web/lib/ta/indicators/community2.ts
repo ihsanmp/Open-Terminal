@@ -685,3 +685,55 @@ export function cosineWeightedMaAtr(bars: Bars, p: Params): IndicatorResult {
     barColors: b(p, "colorBars") ? (intraday ? side : side.map((_, i) => (i > 0 ? side[i - 1] : CW_SHORT))) : undefined,
   };
 }
+
+// Cameron Fous's (iknkfx.com) "Stochastics Momentum Index", short title "Krypton Fear & Greed":
+// the SMI (close against the middle of the range's high and low, double-smoothed, as a share of
+// half the range) shown as its b-period EMA and its 4-period EMA, with the part above +50 and below
+// -50 filled. As in the script, the levels and the clipped lines are drawn as plots too, and the
+// fills keep its titles (the upper one "OverSold", the lower "OverBought").
+export function kryptonFearGreed(bars: Bars, p: Params): IndicatorResult {
+  const a = Math.max(1, n(p, "lengthK"));
+  const d = Math.max(1, n(p, "lengthD"));
+  const ob = n(p, "overbought");
+  const os = n(p, "oversold");
+  const hh = ta.highest(bars.high, a);
+  const ll = ta.lowest(bars.low, a);
+  const diff = ta.sub(hh, ll);
+  const rdiff = bars.close.map((c, i) => c - (hh[i] + ll[i]) / 2);
+  const avgrel = ta.ema(ta.ema(rdiff, d), d);
+  const avgdiff = ta.ema(ta.ema(diff, d), d);
+  const smi = avgrel.map((r, i) => (avgdiff[i] !== 0 ? (r / (avgdiff[i] / 2)) * 100 : 0));
+  const signal = ta.ema(smi, d);
+  const ema4 = ta.ema(smi, 4);
+  const upper = signal.map(() => ob);
+  const lower = signal.map(() => os);
+  const upperClip = signal.map((v) => (v > ob ? v : ob));
+  const lowerClip = signal.map((v) => (v < os ? v : os));
+  return {
+    plots: { smi: signal, ema: ema4, upper, upperClip, lower, lowerClip },
+    fills: [
+      { a: "upper", b: "upperClip", color: colorNew("#FFB4D7", 50) },
+      { a: "lower", b: "lowerClip", color: colorNew("#69FDBC", 50) },
+    ],
+  };
+}
+
+community2.push({
+  id: "krypton-fear-greed",
+  name: "Stochastics Momentum Index (Krypton Fear & Greed)",
+  short: "Krypton Fear & Greed",
+  category: "Community",
+  overlay: false,
+  aliases: ["Krypton Fear & Greed", "Krypton", "Fear & Greed", "Cameron Fous", "iknkfx", "SMI"],
+  description: "Cameron Fous (iknkfx.com): SMI dengan sinyal EMA; area di atas +50 dan di bawah -50 diwarnai.",
+  inputs: [int("lengthK", "Percent K Length", 10), int("lengthD", "Percent D Length", 3), int("overbought", "Overbought", 50, -100, 100), int("oversold", "Oversold", -50, -100, 100)],
+  plots: [
+    { key: "smi", title: "Stochastic", color: "#33FFC1" },
+    { key: "ema", title: "EMA", color: "#FF5252" },
+    { key: "upper", title: "Level +50", color: "#2962FF" },
+    { key: "upperClip", title: "Stochastic di atas +50", color: "#2962FF" },
+    { key: "lower", title: "Level -50", color: "#2962FF" },
+    { key: "lowerClip", title: "Stochastic di bawah -50", color: "#2962FF" },
+  ],
+  compute: (bars, p) => kryptonFearGreed(bars, p),
+});
