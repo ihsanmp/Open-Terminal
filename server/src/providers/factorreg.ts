@@ -13,7 +13,7 @@
 
 import { cached } from "../cache.js";
 import { tvHistory } from "../tvhistory.js";
-import { pairContext } from "./paircontext.js";
+import { coreOf, pairContext } from "./paircontext.js";
 import * as tvchart from "./tvchart.js";
 
 export type Factor = { key: string; label: string; tv: string; unit: "%" | "bp" };
@@ -27,6 +27,41 @@ export const FACTORS: Factor[] = [
   { key: "oil", label: "Minyak WTI", tv: "TVC:USOIL", unit: "%" },
   { key: "btc", label: "Bitcoin", tv: "BITSTAMP:BTCUSD", unit: "%" },
 ];
+
+/**
+ * For a currency pair, the main driver the US-centred factors miss: the gap between its two
+ * countries' short rates. Money goes where it earns more, so the base currency's 2-year yield
+ * rising against the quote currency's tends to lift the pair. Each currency's 2-year government
+ * yield on TradingView (the euro area's as Germany's, Indonesia's 3-year where no 2-year is listed).
+ */
+export const YIELD_2Y: Record<string, { tv: string; tenor: string }> = {
+  USD: { tv: "TVC:US02Y", tenor: "2 th" }, EUR: { tv: "TVC:DE02Y", tenor: "2 th" }, GBP: { tv: "TVC:GB02Y", tenor: "2 th" },
+  JPY: { tv: "TVC:JP02Y", tenor: "2 th" }, AUD: { tv: "TVC:AU02Y", tenor: "2 th" }, CAD: { tv: "TVC:CA02Y", tenor: "2 th" },
+  CHF: { tv: "TVC:CH02Y", tenor: "2 th" }, NZD: { tv: "TVC:NZ02Y", tenor: "2 th" }, CNY: { tv: "TVC:CN02Y", tenor: "2 th" },
+  CNH: { tv: "TVC:CN02Y", tenor: "2 th" }, SGD: { tv: "TVC:SG02Y", tenor: "2 th" }, INR: { tv: "TVC:IN02Y", tenor: "2 th" },
+  KRW: { tv: "TVC:KR02Y", tenor: "2 th" }, HKD: { tv: "TVC:HK02Y", tenor: "2 th" }, IDR: { tv: "TVC:ID03Y", tenor: "3 th" },
+};
+
+/** The pair's rate-differential factor (base − quote), or null when it isn't a pair of two listed currencies. */
+export function rateDiffFactor(currencies: string[]): (Factor & { base: string; quote: string }) | null {
+  if (currencies.length !== 2) return null;
+  const [base, quote] = currencies;
+  const a = YIELD_2Y[base];
+  const b = YIELD_2Y[quote];
+  if (!a || !b || a.tv === b.tv) return null;
+  const tenor = a.tenor === b.tenor ? a.tenor : `${a.tenor}/${b.tenor}`;
+  return { key: "ratediff", label: `Selisih yield ${tenor} ${base}−${quote}`, tv: `${a.tv}-${b.tv}`, unit: "bp", base, quote };
+}
+
+/** One yield minus another on the days both have (in percent; a level, negative allowed). */
+export function spreadSeries(a: Series, b: Series): Series {
+  const out: Series = new Map();
+  for (const [d, v] of a) {
+    const w = b.get(d);
+    if (w != null) out.set(d, v - w);
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------- linear algebra (small k)
 
@@ -180,6 +215,8 @@ export function alignedReturns(series: Record<string, Series>, units: Record<str
   return { dates: dates.slice(1), returns };
 }
 
+export type Ohlcv = { open: number; high: number; low: number; close: number; volume: number };
+
 export type FactorRow = Factor & { beta: number; se: number; t: number; p: number; stdBeta: number; vif: number; betaEarly: number | null; betaLate: number | null };
 
 export type Regression = {
@@ -201,15 +238,19 @@ export type Regression = {
   predictive: { oosR2: number; hit: number; baseHit: number; n: number } | null;
   /** The last period: the pair's move, what the factors' moves account for, factor by factor. */
   latest: { date: string; actual: number; fitted: number; parts: Array<{ key: string; label: string; move: number; contribution: number }> } | null;
+  /** Newey-West lags used for the standard errors (for the SAS script to match). */
+  nwLags: number;
+  /** The data the fit used, period by period (for the CSV download; not sent with the JSON). */
+  rows?: { dates: string[]; y: number[]; x: Record<string, number[]>; ohlcv?: Array<Ohlcv | null> };
   asOf: number;
 };
 
 const SAME_ASSET = 0.97;
 
 /** The whole analysis from the pair's and the factors' closes (exported for the tests). */
-export function analyse(symbol: string, label: string, pair: Series, factorCloses: Record<string, Series>, freq: "daily" | "weekly", now = Date.now()): Regression | null {
+export function analyse(symbol: string, label: string, pair: Series, factorCloses: Record<string, Series>, freq: "daily" | "weekly", now = Date.now(), factors: Factor[] = FACTORS): Regression | null {
   const dropped: Regression["dropped"] = [];
-  let usable = FACTORS.filter((f) => {
+  let usable = factors.filter((f) => {
     const s = factorCloses[f.key];
     if (!s || s.size < 60) {
       dropped.push({ key: f.key, label: f.label, why: "data tidak tersedia" });
@@ -323,8 +364,131 @@ export function analyse(symbol: string, label: string, pair: Series, factorClose
     oosR2,
     predictive,
     latest: { date: dates[last], actual: Y[last], fitted: fit.coef[0] + parts.reduce((s, p) => s + p.contribution, 0), parts },
+    nwLags: Math.floor(4 * (Y.length / 100) ** (2 / 9)),
+    rows: { dates, y: Y, x: Object.fromEntries(usable.map((f, j) => [f.key, X.map((r) => r[j])])) },
     asOf: now,
   };
+}
+
+// ---------------------------------------------------------------- export for SAS (and Excel, R, Python)
+
+const num = (v: number) => (Number.isFinite(v) ? String(Math.round(v * 1e6) / 1e6) : "");
+
+/** The fit's data as CSV: one row per period, the pair's return and each factor's, short SAS-safe column names. */
+export function regressionCsv(r: Regression): string {
+  if (!r.rows) return "";
+  const keys = r.factors.map((f) => f.key);
+  const bars = r.rows.ohlcv;
+  const lines = [["date", ...(bars ? ["open", "high", "low", "close", "volume"] : []), "pair", ...keys].join(",")];
+  r.rows.dates.forEach((d, i) => {
+    const b = bars?.[i];
+    const ohlcv = bars ? (b ? [b.open, b.high, b.low, b.close, b.volume].map(num) : ["", "", "", "", ""]) : [];
+    lines.push([d, ...ohlcv, num(r.rows!.y[i]), ...keys.map((k) => num(r.rows!.x[k][i]))].join(","));
+  });
+  return lines.join("\r\n") + "\r\n";
+}
+
+/** A SAS program for the CSV: the same OLS (PROC REG, with VIF) and the same Newey-West errors (PROC MODEL, GMM with a Bartlett kernel). */
+export function sasProgram(r: Regression, csvName: string): string {
+  const keys = r.factors.map((f) => f.key);
+  const desc = r.factors.map((f) => `     ${f.key.padEnd(9)} ${f.label} (${f.unit === "bp" ? "perubahan, bp" : "return log, %"})`).join("\n");
+  return [
+    `/* Regresi multifaktor ${r.symbol} (${r.label}) dari OpenTerminal`,
+    `   ${r.freq === "daily" ? "Harian" : "Mingguan"}, ${r.n} periode, ${r.from} s.d. ${r.to}.`,
+    `   pair      return log ${r.label}, %`,
+    desc,
+    `   Ganti path di bawah ke tempat file CSV disimpan. */`,
+    ``,
+    `proc import datafile="C:\\Users\\Anda\\Downloads\\${csvName}"`,
+    `  out=work.reg dbms=csv replace;`,
+    `  getnames=yes;`,
+    `run;`,
+    ``,
+    `/* 1. OLS biasa, dengan VIF: koefisien sama dengan di aplikasi. */`,
+    `proc reg data=work.reg;`,
+    `  model pair = ${keys.join(" ")} / vif;`,
+    `run;`,
+    `quit;`,
+    ``,
+    `/* 2. Standar error Newey-West (${r.nwLags} lag, bobot Bartlett), seperti di aplikasi.`,
+    `      Hasil t bisa beda sedikit: aplikasi memakai koreksi sampel kecil n/(n-k). */`,
+    `proc model data=work.reg;`,
+    `  parms b0 ${keys.map((k) => `b_${k}`).join(" ")};`,
+    `  pair = b0 + ${keys.map((k) => `b_${k}*${k}`).join(" + ")};`,
+    `  fit pair / gmm kernel=(bart, ${r.nwLags}, 0);`,
+    `  instruments ${keys.join(" ")};`,
+    `run;`,
+    `quit;`,
+    ``,
+    ...(r.rows?.ohlcv ? predictionSas(r, keys) : []),
+  ].join("\r\n");
+}
+
+/**
+ * The SAS part that predicts: features from today's candle (OHLCV) and the factors, the next
+ * period's return as the target, fitted on the first 70% and scored on the last 30% (hit rate
+ * and out-of-sample R² against the training mean), and a damped-trend forecast of the close.
+ */
+function predictionSas(r: Regression, keys: string[]): string[] {
+  // Forex trades over the counter: no volume reported (all zeros), so no volume feature.
+  const hasVolume = Boolean(r.rows?.ohlcv?.some((b) => b && b.volume > 0));
+  const features = ["pair", "range", "body", ...(hasVolume ? ["dlvol"] : []), ...keys];
+  return [
+    `/* 3. Prediksi dari data OHLCV + faktor: return periode berikutnya.`,
+    `      Fitur dari candle hari ini: return, rentang high-low, badan candle, perubahan volume.`,
+    `      Dilatih di 70% awal, diuji di 30% akhir (di luar sampel). Di aplikasi, uji serupa`,
+    `      belum pernah menunjukkan daya ramal yang nyata: anggap ini sebagai uji, bukan sinyal.`,
+    ...(hasVolume ? [] : [`      Volume: pasar ini (forex, OTC) tidak melaporkan volume (kolom bernilai 0), jadi tidak dipakai.`]),
+    `   */`,
+    `data work.pred;`,
+    `  merge work.reg work.reg(firstobs=2 keep=pair rename=(pair=pair_next));`,
+    `  range = (high - low) / close * 100;       /* rentang high-low, % */`,
+    `  body  = (close - open) / open * 100;      /* badan candle, % */`,
+    `  lvol  = log(max(volume, 1));`,
+    `  dlvol = dif(lvol);                        /* perubahan log volume */`,
+    `  if pair_next = . then delete;`,
+    `run;`,
+    ``,
+    `proc sql noprint;`,
+    `  select floor(count(*) * 0.7) into :cut trimmed from work.pred;`,
+    `quit;`,
+    `data work.train work.test;`,
+    `  set work.pred;`,
+    `  if _n_ <= &cut then output work.train; else output work.test;`,
+    `run;`,
+    ``,
+    `proc reg data=work.train outest=work.est noprint;`,
+    `  model pair_next = ${features.join(" ")};`,
+    `run;`,
+    `quit;`,
+    `proc score data=work.test score=work.est out=work.scored type=parms;`,
+    `  var ${features.join(" ")};`,
+    `run;`,
+    ``,
+    `proc sql noprint;`,
+    `  select mean(pair_next) into :mtrain trimmed from work.train;`,
+    `quit;`,
+    `data work.eval;`,
+    `  set work.scored;`,
+    `  hit  = (sign(MODEL1) = sign(pair_next));   /* arah tepat? */`,
+    `  e2   = (pair_next - MODEL1)**2;`,
+    `  e2b  = (pair_next - &mtrain)**2;          /* tebakan rata-rata (pembanding) */`,
+    `run;`,
+    `proc sql;`,
+    `  title "Uji di luar sampel: arah tepat dan R2 terhadap tebakan rata-rata";`,
+    `  select count(*) as periode, mean(hit) as arah_tepat format=percent8.1,`,
+    `         1 - sum(e2) / sum(e2b) as r2_luar_sampel format=8.4`,
+    `  from work.eval;`,
+    `quit;`,
+    `title;`,
+    ``,
+    `/* 4. Tren harga ke depan: exponential smoothing (damped trend), ${r.freq === "daily" ? "20 hari bursa" : "8 minggu"}. */`,
+    `proc esm data=work.reg out=work.forecast lead=${r.freq === "daily" ? 20 : 8} plot=forecasts;`,
+    `  id date interval=${r.freq === "daily" ? "weekday" : "week"};`,
+    `  forecast close / model=damptrend;`,
+    `run;`,
+    ``,
+  ];
 }
 
 const toSeries = (bars: Array<{ time: number; close: number }> | null | undefined): Series => {
@@ -333,22 +497,55 @@ const toSeries = (bars: Array<{ time: number; close: number }> | null | undefine
   return m;
 };
 
+/**
+ * The pair's daily bars. A currency or metal pair picked from a listing with no history of its own
+ * (an exchange's EURUSD futures, say) is read from the forex feeds instead.
+ */
+async function pairHistory(s: string, kind: string | null) {
+  const own = await tvHistory(s, "1D").catch(() => []);
+  const core = coreOf(s).core;
+  if (own.length >= 60 || !(kind === "fx" || kind === "metal") || !/^[A-Z]{6}$/.test(core)) return own;
+  for (const alt of [`FX:${core}`, `OANDA:${core}`, `FX_IDC:${core}`]) {
+    const bars = await tvHistory(alt, "1D").catch(() => []);
+    if (bars.length >= 60) return bars;
+  }
+  return own;
+}
+
 /** The pair's regression over about three years of daily closes (weekly: the same years by week);
  *  five minutes in the cache, so the latest move (today's bar, still forming) stays current. */
 export function factorRegression(symbol: string, freq: "daily" | "weekly"): Promise<Regression> {
   const s = symbol.toUpperCase();
   return cached(`factorreg:${s}:${freq}`, 5 * 60_000, async () => {
-    const [ctx, pairBars, factorBars] = await Promise.all([
-      pairContext(s).catch(() => null),
-      tvHistory(s, "1D"),
-      tvchart.bars(FACTORS.map((f) => f.tv), "1D", 1200, 20_000),
-    ]);
+    const ctx = await pairContext(s).catch(() => null);
+    // A currency pair also gets its two countries' rate gap.
+    const diff = ctx?.kind === "fx" ? rateDiffFactor(ctx.currencies) : null;
+    const yields = diff ? [YIELD_2Y[diff.base].tv, YIELD_2Y[diff.quote].tv] : [];
+    const [pairBars, factorBars] = await Promise.all([pairHistory(s, ctx?.kind ?? null), tvchart.bars([...FACTORS.map((f) => f.tv), ...yields], "1D", 1200, 20_000)]);
     // About three years: enough days to be sure of a beta, recent enough to still describe the pair.
     const since = Date.now() / 1000 - 3 * 365 * 86_400;
     const pair = toSeries(pairBars.filter((b) => b.time >= since));
     if (pair.size < 60) throw new Error(`riwayat harian ${s} terlalu pendek untuk regresi`);
-    const closes = Object.fromEntries(FACTORS.map((f) => [f.key, toSeries((factorBars[f.tv] ?? []).filter((b) => b.time >= since))]));
-    const out = analyse(s, ctx?.label ?? s, pair, closes, freq);
+    const closes: Record<string, Series> = Object.fromEntries(FACTORS.map((f) => [f.key, toSeries((factorBars[f.tv] ?? []).filter((b) => b.time >= since))]));
+    const factors: Factor[] = [...FACTORS];
+    if (diff) {
+      const recent = (tv: string) => toSeries((factorBars[tv] ?? []).filter((b) => b.time >= since));
+      closes.ratediff = spreadSeries(recent(yields[0]), recent(yields[1]));
+      factors.push(diff);
+    }
+    const out = analyse(s, ctx?.label ?? s, pair, closes, freq, Date.now(), factors);
+    if (out?.rows) {
+      // Each row's own candle for the CSV's OHLCV columns: the day's, or the week's up to that day
+      // (its first open, highest high, lowest low, that day's close, the volume summed).
+      const byDay = new Map(pairBars.map((b) => [dayOf(b.time), b]));
+      out.rows.ohlcv = out.rows.dates.map((d) => {
+        const b = byDay.get(d);
+        if (!b) return null;
+        if (freq === "daily") return { open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume ?? 0 };
+        const week = pairBars.filter((x) => weekOf(dayOf(x.time)) === weekOf(d) && dayOf(x.time) <= d);
+        return { open: week[0].open, high: Math.max(...week.map((x) => x.high)), low: Math.min(...week.map((x) => x.low)), close: b.close, volume: week.reduce((sum, x) => sum + (x.volume ?? 0), 0) };
+      });
+    }
     if (!out) throw new Error("data bersama terlalu sedikit untuk regresi");
     return out;
   });

@@ -52,6 +52,9 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
   // A saved copy from the API's disk cache, served while it fetches a fresh one.
   const stale = upstream.headers.get("x-stale");
   if (stale) out.set("x-stale", stale);
+  // A download (the regression's CSV and SAS program) keeps the file name the API gave it.
+  const disposition = upstream.headers.get("content-disposition");
+  if (disposition) out.set("content-disposition", disposition);
   return new NextResponse(body, { status: upstream.status, headers: out });
 }
 
