@@ -161,3 +161,73 @@ describe("forex rate gap and the SAS export", () => {
     expect(full).toContain("proc esm data=work.reg");
   });
 });
+
+describe("overfitting checks", () => {
+  it("tells overfitting (a simpler model holds up) from a relationship that changed (both drop)", async () => {
+    const { overfitChecks } = await import("./factorreg.js");
+    const r = rng(33);
+    const dates = Array.from({ length: 300 }, (_, i) => `d${String(i).padStart(3, "0")}`);
+    // Changed: y follows a in the first 70%, then stops following it.
+    const Xs: number[][] = [];
+    const Ys: number[] = [];
+    for (let i = 0; i < 300; i++) {
+      const row = [gauss(r), gauss(r)];
+      Xs.push(row);
+      Ys.push((i < 210 ? 1 : 0) * row[0] + 0.3 * gauss(r));
+    }
+    expect(overfitChecks(Xs, Ys, dates, ["a", "b"])!.verdict).toBe("shift");
+    // Overfitted: one real factor plus 25 noise factors on 120 rows.
+    const Xo: number[][] = [];
+    const Yo: number[] = [];
+    for (let i = 0; i < 120; i++) {
+      const row = Array.from({ length: 26 }, () => gauss(r));
+      Xo.push(row);
+      Yo.push(row[0] + 1.2 * gauss(r));
+    }
+    const o = overfitChecks(Xo, Yo, dates.slice(0, 120), Array.from({ length: 26 }, (_, j) => `x${j}`))!;
+    expect(o.gap).toBeGreaterThan(0.1);
+    expect(o.verdict).toBe("overfit");
+  });
+
+  it("passes a true linear model and prefers the simpler model when the extra factors are noise", async () => {
+    const { overfitChecks } = await import("./factorreg.js");
+    const r = rng(21);
+    const X: number[][] = [];
+    const Y: number[] = [];
+    const dates: string[] = [];
+    for (let i = 0; i < 600; i++) {
+      const row = Array.from({ length: 6 }, () => gauss(r));
+      X.push(row);
+      Y.push(1.5 * row[0] - 0.8 * row[1] + 0.5 * gauss(r));
+      dates.push(new Date(Date.UTC(2024, 0, 1) + i * 86_400_000).toISOString().slice(0, 10));
+    }
+    const o = overfitChecks(X, Y, dates, ["a", "b", "n1", "n2", "n3", "n4"])!;
+    expect(o.verdict).toBe("ok");
+    expect(Math.abs(o.gap)).toBeLessThan(0.05);
+    expect(o.cv.folds).toHaveLength(5);
+    expect(o.cv.meanTest).toBeGreaterThan(0.8);
+    // The real factors stay; most of the noise goes (one may pass p < 0.05 by chance, as in real data).
+    expect(o.complexity.simple!.keys).toEqual(expect.arrayContaining(["a", "b"]));
+    expect(o.complexity.simple!.keys.length).toBeLessThan(6);
+    expect(o.complexity.simple!.bic).toBeLessThan(o.complexity.full.bic);
+    expect(o.complexity.preferred).toBe("simple");
+  });
+
+  it("flags a model with many noise factors on few rows", async () => {
+    const { overfitChecks } = await import("./factorreg.js");
+    const r = rng(8);
+    const X: number[][] = [];
+    const Y: number[] = [];
+    const dates: string[] = [];
+    for (let i = 0; i < 90; i++) {
+      X.push(Array.from({ length: 15 }, () => gauss(r)));
+      Y.push(gauss(r));
+      dates.push(`d${String(i).padStart(3, "0")}`);
+    }
+    const o = overfitChecks(X, Y, dates, Array.from({ length: 15 }, (_, j) => `x${j}`))!;
+    expect(o.trainR2).toBeGreaterThan(0.1);
+    expect(o.testR2).toBeLessThan(0);
+    // Pure noise: no simpler model holds up either, so it reads as no stable relationship.
+    expect(["overfit", "shift"]).toContain(o.verdict);
+  });
+});

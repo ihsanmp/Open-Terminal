@@ -215,6 +215,22 @@ export function alignedReturns(series: Record<string, Series>, units: Record<str
   return { dates: dates.slice(1), returns };
 }
 
+export type Fold = { from: string; to: string; n: number; trainR2: number; testR2: number; testR2Simple: number | null };
+export type ModelSize = { keys: string[]; k: number; aic: number; bic: number; adjR2: number; trainR2: number | null; testR2: number | null; cvR2: number | null };
+export type Overfit = {
+  /** Fitted on the first 70%: its R² there, and on the 30% after. */
+  trainR2: number;
+  testR2: number;
+  gap: number;
+  /** ok: the test holds up; watch: some drop; overfit: the full model drops where a simpler one holds;
+   *  shift: both drop alike, so the relationship itself changed (not too many factors). */
+  verdict: "ok" | "watch" | "overfit" | "shift";
+  /** Expanding-window (walk-forward) cross-validation: train on everything before a block, test on the block. */
+  cv: { folds: Fold[]; meanTest: number; sdTest: number; meanTestSimple: number | null };
+  /** The full model against one with only the factors significant in the training data. */
+  complexity: { full: ModelSize; simple: ModelSize | null; preferred: "full" | "simple" };
+};
+
 export type Ohlcv = { open: number; high: number; low: number; close: number; volume: number };
 
 export type FactorRow = Factor & { beta: number; se: number; t: number; p: number; stdBeta: number; vif: number; betaEarly: number | null; betaLate: number | null };
@@ -238,6 +254,8 @@ export type Regression = {
   predictive: { oosR2: number; hit: number; baseHit: number; n: number } | null;
   /** The last period: the pair's move, what the factors' moves account for, factor by factor. */
   latest: { date: string; actual: number; fitted: number; parts: Array<{ key: string; label: string; move: number; contribution: number }> } | null;
+  /** Is the fit overfitted? Training against testing R², walk-forward cross-validation, and the full model against a simpler one. */
+  overfit: Overfit | null;
   /** Newey-West lags used for the standard errors (for the SAS script to match). */
   nwLags: number;
   /** The data the fit used, period by period (for the CSV download; not sent with the JSON). */
@@ -364,9 +382,122 @@ export function analyse(symbol: string, label: string, pair: Series, factorClose
     oosR2,
     predictive,
     latest: { date: dates[last], actual: Y[last], fitted: fit.coef[0] + parts.reduce((s, p) => s + p.contribution, 0), parts },
+    overfit: overfitChecks(X, Y, dates, usable.map((f) => f.key)),
     nwLags: Math.floor(4 * (Y.length / 100) ** (2 / 9)),
     rows: { dates, y: Y, x: Object.fromEntries(usable.map((f, j) => [f.key, X.map((r) => r[j])])) },
     asOf: now,
+  };
+}
+
+// ---------------------------------------------------------------- overfitting checks
+
+const predictRow = (coef: number[], row: number[], cols: number[]) => coef[0] + cols.reduce((s2, c, j) => s2 + coef[j + 1] * row[c], 0);
+const pick = (X: number[][], cols: number[]) => X.map((r) => cols.map((c) => r[c]));
+
+/** R² of a fit on other data, against a given mean (the training mean, for a test set). */
+function r2On(coef: number[], X: number[][], Y: number[], cols: number[], ref: number): number {
+  let sse = 0;
+  let sst = 0;
+  for (let i = 0; i < Y.length; i++) {
+    sse += (Y[i] - predictRow(coef, X[i], cols)) ** 2;
+    sst += (Y[i] - ref) ** 2;
+  }
+  return sst > 0 ? 1 - sse / sst : 0;
+}
+
+/** The columns significant (p < 0.05, Newey-West) in a fit on this data; all of them if none is. */
+function significantCols(X: number[][], Y: number[], cols: number[]): number[] {
+  const fit = ols(pick(X, cols), Y);
+  if (!fit) return cols;
+  const sig = cols.filter((_, j) => fit.p[j + 1] < 0.05);
+  return sig.length ? sig : cols;
+}
+
+/** A fit's AIC and BIC (Gaussian, from its residuals; k counts the intercept). */
+export function infoCriteria(sse: number, n: number, k: number): { aic: number; bic: number } {
+  const ll = n * Math.log(Math.max(sse, 1e-12) / n);
+  return { aic: ll + 2 * k, bic: ll + k * Math.log(n) };
+}
+
+/**
+ * Overfitting checks on a fit's data (rows in time order): training vs testing R² on a 70/30
+ * split, walk-forward cross-validation in `folds` blocks after the first, and the full model
+ * against a simpler one keeping only the factors significant in the training data (chosen inside
+ * each training set, so the test never helps choose).
+ */
+export function overfitChecks(X: number[][], Y: number[], dates: string[], keys: string[], folds = 5): Overfit | null {
+  const n = Y.length;
+  const all = keys.map((_, j) => j);
+  const cut = Math.floor(n * 0.7);
+  if (n - cut < 20 || cut < all.length + 10) return null;
+  const train = ols(pick(X.slice(0, cut), all), Y.slice(0, cut));
+  if (!train) return null;
+  const trainMean = mean(Y.slice(0, cut));
+  const testR2 = r2On(train.coef, X.slice(cut), Y.slice(cut), all, trainMean);
+  const gap = train.r2 - testR2;
+
+  // Walk-forward: blocks 1 … folds, each tested on a model trained on everything before it.
+  const size = Math.floor(n / (folds + 1));
+  const foldRows: Fold[] = [];
+  for (let k = 1; k <= folds; k++) {
+    const a = k * size;
+    const b = k === folds ? n : (k + 1) * size;
+    if (b - a < 10 || a < all.length + 10) continue;
+    const Xt = X.slice(0, a);
+    const Yt = Y.slice(0, a);
+    const fit = ols(pick(Xt, all), Yt);
+    if (!fit) continue;
+    const m = mean(Yt);
+    const simpleCols = significantCols(Xt, Yt, all);
+    const simple = simpleCols.length < all.length ? ols(pick(Xt, simpleCols), Yt) : null;
+    foldRows.push({
+      from: dates[a],
+      to: dates[b - 1],
+      n: b - a,
+      trainR2: fit.r2,
+      testR2: r2On(fit.coef, X.slice(a, b), Y.slice(a, b), all, m),
+      testR2Simple: simple ? r2On(simple.coef, X.slice(a, b), Y.slice(a, b), simpleCols, m) : null,
+    });
+  }
+  const tests = foldRows.map((f) => f.testR2);
+  const meanTest = tests.length ? mean(tests) : 0;
+  const simpleTests = foldRows.map((f) => f.testR2Simple ?? f.testR2);
+  const anySimple = foldRows.some((f) => f.testR2Simple != null);
+
+  // The full model and the simple one on the whole sample (AIC/BIC), and on the 70/30 split.
+  const sizeOf = (cols: number[], cvR2: number | null): ModelSize | null => {
+    const fit = ols(pick(X, cols), Y);
+    const tr = ols(pick(X.slice(0, cut), cols), Y.slice(0, cut));
+    if (!fit) return null;
+    const sse = fit.resid.reduce((s2, e) => s2 + e * e, 0);
+    const k = cols.length + 1;
+    return {
+      keys: cols.map((c) => keys[c]),
+      k,
+      ...infoCriteria(sse, n, k),
+      adjR2: fit.adjR2,
+      trainR2: tr ? tr.r2 : null,
+      testR2: tr ? r2On(tr.coef, X.slice(cut), Y.slice(cut), cols, trainMean) : null,
+      cvR2,
+    };
+  };
+  const full = sizeOf(all, tests.length ? meanTest : null)!;
+  const simpleCols = significantCols(X.slice(0, cut), Y.slice(0, cut), all);
+  const simple = simpleCols.length < all.length ? sizeOf(simpleCols, anySimple ? mean(simpleTests) : null) : null;
+  const preferred = simple && simple.bic < full.bic && (simple.cvR2 ?? -Infinity) >= (full.cvR2 ?? -Infinity) - 0.005 ? "simple" : "full";
+  // A big drop is overfitting only if a simpler model holds up better on the same test data;
+  // if it drops just as much, the market's relationship changed.
+  const simpleHolds =
+    simple?.testR2 != null && simple.trainR2 != null && simple.testR2 > testR2 + 0.03 && simple.trainR2 - simple.testR2 < gap / 2;
+  const verdict: Overfit["verdict"] = testR2 < 0 || gap > 0.15 ? (simpleHolds ? "overfit" : "shift") : gap > 0.05 ? (simpleHolds ? "overfit" : "watch") : "ok";
+
+  return {
+    trainR2: train.r2,
+    testR2,
+    gap,
+    verdict,
+    cv: { folds: foldRows, meanTest, sdTest: tests.length > 1 ? sd(tests) : 0, meanTestSimple: anySimple ? mean(simpleTests) : null },
+    complexity: { full, simple, preferred },
   };
 }
 
@@ -420,8 +551,45 @@ export function sasProgram(r: Regression, csvName: string): string {
     `run;`,
     `quit;`,
     ``,
+    ...overfitSas(keys),
     ...(r.rows?.ohlcv ? predictionSas(r, keys) : []),
   ].join("\r\n");
+}
+
+/**
+ * The SAS part that checks for overfitting: training vs validation R² on the same time-ordered
+ * 70/30 split as the app, and PROC GLMSELECT choosing the factors by SBC (BIC) on the training
+ * part with the validation part as the judge, then again with 5-fold blocked cross-validation.
+ */
+function overfitSas(keys: string[]): string[] {
+  return [
+    `/* 2b. Cek overfitting.`,
+    `      a) Error data latih vs data uji (ASE Train vs ASE Validate): 70% awal melatih, 30% akhir menguji (urut waktu).`,
+    `         Overfitting: ASE Validate jauh di atas ASE Train.`,
+    `      b) Pilih faktor (stepwise, kriteria SBC/BIC) dengan data uji sebagai penilai.`,
+    `      c) Validasi silang 5 blok berurutan (blocked CV; aplikasi memakai walk-forward,`,
+    `         jadi angkanya bisa sedikit berbeda, arahnya seharusnya sama). */`,
+    `proc sql noprint;`,
+    `  select floor(count(*) * 0.7) into :cut70 trimmed from work.reg;`,
+    `quit;`,
+    `data work.part;`,
+    `  set work.reg;`,
+    `  length role $8;`,
+    `  if _n_ <= &cut70 then role = "TRAIN"; else role = "VALIDATE";`,
+    `run;`,
+    `proc glmselect data=work.part plots=none;`,
+    `  partition rolevar=role(train="TRAIN" validate="VALIDATE");`,
+    `  model pair = ${keys.join(" ")} / selection=none stats=(adjrsq aic sbc);`,
+    `run;`,
+    `proc glmselect data=work.part plots=(criteria);`,
+    `  partition rolevar=role(train="TRAIN" validate="VALIDATE");`,
+    `  model pair = ${keys.join(" ")} / selection=stepwise(select=sbc choose=validate) stats=(adjrsq aic sbc);`,
+    `run;`,
+    `proc glmselect data=work.reg plots=none;`,
+    `  model pair = ${keys.join(" ")} / selection=stepwise(select=sbc choose=cv) cvmethod=block(5) stats=(adjrsq aic sbc press);`,
+    `run;`,
+    ``,
+  ];
 }
 
 /**
