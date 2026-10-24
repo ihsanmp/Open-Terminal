@@ -113,3 +113,15 @@ export async function apiPut<T>(path: string, body: unknown): Promise<T> {
   }
   return res.json();
 }
+
+/**
+ * A price on a chart's scale: in full, or once it reaches a hundred million (a market cap, a
+ * total) shortened as TradingView does (21.046B), so the scale stays narrow and readable.
+ */
+export function scaleLabel(v: number, precision: number): string {
+  if (!Number.isFinite(v)) return "";
+  const a = Math.abs(v);
+  if (a < 1e8) return v.toFixed(precision);
+  const [div, suffix] = a >= 1e12 ? [1e12, "T"] : a >= 1e9 ? [1e9, "B"] : [1e6, "M"];
+  return `${(v / div).toFixed(3)}${suffix}`;
+}
