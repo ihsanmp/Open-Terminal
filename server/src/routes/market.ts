@@ -205,7 +205,8 @@ async function getQuotes(symbols: string[]): Promise<yahoo.Quote[]> {
     // Not a crypto pair (OANDA:EURUSD, TVC:GOLD, SP:SPX …): the global scanner has it.
     const rest = pairSymbols.filter((s) => !fetched.has(s));
     if (rest.length) {
-      const more = await tradingview.batchQuotes(rest, (s) => [s.toUpperCase()]).catch(() => new Map<string, yahoo.Quote>());
+      // The ticker itself first; a crypto exchange's coin-only ticker (COINBASE:ZEC) also by its USD pairs.
+      const more = await tradingview.batchQuotes(rest, (s) => tvCandidates(s)).catch(() => new Map<string, yahoo.Quote>());
       for (const [s, q] of more) fetched.set(s, q);
     }
     remaining = remaining.filter((s) => !isTvPair(s));
