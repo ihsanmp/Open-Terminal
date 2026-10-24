@@ -8,6 +8,7 @@ import Flash from "../Flash";
 import { listRefreshMs, usePoll } from "../../lib/refresh";
 import { displaySymbol, priceDigits } from "../../lib/watchlist";
 import CryptoList from "./CryptoList";
+import NewCoinsList from "./NewCoinsList";
 import { ChgCells, ChgHeads, usePerf } from "./ChangeCells";
 
 // The watchlist, and the markets to pick from beside it: every stock of a market, the world's
@@ -24,6 +25,7 @@ type Category =
   | `etf-us-${EtfClass}`
   | "etf-indonesia"
   | "crypto"
+  | "crypto-new"
   | "fx-all"
   | `fx-${ForexGroup}`
   | `stocks-${string}`
@@ -549,6 +551,7 @@ export default function WatchlistWidget() {
             ))}
           </optgroup>
           <option value="crypto">Crypto · semua koin</option>
+          <option value="crypto-new">Crypto · altcoin baru (listing terbaru)</option>
           <optgroup label="Forex">
             {FOREX_GROUPS.map(([v, label]) => (
               <option key={v} value={v}>
@@ -563,6 +566,10 @@ export default function WatchlistWidget() {
       ) : category === "crypto" ? (
         <div className="flex-1 min-h-0">
           <CryptoList />
+        </div>
+      ) : category === "crypto-new" ? (
+        <div className="flex-1 min-h-0">
+          <NewCoinsList />
         </div>
       ) : category.startsWith("stocks-") ? (
         <StockList path="/api/stocks" params={{ market: category.slice("stocks-".length) }} kind="stock" />

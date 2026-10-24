@@ -672,6 +672,24 @@ export async function tokenPair(base: string): Promise<CryptoPair | null> {
   return pair;
 }
 
+/** Many tokens' best pairs in one scanner request (new listings), keyed by base. */
+export async function bestPairsFor(bases: string[]): Promise<Map<string, CryptoPair>> {
+  const wanted = [...new Set(bases.map((b) => b.toUpperCase()))];
+  const out = new Map<string, CryptoPair>();
+  if (!wanted.length) return out;
+  const pairs = await pairScan([{ left: "base_currency", operation: "in_range", right: wanted }], 5000);
+  const byBase = new Map<string, CryptoPair[]>();
+  for (const p of pairs) (byBase.get(p.base) ?? byBase.set(p.base, []).get(p.base)!).push(p);
+  for (const [b, list] of byBase) {
+    const best = bestPair(list);
+    if (best) {
+      out.set(b, best);
+      pairCache.set(b, { at: Date.now(), pair: best });
+    }
+  }
+  return out;
+}
+
 /** Tokens whose ticker or name matches, each on its best pair, most traded first. */
 export async function searchTokens(term: string, limit = 8): Promise<CryptoPair[]> {
   const t = term.trim();
