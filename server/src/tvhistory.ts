@@ -43,14 +43,26 @@ const CRYPTO_VENUES = [
   (b: string) => `CRYPTO:${b}USD`,
 ];
 
-/** Continuous front-month contracts for Yahoo's futures symbols. */
+/** Crypto exchanges whose tickers name a coin alone for a derivative (COINBASE:ZEC, Coinbase's Zcash perpetual). */
+const CRYPTO_EXCHANGES = new Set(["BINANCE", "COINBASE", "BYBIT", "OKX", "BITGET", "KUCOIN", "GATEIO", "MEXC", "BITSTAMP", "KRAKEN", "BITFINEX", "CRYPTO", "DERIBIT", "HTX", "BINGX", "PHEMEX", "POLONIEX", "GEMINI"]);
+
+/**
+ * A crypto exchange's ticker that names only the coin (the search lists COINBASE:ZEC, a perpetual
+ * TradingView has no chart bars for): the exchange's own USD and USDT pairs, then the coin's
+ * usual venues, so the chart still shows the coin.
+ */
+export function coinOnlyAlternates(s: string): string[] {
+  const [exchange, code] = s.split(":");
+  if (!CRYPTO_EXCHANGES.has(exchange) || !/^[A-Z0-9]{2,10}$/.test(code) || /(USDT|USDC|USD|BUSD|EUR|PERP)$/.test(code)) return [];
+  return [`${exchange}:${code}USD`, `${exchange}:${code}USDT`, ...CRYPTO_VENUES.map((v) => v(code))];
+}
 
 /** TradingView tickers that may carry a symbol's chart, most likely first. */
 export function tvCandidates(symbol: string): string[] {
   const s = symbol.toUpperCase();
   const base = cryptoBase(s);
   let out: string[];
-  if (isTvPair(s)) out = [s];
+  if (isTvPair(s)) out = [s, ...coinOnlyAlternates(s)];
   else if (base) out = CRYPTO_VENUES.map((v) => v(base));
   else if (INDEX_TV_TICKER.has(s)) {
     // TVC's copy of an index often reaches much further back than the exchange's own.
@@ -201,7 +213,9 @@ export async function tvHistory(symbol: string, interval: Interval, fetchBars = 
   let ticker: string | null = null;
   for (const list of own.length ? [own, candidates] : [candidates]) {
     const found = list === candidates ? await onExchanges : await fetchBars(list, TV_RESOLUTION[interval], TV_DEPTH[interval], 10_000);
-    best = pickLongest(list, found, cryptoBase(symbol) !== null);
+    // A ticker asked for by name is charted as itself whenever it has bars; its stand-ins only when it has none.
+    const exact = list === candidates && isTvPair(symbol) ? found[symbol.toUpperCase()] : null;
+    best = exact?.length ? exact : pickLongest(list, found, cryptoBase(symbol) !== null);
     ticker = list.find((t) => found[t] === best) ?? null;
     if (best) break;
   }

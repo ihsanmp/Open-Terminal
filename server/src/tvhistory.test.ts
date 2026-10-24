@@ -68,4 +68,17 @@ describe("TradingView chart history", () => {
     await tvHistory("ABC-USD", "1D", bars(["BINANCE:ABCUSDT"]), async () => []);
     expect(asked).toHaveLength(1);
   });
+  it("charts a crypto exchange's coin-only ticker (COINBASE:ZEC, a perpetual with no bars) by the coin's pairs", async () => {
+    expect(tvCandidates("COINBASE:ZEC").slice(0, 3)).toEqual(["COINBASE:ZEC", "COINBASE:ZECUSD", "COINBASE:ZECUSDT"]);
+    expect(tvCandidates("COINBASE:ZEC")).toContain("BINANCE:ZECUSDT");
+    // Tickers that are already pairs, or not crypto, stay as they are.
+    expect(tvCandidates("BINANCE:BTCUSDT")).toEqual(["BINANCE:BTCUSDT"]);
+    expect(tvCandidates("OANDA:EURUSD")).toEqual(["OANDA:EURUSD"]);
+    expect(tvCandidates("NASDAQ:AAPL")).toEqual(["NASDAQ:AAPL"]);
+    // No bars of its own: a pair's chart. Bars of its own (even fewer): its own chart.
+    const only = (has: Record<string, number>) => async (symbols: string[]) =>
+      Object.fromEntries(symbols.map((s) => [s, has[s] ? Array.from({ length: has[s] }, (_, i) => bar(100 + i, s === "COINBASE:ZEC" ? 9 : 1)) : null]));
+    expect((await tvHistory("COINBASE:ZEC", "4h", only({ "COINBASE:ZECUSD": 3, "BINANCE:ZECUSDT": 5 }), async () => [])).length).toBe(5);
+    expect((await tvHistory("COINBASE:ZEC", "4h", only({ "COINBASE:ZEC": 2, "BINANCE:ZECUSDT": 5 }), async () => [])).map((c) => c.volume)).toEqual([9, 9]);
+  });
 });
