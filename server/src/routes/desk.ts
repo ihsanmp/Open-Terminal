@@ -46,7 +46,31 @@ const pairSymbol = (req: import("express").Request) => {
 };
 deskRouter.get("/pair", send((req) => paircontext.pairContext(pairSymbol(req))));
 deskRouter.get("/pair/brief", send((req) => paircontext.pairBrief(pairSymbol(req))));
-deskRouter.get("/regression", send((req) => factorreg.factorRegression(pairSymbol(req), req.query.freq === "weekly" ? "weekly" : "daily")));
+const regFreq = (req: import("express").Request) => (req.query.freq === "weekly" ? "weekly" : "daily");
+// The fit without its data rows (those go out as the CSV).
+deskRouter.get("/regression", send(async (req) => {
+  const { rows: _rows, ...fit } = await factorreg.factorRegression(pairSymbol(req), regFreq(req));
+  return fit;
+}));
+
+/** The regression's data and a SAS program for it, as downloads. */
+const fileName = (r: factorreg.Regression, ext: string) => `regresi_${r.symbol.replace(/[^A-Za-z0-9]+/g, "_")}_${r.freq === "daily" ? "harian" : "mingguan"}_${r.to}.${ext}`;
+deskRouter.get("/regression.csv", async (req, res) => {
+  try {
+    const r = await factorreg.factorRegression(pairSymbol(req), regFreq(req));
+    res.set("Content-Type", "text/csv; charset=utf-8").set("Content-Disposition", `attachment; filename="${fileName(r, "csv")}"`).send(factorreg.regressionCsv(r));
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+deskRouter.get("/regression.sas", async (req, res) => {
+  try {
+    const r = await factorreg.factorRegression(pairSymbol(req), regFreq(req));
+    res.set("Content-Type", "text/plain; charset=utf-8").set("Content-Disposition", `attachment; filename="${fileName(r, "sas")}"`).send(factorreg.sasProgram(r, fileName(r, "csv")));
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
 
 /** A part of the dashboard, or null if it fails or takes longer than `ms` (the rest still shows). */
 async function part<T>(f: () => Promise<T>, ms = 12_000): Promise<T | null> {

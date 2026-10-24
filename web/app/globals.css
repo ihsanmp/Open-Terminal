@@ -168,7 +168,10 @@ input:focus,
 select:focus {
   border-color: var(--amber);
 }
-button.term-btn {
+button.term-btn,
+a.term-btn {
+  display: inline-block;
+  text-decoration: none;
   background: var(--panel-2);
   border: 1px solid var(--border);
   color: var(--text);
@@ -178,7 +181,8 @@ button.term-btn {
   cursor: pointer;
 }
 button.term-btn:hover,
-button.term-btn.active {
+button.term-btn.active,
+a.term-btn:hover {
   border-color: var(--amber);
   color: var(--amber);
 }

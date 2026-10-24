@@ -54,16 +54,25 @@ export default function RegressionPanel() {
   });
   const period = freq === "daily" ? "hari" : "minggu";
 
+  const q = `symbol=${encodeURIComponent(symbol)}&freq=${freq}`;
   const toggle = (
-    <span className="flex gap-1">
+    <span className="flex gap-1 items-center">
       {(["daily", "weekly"] as const).map((f) => (
         <button key={f} className={`term-btn ${freq === f ? "active" : ""}`} onClick={() => setFreq(f)}>
           {f === "daily" ? "Harian" : "Mingguan"}
         </button>
       ))}
+      <span className="w-px h-4 bg-[var(--border)] mx-1" />
+      {/* The data and a SAS program for it, as files (server/src/routes/desk.ts). */}
+      <a className="term-btn !no-underline" href={`/api/desk/regression.csv?${q}`} download title="Data yang dipakai regresi: tanggal, OHLCV pair, return pair dan tiap faktor (CSV, dibuka di SAS/Excel/R/Python)">
+        ⬇ CSV
+      </a>
+      <a className="term-btn !no-underline" href={`/api/desk/regression.sas?${q}`} download title="Program SAS siap jalan untuk CSV di atas: OLS + VIF, Newey-West, prediksi di luar sampel, ramalan tren">
+        ⬇ Kode SAS
+      </a>
     </span>
   );
-  if (isLoading) return <div className="p-3 dim">Menghitung regresi {symbol} terhadap 7 faktor (±3 tahun data harian)…</div>;
+  if (isLoading) return <div className="p-3 dim">Menghitung regresi {symbol} terhadap faktor-faktor pasar (±3 tahun data harian)…</div>;
   if (error || !data)
     return (
       <div className="p-3">
@@ -130,7 +139,7 @@ export default function RegressionPanel() {
                   <tr key={f.key} className={f.p < 0.05 ? "" : "opacity-60"}>
                     <td className="whitespace-nowrap">{f.label}</td>
                     <td className={`tabular-nums font-bold ${f.beta >= 0 ? "up" : "down"}`}>
-                      {signed(f.beta, f.unit === "bp" || Math.abs(f.beta) < 0.1 ? 3 : 2, "")}
+                      {signed(f.beta, Math.abs(f.beta) < 0.01 ? 4 : f.unit === "bp" || Math.abs(f.beta) < 0.1 ? 3 : 2, "")}
                       <span className="dim font-normal"> /{f.unit === "bp" ? "bp" : "%"}</span>
                     </td>
                     <td className="tabular-nums dim">{f.se.toFixed(3)}</td>
@@ -163,6 +172,8 @@ export default function RegressionPanel() {
         </div>
         <div className="text-fs-9 dim mt-1">
           * p &lt; 0,05 · ** p &lt; 0,01 · *** p &lt; 0,001. Baris pudar: tidak signifikan (bisa saja kebetulan).
+          {data.factors.some((f) => f.key === "ratediff") &&
+            " Selisih yield: yield obligasi 2 tahun negara mata uang dasar dikurangi negara mata uang lawan (perubahan, bp) — penggerak utama forex: uang mengalir ke yang bunganya naik."}
           {data.dropped.length > 0 && ` Tidak dipakai: ${data.dropped.map((d) => `${d.label} (${d.why})`).join(", ")}.`}
         </div>
       </Section>

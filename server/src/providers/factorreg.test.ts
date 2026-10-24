@@ -113,3 +113,51 @@ describe("the analysis", () => {
     expect(out.predictive!.oosR2).toBeLessThan(0.05);
   });
 });
+
+describe("forex rate gap and the SAS export", () => {
+  it("builds a pair's rate-differential factor from its two countries' short yields", async () => {
+    const { rateDiffFactor, spreadSeries } = await import("./factorreg.js");
+    expect(rateDiffFactor(["EUR", "USD"])).toMatchObject({ key: "ratediff", unit: "bp", base: "EUR", quote: "USD", label: "Selisih yield 2 th EUR−USD" });
+    expect(rateDiffFactor(["USD", "IDR"])!.label).toBe("Selisih yield 2 th/3 th USD−IDR");
+    expect(rateDiffFactor(["USD", "MXN"])).toBeNull();
+    expect(rateDiffFactor(["CNY", "CNH"])).toBeNull();
+    // A spread can go below zero (it isn't a price).
+    const s = spreadSeries(new Map([["2026-10-20", 3.0], ["2026-10-21", 3.1]]), new Map([["2026-10-20", 4.5], ["2026-10-22", 4.4]]));
+    expect([...s.entries()]).toEqual([["2026-10-20", -1.5]]);
+  });
+
+  it("writes the fit's data as CSV and a SAS program that reruns it", async () => {
+    const { regressionCsv, sasProgram } = await import("./factorreg.js");
+    const r = rng(5);
+    const days = Array.from({ length: 200 }, (_, i) => new Date(Date.UTC(2025, 0, 1) + i * 86_400_000).toISOString().slice(0, 10));
+    const pair: Series = new Map();
+    const closes: Record<string, Series> = { spx: new Map(), dxy: new Map(), us10y: new Map(), vix: new Map(), gold: new Map(), oil: new Map(), btc: new Map() };
+    const lv: Record<string, number> = { spx: 5000, dxy: 100, us10y: 4, vix: 15, gold: 2000, oil: 80, btc: 60000 };
+    let p = 1.1;
+    for (const d of days) {
+      for (const k of Object.keys(lv)) {
+        lv[k] = k === "us10y" ? lv[k] + 0.05 * gauss(r) : lv[k] * Math.exp(0.01 * gauss(r));
+        closes[k].set(d, lv[k]);
+      }
+      p *= Math.exp(0.004 * gauss(r));
+      pair.set(d, p);
+    }
+    const out = analyse("EURUSD=X", "EUR/USD", pair, closes, "daily")!;
+    const csv = regressionCsv(out).trim().split("\r\n");
+    expect(csv[0]).toBe("date,pair,spx,dxy,us10y,vix,gold,oil,btc");
+    expect(csv.length).toBe(out.n + 1);
+    expect(csv[1].split(",")).toHaveLength(9);
+    const sas = sasProgram(out, "regresi.csv");
+    expect(sas).toContain("model pair = spx dxy us10y vix gold oil btc / vif;");
+    expect(sas).toContain(`kernel=(bart, ${out.nwLags}, 0)`);
+    expect(sas).toContain(String.raw`datafile="C:\Users\Anda\Downloads\regresi.csv"`);
+    // Without OHLCV no prediction part; with it, the columns and the out-of-sample test.
+    expect(sas).not.toContain("proc esm");
+    out.rows!.ohlcv = out.rows!.dates.map((_, i) => ({ open: 1 + i, high: 2 + i, low: i, close: 1.5 + i, volume: 100 }));
+    expect(regressionCsv(out).split("\r\n")[0]).toBe("date,open,high,low,close,volume,pair,spx,dxy,us10y,vix,gold,oil,btc");
+    expect(regressionCsv(out).split("\r\n")[1].split(",")[1]).toBe("1");
+    const full = sasProgram(out, "regresi.csv");
+    expect(full).toContain("model pair_next = pair range body dlvol spx dxy us10y vix gold oil btc;");
+    expect(full).toContain("proc esm data=work.reg");
+  });
+});
