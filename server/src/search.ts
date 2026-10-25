@@ -64,10 +64,11 @@ export function rankResults(lists: SearchResult[][], query: string, limit = 25):
     const sym = r.symbol.toUpperCase();
     // OANDA:EURUSD is "EURUSD" typed.
     const bare = sym.includes(":") ? sym.slice(sym.indexOf(":") + 1) : sym;
+    // A top coin named or tickered as typed ("bitcoin", "xrp") is what's meant: before a fund
+    // sharing its ticker (XRP, Bitwise's ETF) and another exchange's ticker that only spells the
+    // word (BBG:BITCOIN, a Bloomberg index).
+    if (topCoin(r) && (sym === `${needle}-USD` || r.name.toUpperCase() === needle)) return -1;
     if (sym === needle || (pair && sym === coin)) return 0;
-    // A top coin named or tickered as typed ("bitcoin", "eth") is what's meant, before another
-    // exchange's ticker that only spells the word (BBG:BITCOIN, a Bloomberg index).
-    if (topCoin(r) && (sym === `${needle}-USD` || r.name.toUpperCase() === needle)) return 0;
     if (bare === needle) return 0.5;
     if (sym === `${needle}-USD` || sym === `^${needle}` || r.name.toUpperCase() === needle) {
       // A token off the ranked board that only borrows the name (APPLE-USD, "Apple") goes after

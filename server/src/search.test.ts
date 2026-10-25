@@ -70,10 +70,9 @@ describe("rankResults", () => {
     expect(search("btc/usd", BTC_STOCKS)[0].symbol).toBe("BTC-USD");
   });
 
-  it("ranks an exact symbol match first, case-insensitively", () => {
+  it("ranks an exact symbol match first, case-insensitively (after a top coin of that ticker)", () => {
     const out = search("btc", BTC_STOCKS);
-    expect(out[0].symbol).toBe("BTC");
-    expect(out[1].symbol).toBe("BTC-USD"); // the coin the ticker names comes right after
+    expect(out.slice(0, 2).map((r) => r.symbol)).toEqual(["BTC-USD", "BTC"]);
   });
 
   it("surfaces the coin for a bare coin ticker or name", () => {
@@ -133,7 +132,9 @@ describe("search beyond stocks", () => {
     expect(bitcoin.map((r) => r.symbol)).toEqual(["BTC-USD", "BBG:BITCOIN", "BITCOIN-USD"]);
     // A coin far down the board doesn't jump an index that is spelled as typed.
     expect(rankResults([[index("BBG:FOO", "Foo index")], [coin("FOO-USD", "Foo", 900)]], "foo")[0].symbol).toBe("BBG:FOO");
-    // A ticker typed exactly still wins.
-    expect(rankResults([[{ symbol: "BTC", name: "Grayscale Bitcoin Mini Trust", exchange: "AMEX", type: "fund" }], [coin("BTC-USD", "Bitcoin", 1)]], "btc")[0].symbol).toBe("BTC");
+    // Its ticker typed: the coin before a fund with the same ticker, which comes next.
+    expect(rankResults([[{ symbol: "XRP", name: "Bitwise XRP ETF", exchange: "AMEX", type: "fund" }], [coin("XRP-USD", "XRP", 5)]], "xrp").map((r) => r.symbol)).toEqual(["XRP-USD", "XRP"]);
+    // A stock's own ticker is still first when no top coin has it.
+    expect(rankResults([[{ symbol: "FOO", name: "Foo Inc.", exchange: "NYSE", type: "stock" }], [coin("FOO-USD", "Foo", 900)]], "foo")[0].symbol).toBe("FOO");
   });
 });
