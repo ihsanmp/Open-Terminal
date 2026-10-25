@@ -55,6 +55,8 @@ import { DEFAULT_CHART_INDICATORS, useTerminal, useWidgetSetting, useWidgetSymbo
 import { isPinch, keepBarsInView, keyAction, panPrice, scalePrice, shiftSpan, wheelPixels, zoomAnchor, zoomFactor, zoomSpan, type Span } from "../../lib/chart-nav";
 import { IndicatorPicker, IndicatorSettings } from "../chart/IndicatorDialogs";
 import { PriceScaleMenu } from "../chart/PriceScaleMenu";
+import { CurrencyMenu } from "../chart/CurrencyMenu";
+import { convertCandles, nativeCurrency, rateInterval, usdSource, usdValues } from "../../lib/currency";
 import { isCryptoSymbol, usePoll, usSessionActive } from "../../lib/refresh";
 import { formatAxisCountdown, formatCountdown, isIntradayInterval, secondsUntilClose, type Market } from "../../lib/candle-time";
 import { fontPx } from "../../lib/font-scale";
@@ -282,6 +284,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const navRef = useRef<ChartNav | null>(null);
   const [awayFromLatest, setAwayFromLatest] = useState(false);
   const [scaleMenu, setScaleMenu] = useState<{ x: number; y: number } | null>(null);
+  const [currencyAnchor, setCurrencyAnchor] = useState<DOMRect | null>(null);
   /** TradingView shows its navigation buttons while the pointer is near the bottom of the chart. */
   const [navVisible, setNavVisible] = useState(false);
   const [autoScale, setAutoScale] = useState(true);
@@ -452,14 +455,51 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     // launch the API answers from its disk cache and marks it stale: ask again shortly.
     refetchInterval: (q) => (q.state.data?.stale ? 2_500 : poll()),
   });
+  // TradingView's currency menu on the price scale: the bars in another currency, each at the rate
+  // of its own time (lib/currency). The symbol's own currency is its quote's.
+  const [currencySetting, setCurrency] = useWidgetSetting<string | null>("currency", null);
+  const { data: nativeQuote, isError: quoteFailed } = useQuery({
+    queryKey: ["quote-currency", symbol],
+    queryFn: () => apiGet<Array<{ currency?: string | null }>>(`/api/quotes?symbols=${encodeURIComponent(symbol)}`),
+    staleTime: 3_600_000,
+  });
+  const native = nativeCurrency(nativeQuote?.[0]?.currency);
+  const nativeKnown = Boolean(nativeQuote) || quoteFailed;
+  const baseSeconds = INTERVAL_SECONDS[source.base];
+  const wanted = currencySetting && currencySetting !== native ? currencySetting : null;
+  const rateCharts = useQueries({
+    queries: (wanted ? [native, wanted] : []).map((code) => {
+      const src = usdSource(code);
+      const path = src ? `/api/history/${src.symbol}?range=MAX&interval=${rateInterval(baseSeconds)}` : null;
+      return {
+        queryKey: ["fx-rate", src?.symbol ?? "USD", rateInterval(baseSeconds)],
+        queryFn: () => (path ? apiGetWithStale<Candle[]>(path).then((r) => r.data) : Promise.resolve<Candle[]>([])),
+        enabled: Boolean(path) && nativeKnown,
+        staleTime: 600_000,
+        refetchInterval: 600_000,
+      };
+    }),
+  });
+  // A currency whose rates can't be had leaves the chart in its own (the menu says so).
+  const rateFailed = Boolean(wanted) && rateCharts.some((q, i) => q.isError || (q.data && q.data.length === 0 && usdSource(i === 0 ? native : wanted!) !== null));
+  const shownCurrency = wanted && !rateFailed ? wanted : native;
+  const fromUsd = wanted ? usdValues(native, rateCharts[0]?.data) : null;
+  const toUsd = wanted ? usdValues(wanted, rateCharts[1]?.data) : null;
+  const ratesReady = !wanted || rateFailed || (nativeKnown && rateCharts.every((q, i) => q.data || usdSource(i === 0 ? native : wanted) === null));
   const liveCandles = useMemo(() => {
-    const raw = history?.data;
+    let raw = history?.data;
     if (!raw || raw.length === 0) return raw;
+    if (shownCurrency !== native) {
+      // Not drawn until the rates are in: the native prices under another currency's name would mislead.
+      if (!ratesReady) return undefined;
+      raw = convertCandles(raw, fromUsd, toUsd, baseSeconds);
+    }
     if (source.ticks) return rangeBars(raw, source.ticks * 10 ** -priceDigits(symbol, raw[raw.length - 1].close));
     if (!source.group) return raw;
     const market = chartContext(symbol, 0);
     return source.base === "1h" ? groupHours(raw, source.group, market.type, market.timezone) : groupDays(raw, source.group, market.type);
-  }, [history?.data, source.ticks, source.group, source.base, symbol]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history?.data, source.ticks, source.group, source.base, symbol, shownCurrency, native, ratesReady, rateCharts[0]?.data, rateCharts[1]?.data, baseSeconds]);
 
   const bars = useMemo(() => (liveCandles && liveCandles.length > 0 ? candlesToBars(liveCandles) : null), [liveCandles]);
 
@@ -593,7 +633,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   // New bars wait while a drawing is being placed or moved: putting them on the chart rebuilds
   // it (a tenth of a second), which dropped the drawing under the pointer mid-move. They go on as
   // soon as it's let go. Another symbol, interval, range or indicator list shows at once.
-  const dataKey = `${symbol}|${interval}|${range}|${instancesKey}`;
+  const dataKey = `${symbol}|${interval}|${range}|${instancesKey}|${shownCurrency}`;
   const [shown, setShown] = useState({ key: dataKey, candles: liveCandles, prepared: livePrepared });
   useEffect(() => {
     if (shown.key === dataKey && shown.candles === liveCandles && shown.prepared === livePrepared) return;
@@ -627,7 +667,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     if (!el || !candles || candles.length === 0 || !prepared) return;
     const { times, total, items } = prepared;
     const viewKey = `${symbol}:${range}:${interval}`;
-    const priceKey = `${viewKey}:${scaleMode}:${invert}`;
+    const priceKey = `${viewKey}:${scaleMode}:${invert}:${shownCurrency}`;
     const pxPrecision = chartStyle.precision === "default" ? pricePrecision(candles) : chartStyle.precision;
     // Market caps and totals (CRYPTOCAP:ZEC, 21 billion) read as 21.046B on the scale, as on TradingView.
     const mainFormat = { type: "custom" as const, minMove: 1 / 10 ** pxPrecision, formatter: (v: number) => scaleLabel(v, pxPrecision) };
@@ -1170,7 +1210,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       ro.disconnect();
       chart.remove();
     };
-  }, [candles, chartType, prepared, paneOf, range, interval, intervalSeconds, symbol, ctx, scaleMode, invert, chartStyle, timezone]);
+  }, [candles, chartType, prepared, paneOf, range, interval, intervalSeconds, symbol, ctx, scaleMode, invert, chartStyle, timezone, shownCurrency]);
 
   // ---- legend ----
   const n = candles?.length ?? 0;
@@ -1566,6 +1606,31 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           >
             »
           </button>
+        )}
+        {candle && nativeKnown && (
+          // TradingView's currency button at the top of the price scale.
+          <button
+            title={shownCurrency === native ? `Prices in ${native}: click to show them in another currency` : `Prices converted from ${native} to ${shownCurrency}`}
+            onMouseDown={keepChartFocus}
+            onClick={(e) => setCurrencyAnchor(currencyAnchor ? null : e.currentTarget.getBoundingClientRect())}
+            className={`absolute right-0 top-0 z-10 h-5 px-1.5 flex items-center justify-center gap-1 text-fs-10 font-bold border rounded-[3px] ${
+              shownCurrency !== native ? "border-[var(--amber)] text-[var(--amber)] bg-[#1f1a10]" : "border-[#434651] text-[var(--text)] bg-[#131313] hover:border-[#6a6d78]"
+            }`}
+            style={{ minWidth: axes.right - 4, marginRight: 2, marginTop: 2 }}
+          >
+            {shownCurrency}
+            <span className="dim">▾</span>
+          </button>
+        )}
+        {currencyAnchor && (
+          <CurrencyMenu
+            anchor={currencyAnchor}
+            native={native}
+            shown={shownCurrency}
+            failed={rateFailed ? wanted : null}
+            onPick={(code) => setCurrency(code === native ? null : code)}
+            onClose={() => setCurrencyAnchor(null)}
+          />
         )}
         {candle && (
           // TradingView's two buttons in the corner under the price axis: A toggles auto-scale (the
