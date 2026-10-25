@@ -24,6 +24,3 @@ data/btc-heights.json
 data/btc-supply-pl.json
 data/btc-whales.json
 data/crypto-treasuries.json
-
-# Local voice conversion (OpenVoice, its model, a Python venv): installed per machine, not in Git
-tools/voice/
