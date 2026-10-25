@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cryptoTerm, matchCoins, rankResults, type Coin, type SearchResult } from "./search.js";
+import { crossPair, cryptoTerm, matchCoins, rankResults, type Coin, type SearchResult } from "./search.js";
 
 const COINS: Coin[] = [
   { symbol: "BTC", name: "Bitcoin", rank: 1 },
@@ -136,5 +136,25 @@ describe("search beyond stocks", () => {
     expect(rankResults([[{ symbol: "XRP", name: "Bitwise XRP ETF", exchange: "AMEX", type: "fund" }], [coin("XRP-USD", "XRP", 5)]], "xrp").map((r) => r.symbol)).toEqual(["XRP-USD", "XRP"]);
     // A stock's own ticker is still first when no top coin has it.
     expect(rankResults([[{ symbol: "FOO", name: "Foo Inc.", exchange: "NYSE", type: "stock" }], [coin("FOO-USD", "Foo", 900)]], "foo")[0].symbol).toBe("FOO");
+  });
+});
+
+describe("crossPair", () => {
+  it("reads a coin crossed against a coin or a currency, however it's written", () => {
+    for (const q of ["eth-btc", "ETH/BTC", "eth btc", "ETHBTC", " eth - btc "]) expect(crossPair(q)).toEqual({ base: "ETH", quote: "BTC" });
+    expect(crossPair("sol-eth")).toEqual({ base: "SOL", quote: "ETH" });
+    expect(crossPair("btcidr")).toEqual({ base: "BTC", quote: "IDR" });
+    expect(crossPair("btc-usdc")).toEqual({ base: "BTC", quote: "USDC" });
+  });
+
+  it("leaves the coin's own USD pair, forex and plain tickers alone", () => {
+    for (const q of ["btc-usd", "BTCUSDT", "eurjpy", "EUR/GBP", "btc", "aapl", "beth", "btc-btc"]) expect(crossPair(q)).toBeNull();
+  });
+
+  it("ranks the pair as typed first, in TradingView's order", () => {
+    const pair = (symbol: string): SearchResult => ({ symbol, name: "Ethereum / Bitcoin", exchange: symbol.split(":")[0], type: "crypto" });
+    const coin: SearchResult = { symbol: "ETH-USD", name: "Ethereum", exchange: "Crypto #2", type: "crypto" };
+    const out = rankResults([[pair("BINANCE:ETHBTC"), pair("KRAKEN:ETHBTC"), pair("BINANCE:ETHBTC.P")], [coin]], "eth-btc");
+    expect(out.map((r) => r.symbol)).toEqual(["BINANCE:ETHBTC", "KRAKEN:ETHBTC", "BINANCE:ETHBTC.P", "ETH-USD"]);
   });
 });

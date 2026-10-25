@@ -50,7 +50,7 @@ import { INDEX_TV_TICKER, WORLD_INDICES, searchIndices } from "../indices.js";
 import { tvCandidates, tvHistory } from "../tvhistory.js";
 import { cachedOnDisk } from "../diskcache.js";
 import { BINANCE_INTERVAL, INTERVAL_SECONDS, aggregateByPeriod, clip, groupCandles, isInterval, loadStart, yahooPlan, type Interval } from "../intervals.js";
-import { cryptoTerm, matchCoins, rankResults, type Coin, type SearchResult } from "../search.js";
+import { crossPair, cryptoTerm, matchCoins, rankResults, type Coin, type SearchResult } from "../search.js";
 
 export const marketRouter = Router();
 
@@ -484,6 +484,12 @@ async function searchCoins(q: string): Promise<SearchResult[]> {
   return matchCoins(coins, q, cryptoTerm(q).pair ? 8 : 5);
 }
 
+/** A coin's pair against another coin or a currency, when that's what was typed ("eth-btc"); else none. */
+async function crossPairs(q: string): Promise<SearchResult[]> {
+  const cross = crossPair(q);
+  return cross ? tradingview.searchCrossPairs(cross.base, cross.quote) : [];
+}
+
 marketRouter.get("/search", async (req, res) => {
   const q = String(req.query.q ?? "").trim();
   // A category of the symbol search (TradingView's chips): stocks, funds, futures, forex, crypto,
@@ -494,7 +500,8 @@ marketRouter.get("/search", async (req, res) => {
     if (kind === "crypto" || tradingview.SEARCH_TYPES[kind]) {
       const data = await cached(`search:${kind}:${q.toLowerCase()}`, 300_000, async () => {
         if (kind !== "crypto") return rankResults([await tradingview.search(q, kind)], q, 40);
-        const [coins, tokens] = await Promise.allSettled([
+        const [pairs, coins, tokens] = await Promise.allSettled([
+          crossPairs(q),
           searchCoins(q),
           q.length >= 2 ? tradingview.searchTokens(cryptoTerm(q).term, 15) : Promise.resolve([]),
         ]);
@@ -502,12 +509,13 @@ marketRouter.get("/search", async (req, res) => {
           tokens.status === "fulfilled"
             ? await Promise.all(tokens.value.map(async (p) => ({ symbol: await tradingview.tokenSymbol(p), name: p.name, exchange: p.exchange, type: "crypto" })))
             : [];
-        return rankResults([coins.status === "fulfilled" ? coins.value : [], tokenResults], q, 40);
+        return rankResults([pairs.status === "fulfilled" ? pairs.value : [], coins.status === "fulfilled" ? coins.value : [], tokenResults], q, 40);
       });
       return res.json(data);
     }
     const data = await cached(`search:${q.toLowerCase()}`, 300_000, async () => {
-      const [stocks, coins, tokens] = await Promise.allSettled([
+      const [pairs, stocks, coins, tokens] = await Promise.allSettled([
+        crossPairs(q),
         withFallback([
           ["tradingview", () => tradingview.search(q)],
           ["yahoo", () => yahoo.search(q)],
@@ -521,7 +529,7 @@ marketRouter.get("/search", async (req, res) => {
         tokens.status === "fulfilled"
           ? await Promise.all(tokens.value.map(async (p) => ({ symbol: await tradingview.tokenSymbol(p), name: p.name, exchange: p.exchange, type: "crypto" })))
           : [];
-      const found = [indices, stocks.status === "fulfilled" ? stocks.value : [], coins.status === "fulfilled" ? coins.value : [], tokenResults];
+      const found = [pairs.status === "fulfilled" ? pairs.value : [], indices, stocks.status === "fulfilled" ? stocks.value : [], coins.status === "fulfilled" ? coins.value : [], tokenResults];
       if (found.every((l) => l.length === 0) && stocks.status === "rejected") throw stocks.reason;
       return rankResults(found, q);
     });

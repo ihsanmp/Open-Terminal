@@ -268,6 +268,31 @@ export function searchRow(r: { symbol: string; description?: string; type?: stri
   return null;
 }
 
+/**
+ * A coin's pair against another coin or a currency (ETH/BTC) on every exchange TradingView lists,
+ * as TradingView orders them (the most traded first): BINANCE:ETHBTC, KRAKEN:ETHBTC, ... and their
+ * perpetuals.
+ */
+export async function searchCrossPairs(base: string, quote: string, limit = 12): Promise<SearchResult[]> {
+  const code = `${base}${quote}`.toUpperCase();
+  const url = `https://symbol-search.tradingview.com/symbol_search/v3/?text=${encodeURIComponent(code)}&hl=1&lang=en&search_type=crypto&domain=production&sort_by_country=US`;
+  const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) throw new Error(`tradingview search ${res.status}`);
+  const rows: any[] = (await res.json())?.symbols ?? [];
+  const seen = new Set<string>();
+  const out: SearchResult[] = [];
+  for (const r of rows) {
+    const row = exchangePairRow(r);
+    const ticker = row?.symbol.slice(row.symbol.indexOf(":") + 1);
+    // Only the pair itself: the search also offers lookalikes (BTCIDR finds BTCEUR).
+    if (!row || (ticker !== code && ticker !== `${code}.P`) || seen.has(row.symbol)) continue;
+    seen.add(row.symbol);
+    out.push(row);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 /** A crypto exchange's spot or perpetual pair as a result (COINBASE:ZECUSD), else null. */
 export function exchangePairRow(r: { symbol: string; description?: string; type?: string; exchange?: string; prefix?: string; source_id?: string }): SearchResult | null {
   const source = r.prefix || r.source_id;

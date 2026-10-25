@@ -39,6 +39,23 @@ export function matchCoins(coins: Coin[], query: string, limit = 6): SearchResul
     .map((c) => ({ symbol: cryptoTicker(c.symbol), name: c.name, exchange: c.rank ? `Crypto #${c.rank}` : "Crypto", type: "crypto" }));
 }
 
+/** What exchanges cross a coin against, besides USD and USDT (those name the coin itself: BTC-USD). */
+const CROSS_QUOTES = ["BTC", "ETH", "BNB", "SOL", "XRP", "USDC", "FDUSD", "DAI", "EUR", "GBP", "JPY", "TRY", "BRL", "AUD", "KRW", "IDR"];
+const FIATS = new Set(["USD", "EUR", "GBP", "JPY", "TRY", "BRL", "AUD", "KRW", "IDR", "CHF", "CAD", "NZD"]);
+const CROSS_SPELLED = new RegExp(String.raw`^([A-Z0-9]{2,20})\s*[-/ ]\s*(${CROSS_QUOTES.join("|")})$`);
+const CROSS_JOINED = new RegExp(`^([A-Z0-9]{2,20})(${CROSS_QUOTES.join("|")})$`);
+
+/**
+ * A coin crossed against another coin or a currency ("eth-btc", "SOL/ETH", "ETHBTC", "btc idr"), else
+ * null. A currency against a currency (EURJPY) is forex, not this.
+ */
+export function crossPair(query: string): { base: string; quote: string } | null {
+  const q = query.trim().toUpperCase();
+  const m = CROSS_SPELLED.exec(q) ?? CROSS_JOINED.exec(q);
+  if (!m || m[1] === m[2] || FIATS.has(m[1])) return null;
+  return { base: m[1], quote: m[2] };
+}
+
 /** Kinds of result that are a company's listing. */
 const LISTED_KINDS = new Set(["stock", "fund", "dr"]);
 /** A coin from the ranked board (matchCoins), not a token found on an exchange. */
@@ -52,7 +69,9 @@ const topCoin = (r: SearchResult) => r.type === "crypto" && Number(/^Crypto #(\d
  * prefix matches, then everything else. Duplicate symbols are dropped.
  */
 export function rankResults(lists: SearchResult[][], query: string, limit = 25): SearchResult[] {
-  const needle = query.trim().toUpperCase();
+  // "eth-btc" is the ticker ETHBTC, as exchanges write it.
+  const cross = crossPair(query);
+  const needle = cross ? cross.base + cross.quote : query.trim().toUpperCase();
   const { term, pair } = cryptoTerm(query);
   const coin = cryptoTicker(term);
   // A company whose name starts with the word typed ("apple": Apple Inc.).
