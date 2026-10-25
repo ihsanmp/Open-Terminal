@@ -56,7 +56,7 @@ import { isPinch, keepBarsInView, keyAction, panPrice, scalePrice, shiftSpan, wh
 import { IndicatorPicker, IndicatorSettings } from "../chart/IndicatorDialogs";
 import { PriceScaleMenu } from "../chart/PriceScaleMenu";
 import { CurrencyMenu } from "../chart/CurrencyMenu";
-import { convertCandles, nativeCurrency, rateInterval, usdSource, usdValues } from "../../lib/currency";
+import { convertCandles, convertDrawing, nativeCurrency, rateAt, rateInterval, usdSource, usdValues } from "../../lib/currency";
 import { isCryptoSymbol, usePoll, usSessionActive } from "../../lib/refresh";
 import { formatAxisCountdown, formatCountdown, isIntradayInterval, secondsUntilClose, type Market } from "../../lib/candle-time";
 import { fontPx } from "../../lib/font-scale";
@@ -311,31 +311,92 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const savedRange = useRef<{ key: string; range: LogicalRange } | null>(null);
 
+  // TradingView's currency menu on the price scale: the bars in another currency, each at the rate
+  // of its own time (lib/currency). The symbol's own currency is its quote's.
+  const [currencySetting, setCurrency] = useWidgetSetting<string | null>("currency", null);
+  const { data: nativeQuote, isError: quoteFailed } = useQuery({
+    queryKey: ["quote-currency", symbol],
+    queryFn: () => apiGet<Array<{ currency?: string | null }>>(`/api/quotes?symbols=${encodeURIComponent(symbol)}`),
+    staleTime: 3_600_000,
+  });
+  const native = nativeCurrency(nativeQuote?.[0]?.currency);
+  const nativeKnown = Boolean(nativeQuote) || quoteFailed;
+  const baseSeconds = INTERVAL_SECONDS[INTERVAL_SOURCE[interval].base];
+  const wanted = currencySetting && currencySetting !== native ? currencySetting : null;
+  const rateCharts = useQueries({
+    queries: (wanted ? [native, wanted] : []).map((code) => {
+      const src = usdSource(code);
+      const path = src ? `/api/history/${src.symbol}?range=MAX&interval=${rateInterval(baseSeconds)}` : null;
+      return {
+        queryKey: ["fx-rate", src?.symbol ?? "USD", rateInterval(baseSeconds)],
+        queryFn: () => (path ? apiGetWithStale<Candle[]>(path).then((r) => r.data) : Promise.resolve<Candle[]>([])),
+        enabled: Boolean(path) && nativeKnown,
+        staleTime: 600_000,
+        refetchInterval: 600_000,
+      };
+    }),
+  });
+  // A currency whose rates can't be had leaves the chart in its own (the menu says so).
+  const rateFailed = Boolean(wanted) && rateCharts.some((q, i) => q.isError || (q.data && q.data.length === 0 && usdSource(i === 0 ? native : wanted!) !== null));
+  const shownCurrency = wanted && !rateFailed ? wanted : native;
+  // Keys the chart's data and price range by the currency converted to, if any: the symbol's own
+  // currency only becomes known with its quote, and the chart mustn't start over when it does.
+  const convertedTo = shownCurrency !== native ? shownCurrency : "";
+  const fromUsd = useMemo(() => (wanted ? usdValues(native, rateCharts[0]?.data) : null), [wanted, native, rateCharts[0]?.data]);
+  const toUsd = useMemo(() => (wanted ? usdValues(wanted, rateCharts[1]?.data) : null), [wanted, rateCharts[1]?.data]);
+  const ratesReady = !wanted || rateFailed || (nativeKnown && rateCharts.every((q, i) => q.data || usdSource(i === 0 ? native : wanted) === null));
+  // Drawings are kept in the symbol's own currency and shown in the chart's (lib/currency):
+  // one unit of the own currency in the shown one at a bar's time, as the bars are converted.
+  const drawRate = useMemo(
+    () => (convertedTo && ratesReady ? (time: number) => rateAt(fromUsd, toUsd, time + baseSeconds - 1) : null),
+    [convertedTo, ratesReady, fromUsd, toUsd, baseSeconds]
+  );
+
   // ---- drawings (lib/drawings): saved with the chart, per symbol, as on TradingView ----
   const [allDrawings, setAllDrawings] = useWidgetSetting<Record<string, Drawing[]>>("drawings", {});
-  const drawings = useMemo(() => allDrawings[symbol] ?? NO_DRAWINGS, [allDrawings, symbol]);
+  /** As kept (the symbol's currency), and as shown and handled (the chart's). */
+  const storedDrawings = useMemo(() => allDrawings[symbol] ?? NO_DRAWINGS, [allDrawings, symbol]);
+  const drawings = useMemo(() => (drawRate ? storedDrawings.map((d) => convertDrawing(d, drawRate)) : storedDrawings), [storedDrawings, drawRate]);
+  /** A kept list as shown: the memo's when it's the one rendered, so untouched drawings keep their identity. */
+  const shownOf = (list: Drawing[]) => (!drawRate ? list : list === storedDrawings ? drawings : list.map((d) => convertDrawing(d, drawRate)));
+  /** A shown list back as kept: drawings left as they were are the kept ones, the rest converted back. */
+  const storedOf = (after: Drawing[], shown: Drawing[], stored: Drawing[]) => {
+    if (!drawRate || after === shown) return after === shown ? stored : after;
+    const kept = new Map(shown.map((d, i) => [d, stored[i]]));
+    return after.map((d) => kept.get(d) ?? convertDrawing(d, drawRate, true));
+  };
   const writeDrawings = (f: (list: Drawing[]) => Drawing[]) => setAllDrawings((all) => ({ ...all, [symbol]: f(all[symbol] ?? []) }));
 
   // ---- undo / redo (lib/undo), as TradingView's: the drawings and the indicators ----
   const historyRef = useRef(new History<ChartSnapshot>());
   const [, historyChanged] = useReducer((n: number) => n + 1, 0);
   /** The drawings and indicators as they are now (ahead of the next render after a change). */
-  const snapRef = useRef<ChartSnapshot>({ drawings, indicators: latestIndicators(widget.id) });
-  snapRef.current = { drawings, indicators: latestIndicators(widget.id) };
+  const snapRef = useRef<ChartSnapshot>({ drawings: storedDrawings, indicators: latestIndicators(widget.id) });
+  snapRef.current = { drawings: storedDrawings, indicators: latestIndicators(widget.id) };
   const remember = (before: ChartSnapshot, after: ChartSnapshot, label: string) => {
     historyRef.current.record(before, label);
     snapRef.current = after;
     historyChanged();
   };
-  /** Every change to the drawings goes here, to be undone. */
+  /** Every change to the drawings goes here, to be undone. `f` changes them as shown; they're kept in the symbol's currency. */
   const setDrawings = (f: (list: Drawing[]) => Drawing[]) => {
     const before = snapRef.current;
-    const after = f(before.drawings);
+    if (!drawRate) {
+      const after = f(before.drawings);
+      if (after !== before.drawings) {
+        const label = describeChange(before.drawings, after, (d) => d.id, (d) => d.name || TOOL_BY_ID.get(d.tool)?.label || "drawing", "drawings");
+        remember(before, { ...before, drawings: after }, label);
+      }
+      writeDrawings(f);
+      return;
+    }
+    const shown = shownOf(before.drawings);
+    const after = storedOf(f(shown), shown, before.drawings);
     if (after !== before.drawings) {
       const label = describeChange(before.drawings, after, (d) => d.id, (d) => d.name || TOOL_BY_ID.get(d.tool)?.label || "drawing", "drawings");
       remember(before, { ...before, drawings: after }, label);
+      writeDrawings(() => after);
     }
-    writeDrawings(f);
   };
   const [tool, setTool] = useState<ToolId | null>(null);
   const [lastTool, setLastTool] = useWidgetSetting<Partial<Record<ToolGroup, ToolId>>>("drawLastTool", {});
@@ -461,40 +522,6 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     // launch the API answers from its disk cache and marks it stale: ask again shortly.
     refetchInterval: (q) => (q.state.data?.stale ? 2_500 : poll()),
   });
-  // TradingView's currency menu on the price scale: the bars in another currency, each at the rate
-  // of its own time (lib/currency). The symbol's own currency is its quote's.
-  const [currencySetting, setCurrency] = useWidgetSetting<string | null>("currency", null);
-  const { data: nativeQuote, isError: quoteFailed } = useQuery({
-    queryKey: ["quote-currency", symbol],
-    queryFn: () => apiGet<Array<{ currency?: string | null }>>(`/api/quotes?symbols=${encodeURIComponent(symbol)}`),
-    staleTime: 3_600_000,
-  });
-  const native = nativeCurrency(nativeQuote?.[0]?.currency);
-  const nativeKnown = Boolean(nativeQuote) || quoteFailed;
-  const baseSeconds = INTERVAL_SECONDS[source.base];
-  const wanted = currencySetting && currencySetting !== native ? currencySetting : null;
-  const rateCharts = useQueries({
-    queries: (wanted ? [native, wanted] : []).map((code) => {
-      const src = usdSource(code);
-      const path = src ? `/api/history/${src.symbol}?range=MAX&interval=${rateInterval(baseSeconds)}` : null;
-      return {
-        queryKey: ["fx-rate", src?.symbol ?? "USD", rateInterval(baseSeconds)],
-        queryFn: () => (path ? apiGetWithStale<Candle[]>(path).then((r) => r.data) : Promise.resolve<Candle[]>([])),
-        enabled: Boolean(path) && nativeKnown,
-        staleTime: 600_000,
-        refetchInterval: 600_000,
-      };
-    }),
-  });
-  // A currency whose rates can't be had leaves the chart in its own (the menu says so).
-  const rateFailed = Boolean(wanted) && rateCharts.some((q, i) => q.isError || (q.data && q.data.length === 0 && usdSource(i === 0 ? native : wanted!) !== null));
-  const shownCurrency = wanted && !rateFailed ? wanted : native;
-  // Keys the chart's data and price range by the currency converted to, if any: the symbol's own
-  // currency only becomes known with its quote, and the chart mustn't start over when it does.
-  const convertedTo = shownCurrency !== native ? shownCurrency : "";
-  const fromUsd = wanted ? usdValues(native, rateCharts[0]?.data) : null;
-  const toUsd = wanted ? usdValues(wanted, rateCharts[1]?.data) : null;
-  const ratesReady = !wanted || rateFailed || (nativeKnown && rateCharts.every((q, i) => q.data || usdSource(i === 0 ? native : wanted) === null));
   const liveCandles = useMemo(() => {
     let raw = history?.data;
     if (!raw || raw.length === 0) return raw;

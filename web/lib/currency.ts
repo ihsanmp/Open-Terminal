@@ -4,6 +4,7 @@
 // crypto. Every currency is read as its value in US dollars, so any two convert through it.
 
 import type { Candle } from "./api";
+import type { Drawing } from "./drawings/tools";
 
 export type Currency = { code: string; name: string; crypto?: boolean };
 
@@ -88,6 +89,11 @@ function valueAt(points: Point[], time: number): number {
   return points[lo].value;
 }
 
+/** One unit of the chart's currency in the one shown, at `time` (each currency's dollar value; null: the dollar). */
+export function rateAt(fromUsd: Point[] | null, toUsd: Point[] | null, time: number): number {
+  return (fromUsd?.length ? valueAt(fromUsd, time) : 1) / (toUsd?.length ? valueAt(toUsd, time) : 1);
+}
+
 /**
  * The bars in another currency: each bar's prices times one unit of `from` in `to` at that bar's end
  * (its close), the same rate for its open, high and low so the candle keeps its shape. `fromUsd`
@@ -96,8 +102,7 @@ function valueAt(points: Point[], time: number): number {
 export function convertCandles(bars: Candle[], fromUsd: Point[] | null, toUsd: Point[] | null, barSeconds: number): Candle[] {
   if ((fromUsd && fromUsd.length === 0) || (toUsd && toUsd.length === 0)) return bars;
   return bars.map((b) => {
-    const at = b.time + barSeconds - 1;
-    const rate = (fromUsd ? valueAt(fromUsd, at) : 1) / (toUsd ? valueAt(toUsd, at) : 1);
+    const rate = rateAt(fromUsd, toUsd, b.time + barSeconds - 1);
     return { ...b, open: b.open * rate, high: b.high * rate, low: b.low * rate, close: b.close * rate };
   });
 }
@@ -108,4 +113,19 @@ export function nativeCurrency(quoteCurrency: string | null | undefined): string
   // TradingView writes pence "GBp"; upper-cased it would read as pounds.
   if (c === "GBp") return "GBX";
   return DOLLARS.has(c.toUpperCase()) ? "USD" : c.toUpperCase();
+}
+
+/**
+ * A drawing in the currency shown (`rate`: one unit of the chart's own currency in it, at a bar's
+ * time), or with `back`, a drawing made or moved there in the chart's own: drawings are kept in the
+ * symbol's currency, so they sit on the same bars in any. Each point at the rate of its own time, as
+ * the bars are; a Gann square's price per bar at its first point's. Drawings on an indicator's pane
+ * hold that indicator's values, not prices, and stay as they are.
+ */
+export function convertDrawing(d: Drawing, rate: (time: number) => number, back = false): Drawing {
+  if (d.pane) return d;
+  const k = (time: number) => (back ? 1 / rate(time) : rate(time));
+  const out: Drawing = { ...d, points: d.points.map((p) => ({ ...p, price: p.price * k(p.time) })) };
+  if (d.ratio !== undefined && d.points[0]) out.ratio = d.ratio * k(d.points[0].time);
+  return out;
 }

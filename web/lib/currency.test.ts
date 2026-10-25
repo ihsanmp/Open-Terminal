@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Candle } from "./api";
-import { convertCandles, nativeCurrency, rateInterval, usdSource, usdValues } from "./currency";
+import { convertCandles, convertDrawing, nativeCurrency, rateAt, rateInterval, usdSource, usdValues } from "./currency";
+import type { Drawing } from "./drawings/tools";
 
 const DAY = 86_400;
 const bar = (time: number, close: number, open = close): Candle => ({ time, open, high: Math.max(open, close) + 1, low: Math.min(open, close) - 1, close, volume: 5 });
@@ -44,5 +45,20 @@ describe("chart currency", () => {
   it("leaves the bars alone when a rate series came back empty", () => {
     const bars = [bar(DAY, 10)];
     expect(convertCandles(bars, null, [], DAY)).toBe(bars);
+  });
+
+  it("puts a drawing's points at the rate of their own time, and back", () => {
+    const idr = usdValues("IDR", [bar(DAY, 15_000), bar(2 * DAY, 16_000)]);
+    const rate = (t: number) => rateAt(null, idr, t + DAY - 1);
+    const line: Drawing = { id: "a", tool: "trendLine" as Drawing["tool"], color: "#fff", width: 1, points: [{ time: DAY, price: 10 }, { time: 2 * DAY, price: 11 }] };
+    const shown = convertDrawing(line, rate);
+    expect(shown.points.map((p) => p.price)).toEqual([150_000, 176_000]);
+    const back = convertDrawing({ ...shown, points: [shown.points[0], { time: 2 * DAY, price: 192_000 }] }, rate, true);
+    expect(back.points[0].price).toBeCloseTo(10);
+    expect(back.points[1].price).toBeCloseTo(12);
+    // A Gann square's price per bar goes with it; a drawing on an indicator's pane stays.
+    expect(convertDrawing({ ...line, ratio: 0.5 }, rate).ratio).toBe(7500);
+    const onPane = { ...line, pane: "rsi-1" };
+    expect(convertDrawing(onPane, rate)).toBe(onPane);
   });
 });
