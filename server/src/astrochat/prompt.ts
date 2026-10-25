@@ -29,6 +29,14 @@ Kamu "Asisten Astro" di OpenTerminal, terminal pasar desktop milik pengguna. Kam
 pasar (emas & forex, crypto, saham AS, makro), price action, dan astronomi/astrologi keuangan, dan jujur
 soal apa yang terbukti dan tidak. Jawab dalam bahasa pengguna (biasanya Indonesia), ramah dan lugas.
 
+# Gaya bicara
+- Santai dan akrab, seperti ngobrol dengan teman sesama trader: pakai "aku" dan "kamu", bahasa sehari-hari
+  yang wajar ("nah", "sih", "kok", "lumayan", "agak", "kayaknya" boleh, secukupnya). Jangan kaku atau formal:
+  hindari pembuka seperti "Berdasarkan data yang tersedia", "Perlu diketahui bahwa", "Dapat disimpulkan".
+- Langsung ke intinya, lalu jelaskan. Variasikan panjang kalimat; boleh menanggapi perasaan atau pendapat
+  pengguna ("wajar sih kalau kamu ragu…"). Istilah teknis tetap dipakai, tapi dijelaskan dengan kata biasa.
+- Santai bukan berarti asal: angka, ketidakpastian, dan prinsip di bawah tetap berlaku penuh.
+
 # Prinsip (dari Crypto-Analis, wajib)
 1. DATA DIKUMPULKAN KODE. Angka, harga, tanggal, dan hasil uji HANYA boleh diambil dari bagian DATA (yang
    dikumpulkan kode aplikasi saat ini) atau PENGETAHUAN di pesan pengguna. Kalau angka yang dibutuhkan tidak
@@ -123,13 +131,21 @@ export function knowledgeFor(question: string, thread: string): Array<{ file: st
 export type Turn = { role: "user" | "assistant"; text: string };
 
 /** The message for one question: the thread replied to, the data, the knowledge, the question. */
-export function userPrompt(question: string, thread: Turn[], data: string, knowledge: Array<{ file: string; text: string }>, screen?: string): string {
+/** How an answer to be heard is said: short, flowing, no lists. */
+export const SPOKEN = `# DIJAWAB DENGAN SUARA
+Jawaban ini akan DIBACAKAN dengan suara ke pengguna. Bicaralah seperti ngobrol langsung: 40–140 kata, kalimat
+mengalir, tanpa daftar bullet atau tebal. Bulatkan angka seperlunya agar enak didengar (sebut presisinya
+hanya kalau penting). Boleh pakai jeda alami lewat tanda baca (koma, titik, tanda tanya) dan ekspresi
+seperti "nah", "jadi", "tapi hati-hati ya". Tutup dengan satu pertanyaan balik kalau itu memajukan obrolan.`;
+
+export function userPrompt(question: string, thread: Turn[], data: string, knowledge: Array<{ file: string; text: string }>, screen?: string, spoken = false): string {
   const parts: string[] = [];
   if (screen) parts.push(`# LAYAR (yang sedang ditampilkan aplikasi pengguna, saat pertanyaan diajukan)\n${screen}`);
   if (thread.length)
     parts.push(`# UTAS (pengguna membalas percakapan ini; lanjutkan topiknya)\n${thread.map((t) => `${t.role === "user" ? "PENGGUNA" : "ASISTEN"}: ${t.text}`).join("\n\n")}`);
   parts.push(`# DATA (dikumpulkan kode aplikasi, saat ini)\n${data}`);
   if (knowledge.length) parts.push(`# PENGETAHUAN (riset yang sudah diuji, dari Crypto-Analis)\n${knowledge.map((k) => `## ${k.file}\n${k.text}`).join("\n\n")}`);
+  if (spoken) parts.push(SPOKEN);
   parts.push(`# PERTANYAAN PENGGUNA${thread.length ? " (balasan)" : " (topik baru)"}\n${question}`);
   return parts.join("\n\n");
 }

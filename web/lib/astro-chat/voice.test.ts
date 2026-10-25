@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chunks, toSpeech } from "./voice";
+import { chunks, toneOf, toSpeech } from "./voice";
 
 describe("the assistant's voice", () => {
   it("reads an answer without its markup, bullets as pauses, signs as words", () => {
@@ -23,5 +23,17 @@ describe("the assistant's voice", () => {
     // A sentence longer than a piece goes by its commas.
     const long = `${"satu, dua, tiga, empat, lima, ".repeat(10)}selesai.`;
     expect(chunks(long, 60).every((p) => p.length <= 60)).toBe(true);
+  });
+
+  it("says each sentence in its own tone", () => {
+    const parts = chunks("Nah, BTC lagi naik. Tapi hati-hati ya, volumenya tipis. Menurutmu bakal lanjut?", 140);
+    expect(parts).toHaveLength(3);
+    const [a, b, c] = parts.map((p, i) => toneOf(p, i));
+    expect(c.pitch).toBeGreaterThan(a.pitch - 0.01); // the question rises
+    expect(b.rate).toBeLessThan(1); // the caution slows
+    expect(toneOf("Mantap!", 0).rate).toBeGreaterThan(1.05);
+    // Plain sentences vary a little, not all the same.
+    const plain = [0, 1, 2, 3].map((i) => toneOf("Harga di atas SMA 20.", i).pitch);
+    expect(new Set(plain).size).toBeGreaterThan(1);
   });
 });

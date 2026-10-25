@@ -7,7 +7,7 @@ import { chatEnv } from "../../lib/astro-chat/env";
 import type { QuantForecast } from "../../lib/quant";
 import { apiGet, apiPost } from "../../lib/api";
 import { lookAtScreen, NO_PICTURE, wantsScreen } from "../../lib/astro-chat/screen";
-import { canListen, canSpeak, chooseVoice, listen, pickVoice, setVoiceReply, speak, stopSpeaking, useIndonesianVoices, useSpeakingId, useVoiceReply } from "../../lib/astro-chat/voice";
+import { canListen, canSpeak, listen, setVoiceReply, speak, stopSpeaking, useSpeakingId, useVoiceReply } from "../../lib/astro-chat/voice";
 
 // The Astro Calendar's chat (offline: lib/astro-chat), in the floating bubble's panel
 // (AstroChatBubble). A reply to one of its messages carries on from that message's thread (its asset,
@@ -112,7 +112,6 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
   const [looking, setLooking] = useState(false);
   // Voice: answers read out (🔊), questions said (🎤).
   const voiceReply = useVoiceReply();
-  const voices = useIndonesianVoices();
   const speakingId = useSpeakingId();
   const [listening, setListening] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
@@ -188,7 +187,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
           setLooking(withScreen);
           const screen = withScreen ? await lookAtScreen() : null;
           setLooking(false);
-          const c = await apiPost<{ text: string; model: string; ms: number }>("/api/astro-chat", { question: q, thread, offline: r?.text ?? "", screen });
+          const c = await apiPost<{ text: string; model: string; ms: number }>("/api/astro-chat", { question: q, thread, offline: r?.text ?? "", screen, spoken: voiceReply || spoken });
           bot = {
             id: newId(),
             role: "bot",
@@ -266,23 +265,6 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
           >
             {voiceReply ? "🔊 Suara" : "🔈 Suara"}
           </button>
-        )}
-        {hasVoice.speak && voiceReply && voices.length > 1 && (
-          <select
-            className="text-fs-10 !py-0 !px-1 shrink-0 max-w-[90px]"
-            value={pickVoice()?.name ?? ""}
-            onChange={(e) => {
-              chooseVoice(e.target.value);
-              speak("Halo, ini suara saya.");
-            }}
-            title="Suara pembaca"
-          >
-            {voices.map((v) => (
-              <option key={v.name} value={v.name}>
-                {v.name.replace(/^Microsoft\s+/, "").replace(/\s+Online.*$/, "").replace(/\s+-.*$/, "")}
-              </option>
-            ))}
-          </select>
         )}
         <span className="ml-auto dim truncate">{online ? "online · data dikumpulkan aplikasi" : "hitungan aplikasi saja"}</span>
       </div>

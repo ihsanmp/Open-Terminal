@@ -53,7 +53,9 @@ astroChatRouter.post("/", async (req, res) => {
     const data = await gather(question, offline);
     const knowledge = knowledgeFor(question, thread.map((t) => t.text).join("\n"));
     const look = screen ? screenSection(screen, shot) : undefined;
-    const r = await askClaude(userPrompt(question, thread, data, knowledge, look), systemPrompt(), model, 150_000, shot?.screen ? [shot.screen.file] : []);
+    // An answer that will be read out (asked by voice, or with 🔊 on) is said for the ear.
+    const spoken = req.body?.spoken === true;
+    const r = await askClaude(userPrompt(question, thread, data, knowledge, look, spoken), systemPrompt(), model, 150_000, shot?.screen ? [shot.screen.file] : []);
     res.json({ text: r.text, model: r.model, ms: r.ms, knowledge: knowledge.map((k) => k.file), screen: shot ? shot.reason : null });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : String(err) });

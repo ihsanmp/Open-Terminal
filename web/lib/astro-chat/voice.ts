@@ -32,9 +32,10 @@ export function toSpeech(text: string): string {
 
 /**
  * The text in pieces a voice reads through: Chrome stops a long utterance after ~15 s, so each
- * sentence (or a run of them up to `max` characters) is spoken on its own.
+ * sentence is spoken on its own (each in its own tone: toneOf), a fragment shorter than `join`
+ * characters with the next, and a sentence longer than `max` by its commas.
  */
-export function chunks(text: string, max = 220): string[] {
+export function chunks(text: string, max = 220, join = 16): string[] {
   const sentences = text.match(/[^.!?\n]+[.!?]*\s*|\n+/g)?.map((s) => s.trim()).filter(Boolean) ?? [];
   const out: string[] = [];
   let cur = "";
@@ -51,7 +52,7 @@ export function chunks(text: string, max = 220): string[] {
         } else part = part ? `${part} ${w}` : w;
       }
       if (part) out.push(part);
-    } else if (cur && cur.length + s.length + 1 > max) {
+    } else if (cur && (cur.length >= join || cur.length + s.length + 1 > max)) {
       out.push(cur);
       cur = s;
     } else cur = cur ? `${cur} ${s}` : s;
@@ -73,7 +74,6 @@ export function indonesianVoices(): SpeechSynthesisVoice[] {
     .sort((a, b) => Number(/natural|online/i.test(b.name)) - Number(/natural|online/i.test(a.name)));
 }
 
-const VOICE_KEY = "astroVoice";
 const REPLY_KEY = "astroVoiceReply";
 const read = (k: string) => {
   try {
@@ -90,13 +90,28 @@ const write = (k: string, v: string) => {
   }
 };
 
-/** The chosen voice by name, else the first Indonesian one. */
+/** Women's Indonesian voices by name (Edge: Gadis; Chrome: Google Bahasa Indonesia; macOS: Damayanti). */
+const FEMALE = /gadis|damayanti|google bahasa indonesia|female|wanita|perempuan/i;
+
+/** The voice answers are read in: an Indonesian woman's, the natural one first. */
 export function pickVoice(): SpeechSynthesisVoice | null {
   const all = indonesianVoices();
-  const chosen = read(VOICE_KEY);
-  return all.find((v) => v.name === chosen) ?? all[0] ?? null;
+  return all.find((v) => FEMALE.test(v.name)) ?? all.find((v) => !/ardi|male|pria/i.test(v.name)) ?? all[0] ?? null;
 }
-export const chooseVoice = (name: string) => write(VOICE_KEY, name);
+
+/**
+ * How a sentence is said, so the voice isn't flat: a question rises, an exclamation is brisker, a
+ * caution ("tapi", "hati-hati") slower and lower, and the rest varies a little sentence to sentence.
+ */
+export function toneOf(sentence: string, i: number): { rate: number; pitch: number } {
+  const s = sentence.trim();
+  if (/\?["')]*$/.test(s)) return { rate: 1.02, pitch: 1.14 };
+  if (/!["')]*$/.test(s)) return { rate: 1.1, pitch: 1.1 };
+  if (/^(tapi|namun|hati-hati|awas|ingat|sayangnya|risikonya)\b/i.test(s)) return { rate: 0.96, pitch: 0.95 };
+  if (/^(nah|jadi|oke|intinya|singkatnya)\b/i.test(s)) return { rate: 1.06, pitch: 1.06 };
+  const sway = [0, 0.04, -0.02, 0.02][i % 4];
+  return { rate: 1.04 + sway / 2, pitch: 1.02 + sway };
+}
 
 // Which message is being read, for its button; kept outside React so every message sees it.
 let speakingId: string | null = null;
@@ -109,12 +124,13 @@ const subscribe = (l: () => void) => {
 export const useSpeakingId = () => useSyncExternalStore(subscribe, () => speakingId, () => null);
 
 /** Reads a message out (stopping whatever was being read); `id` marks it as the one playing. */
-export function speak(text: string, id: string | null = null, rate = 1.05): void {
+export function speak(text: string, id: string | null = null): void {
   if (!canSpeak()) return;
   const synth = window.speechSynthesis;
   synth.cancel();
   const voice = pickVoice();
-  const parts = chunks(toSpeech(text));
+  // Sentence by sentence (short ones together), each in its own tone.
+  const parts = chunks(toSpeech(text), 140);
   if (!parts.length) return;
   speakingId = id;
   changed();
@@ -122,7 +138,9 @@ export function speak(text: string, id: string | null = null, rate = 1.05): void
     const u = new SpeechSynthesisUtterance(p);
     u.lang = voice?.lang ?? LANG;
     if (voice) u.voice = voice;
-    u.rate = rate;
+    const tone = toneOf(p, i);
+    u.rate = tone.rate;
+    u.pitch = tone.pitch;
     if (i === parts.length - 1) {
       u.onend = () => {
         if (speakingId === id) {
@@ -229,26 +247,4 @@ export function listen(handlers: { onText: (text: string) => void; onDone: (text
     handlers.onError(`Pengenalan suara tidak bisa dimulai: ${err instanceof Error ? err.message : String(err)}`);
   }
   return () => r.stop();
-}
-
-/** The Indonesian voices, as the browser loads them (Edge's online ones come a moment later). */
-export function useIndonesianVoices(): SpeechSynthesisVoice[] {
-  return useSyncExternalStore(
-    (l) => {
-      if (!canSpeak()) return () => undefined;
-      window.speechSynthesis.addEventListener("voiceschanged", l);
-      return () => window.speechSynthesis.removeEventListener("voiceschanged", l);
-    },
-    voicesSnapshot,
-    () => NO_VOICES
-  );
-}
-const NO_VOICES: SpeechSynthesisVoice[] = [];
-let lastVoices: SpeechSynthesisVoice[] = NO_VOICES;
-/** The same array while the voices are the same (useSyncExternalStore compares snapshots). */
-function voicesSnapshot(): SpeechSynthesisVoice[] {
-  const now = indonesianVoices();
-  if (now.length === lastVoices.length && now.every((v, i) => v.name === lastVoices[i].name)) return lastVoices;
-  lastVoices = now;
-  return now;
 }
