@@ -147,10 +147,16 @@ function shifted<T>(values: T[], offset: number, total: number, empty: T): T[] {
 
 /** Decimals needed to show a price series: as many as its prices are quoted in (EURUSD's five,
  *  a stock's two — TradingView's tick size), and enough for sub-cent tokens. */
-function pricePrecision(candles: Candle[]): number {
+/** A view with at least one of the `count` bars in it. */
+const showsBars = (r: { from: number; to: number }, count: number) => r.to > r.from && r.from < count - 0.5 && r.to > 0.5;
+
+function pricePrecision(candles: Candle[], converted = false): number {
   const recent = candles.slice(-300);
   const ref = Math.min(...recent.slice(-50).map((c) => Math.abs(c.low)).filter((x) => x > 0));
   const bySize = !isFinite(ref) || ref >= 1 ? 2 : ref >= 0.01 ? 4 : Math.min(12, Math.ceil(-Math.log10(ref)) + 3);
+  // Prices converted to another currency carry the rate's decimals: their size alone decides
+  // (rupiah or yen in whole units).
+  if (converted) return ref >= 1000 ? 0 : bySize;
   // The decimals the quotes carry (float noise from grouping bars aside), at most eight.
   let quoted = 0;
   for (const c of recent) {
@@ -483,6 +489,9 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   // A currency whose rates can't be had leaves the chart in its own (the menu says so).
   const rateFailed = Boolean(wanted) && rateCharts.some((q, i) => q.isError || (q.data && q.data.length === 0 && usdSource(i === 0 ? native : wanted!) !== null));
   const shownCurrency = wanted && !rateFailed ? wanted : native;
+  // Keys the chart's data and price range by the currency converted to, if any: the symbol's own
+  // currency only becomes known with its quote, and the chart mustn't start over when it does.
+  const convertedTo = shownCurrency !== native ? shownCurrency : "";
   const fromUsd = wanted ? usdValues(native, rateCharts[0]?.data) : null;
   const toUsd = wanted ? usdValues(wanted, rateCharts[1]?.data) : null;
   const ratesReady = !wanted || rateFailed || (nativeKnown && rateCharts.every((q, i) => q.data || usdSource(i === 0 ? native : wanted) === null));
@@ -633,7 +642,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
   // New bars wait while a drawing is being placed or moved: putting them on the chart rebuilds
   // it (a tenth of a second), which dropped the drawing under the pointer mid-move. They go on as
   // soon as it's let go. Another symbol, interval, range or indicator list shows at once.
-  const dataKey = `${symbol}|${interval}|${range}|${instancesKey}|${shownCurrency}`;
+  const dataKey = `${symbol}|${interval}|${range}|${instancesKey}|${convertedTo}`;
   const [shown, setShown] = useState({ key: dataKey, candles: liveCandles, prepared: livePrepared });
   useEffect(() => {
     if (shown.key === dataKey && shown.candles === liveCandles && shown.prepared === livePrepared) return;
@@ -667,8 +676,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     if (!el || !candles || candles.length === 0 || !prepared) return;
     const { times, total, items } = prepared;
     const viewKey = `${symbol}:${range}:${interval}`;
-    const priceKey = `${viewKey}:${scaleMode}:${invert}:${shownCurrency}`;
-    const pxPrecision = chartStyle.precision === "default" ? pricePrecision(candles) : chartStyle.precision;
+    const priceKey = `${viewKey}:${scaleMode}:${invert}:${convertedTo}`;
+    const pxPrecision = chartStyle.precision === "default" ? pricePrecision(candles, convertedTo !== "") : chartStyle.precision;
     // Market caps and totals (CRYPTOCAP:ZEC, 21 billion) read as 21.046B on the scale, as on TradingView.
     const mainFormat = { type: "custom" as const, minMove: 1 / 10 ** pxPrecision, formatter: (v: number) => scaleLabel(v, pxPrecision) };
     const intraday = isIntradayInterval(intervalSeconds);
@@ -709,7 +718,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     const axis = [...(times as number[])];
     const candleTimes = (times as number[]).slice(0, candles.length);
     // Far enough to take back a view saved further out (the chart is rebuilt as new bars come in).
-    const saved = savedRange.current?.key === viewKey ? savedRange.current.range : null;
+    const saved = savedRange.current?.key === viewKey && showsBars(savedRange.current.range, candles.length) ? savedRange.current.range : null;
     const wantFuture = Math.min(MAX_FUTURE_BARS, Math.max(FUTURE_BARS, saved ? Math.ceil(saved.to + 2 * (saved.to - saved.from)) - candles.length : 0));
     axis.push(...futureTimes(candleTimes, Math.max(0, wantFuture - (axis.length - candles.length)), axis[axis.length - 1]));
     let mainData: Array<{ time: UTCTimestamp }>;
@@ -936,7 +945,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       // A date-range button: its span, from where it starts to the latest bar.
       pendingPreset.current = null;
       chart.timeScale().setVisibleLogicalRange({ from: presetStart(candleTimes, preset.span) - 0.5, to: candles.length + 1 });
-    } else if (savedRange.current?.key === viewKey) chart.timeScale().setVisibleLogicalRange(savedRange.current.range);
+    } else if (saved) chart.timeScale().setVisibleLogicalRange(saved);
     // The latest bars in view; the rest of the loaded history sits to the left.
     else chart.timeScale().setVisibleLogicalRange(latestBarsView(candles.length, el.clientWidth * 0.94));
 
@@ -1187,8 +1196,11 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     el.addEventListener("wheel", onWheel, { capture: true, passive: false });
 
     return () => {
+      // Kept for the next build only while it shows bars: a view taken before the chart had its size,
+      // or scrolled past the last bar, would open the chart on blank time far ahead (and the axis,
+      // stretched to reach it, would carry it further each rebuild).
       const r = chart.timeScale().getVisibleLogicalRange();
-      if (r) savedRange.current = { key: viewKey, range: r };
+      savedRange.current = r && el.clientWidth > 0 && showsBars(r, candles.length) ? { key: viewKey, range: r } : null;
       const pr = priceScale.options().autoScale ? null : priceScale.getVisibleRange();
       savedPrice.current = pr ? { key: priceKey, range: pr } : null;
       chartRef.current = null;
@@ -1210,7 +1222,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       ro.disconnect();
       chart.remove();
     };
-  }, [candles, chartType, prepared, paneOf, range, interval, intervalSeconds, symbol, ctx, scaleMode, invert, chartStyle, timezone, shownCurrency]);
+  }, [candles, chartType, prepared, paneOf, range, interval, intervalSeconds, symbol, ctx, scaleMode, invert, chartStyle, timezone, convertedTo]);
 
   // ---- legend ----
   const n = candles?.length ?? 0;
@@ -1225,9 +1237,9 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     saveInstances(latestIndicators(widget.id).map((i) => (i.uid === uid ? { ...i, ...patch } : i)));
   const remove = (uid: string) => saveInstances(latestIndicators(widget.id).filter((i) => i.uid !== uid));
 
-  const legendPrecision = chartStyle.precision !== "default" ? chartStyle.precision : candles && n > 0 ? pricePrecision(candles) : 2;
+  const legendPrecision = chartStyle.precision !== "default" ? chartStyle.precision : candles && n > 0 ? pricePrecision(candles, convertedTo !== "") : 2;
   // The legend writes prices as the price axis does (EURUSD to five decimals).
-  const legendDigits = useMemo(() => (candles?.length ? pricePrecision(candles) : null), [candles]);
+  const legendDigits = useMemo(() => (candles?.length ? pricePrecision(candles, convertedTo !== "") : null), [candles, convertedTo]);
   const px = (v: number) => (chartStyle.precision !== "default" ? fmt(v, chartStyle.precision) : legendDigits !== null ? fmt(v, legendDigits) : fmtPrice(v));
   const legendMarket = useMemo<Market>(() => ({ type: ctx.type, timezone: ctx.timezone }), [ctx.type, ctx.timezone]);
 
