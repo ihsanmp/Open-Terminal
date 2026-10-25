@@ -140,17 +140,42 @@ const COIN: Record<string, Partial<Base>> = {
   ETH: { label: "Ethereum", regimeKey: "btc", regimeProxy: true, curveId: "eth", cotId: "eth", quantKey: "eth", etfs: ["ETHA"], keywords: ["ethereum", "ether", "eth", "crypto"] },
 };
 
+/** The names posts and headlines give the bigger coins (their tickers are added apart). */
+const COIN_NAMES: Record<string, string[]> = {
+  SOL: ["solana"], XRP: ["ripple"], DOGE: ["dogecoin"], ADA: ["cardano"], AVAX: ["avalanche"], DOT: ["polkadot"],
+  LINK: ["chainlink"], LTC: ["litecoin"], BCH: ["bitcoin cash"], ZEC: ["zcash"], XMR: ["monero"], TRX: ["tron"], TON: ["toncoin"],
+  SHIB: ["shiba inu"], XLM: ["stellar"], NEAR: ["near protocol"], UNI: ["uniswap"], APT: ["aptos"], ARB: ["arbitrum"],
+  OP: ["optimism"], HYPE: ["hyperliquid"], ATOM: ["cosmos"], FIL: ["filecoin"], ETC: ["ethereum classic"], HBAR: ["hedera"],
+  ICP: ["internet computer"], INJ: ["injective"], TIA: ["celestia"], WLD: ["worldcoin"], ENA: ["ethena"], MKR: ["makerdao"],
+  JUP: ["jupiter"], WIF: ["dogwifhat"], TAO: ["bittensor"], KAS: ["kaspa"], PAXG: ["pax gold"], XAUT: ["tether gold"],
+  SAND: ["the sandbox"], MANA: ["decentraland"],
+};
+/** Tickers that are also everyday words ("link", "dot", "a ton of"): matched only as $LINK, $DOT, … */
+const WORD_TICKERS = new Set(["LINK", "DOT", "TON", "UNI", "OP", "HYPE", "NEAR", "ETC", "TRUMP", "SAND", "MANA", "ATOM", "ONE", "GAS", "SUN", "MOVE", "APE", "PEOPLE", "MEME", "BOND", "CAKE", "COMP", "JUP", "TAO", "ENA", "SUI", "WIF"]);
+/** Quotes that are a currency or a stablecoin, not a coin of their own in a cross. */
+const STABLE_QUOTES = new Set(["USD", "USDT", "USDC", "BUSD", "FDUSD", "DAI", "EUR", "TRY", "BRL", "IDR", "JPY", "GBP", "KRW", "AUD"]);
+
+/** How posts name a coin: its names, and its ticker (as $TICKER only when the ticker is an everyday word). */
+export function coinKeywords(code: string): string[] {
+  const c = code.toUpperCase();
+  const ticker = WORD_TICKERS.has(c) ? `$${c.toLowerCase()}` : c.toLowerCase();
+  return [...new Set([...(COIN[c]?.keywords ?? []).filter((k) => k !== "crypto"), ...(COIN_NAMES[c] ?? []), ticker])];
+}
+
 /** The core code of a symbol as the app writes it: OANDA:XAUUSD → XAUUSD, GC=F → GC, BTC-USD → BTC (crypto), XAUUSD=X → XAUUSD, CL1! → CL. */
-export function coreOf(symbol: string): { core: string; suffix: string | null; crypto: string | null } {
+export function coreOf(symbol: string): { core: string; suffix: string | null; crypto: string | null; cryptoQuote: string | null } {
   const s = symbol.toUpperCase().trim();
-  const crypto = cryptoBase(s) ?? (/^(BINANCE|BYBIT|OKX|COINBASE|BITSTAMP|KRAKEN|BITFINEX|MEXC|GATEIO|KUCOIN|BITGET|CRYPTO|CRYPTOCAP):([A-Z0-9]+?)(USDT|USDC|USD|BUSD|PERP)?(\.P)?$/.exec(s)?.[2] ?? null);
+  // A coin on a crypto exchange against a dollar, a currency or another coin (BINANCE:SOLBTC: SOL, quoted in BTC).
+  const pair = /^(BINANCE|BINANCEUS|BYBIT|OKX|COINBASE|BITSTAMP|KRAKEN|BITFINEX|MEXC|GATEIO|KUCOIN|BITGET|GEMINI|HTX|POLONIEX|BITFLYER|CRYPTOCOM|CRYPTO|CRYPTOCAP):([A-Z0-9]{2,}?)(USDT|USDC|USD|BUSD|FDUSD|DAI|PERP|BTC|ETH|BNB|SOL|EUR|TRY|BRL|IDR|JPY|GBP|KRW|AUD)?(\.P)?$/.exec(s);
+  const crypto = cryptoBase(s) ?? pair?.[2] ?? null;
+  const cryptoQuote = pair?.[3] && pair[3] !== "PERP" ? pair[3] : null;
   let core = isTvPair(s) ? s.split(":")[1] : s;
   core = core.replace(/=F$/, "").replace(/=X$/, "").replace(/\d*!$/, "");
   // Futures contract months (CLZ2026, GCG27) as their root.
   const month = /^([A-Z]{1,3})[FGHJKMNQUVXZ]\d{2,4}$/.exec(core);
   if (month && isTvPair(s)) core = month[1];
   const suffix = /^[A-Z0-9-]+\.([A-Z]{1,2})$/.exec(core)?.[1] ?? null;
-  return { core, suffix, crypto };
+  return { core, suffix, crypto, cryptoQuote };
 }
 
 /** A company's name as headlines write it: "PT Bank Central Asia Tbk" → "bank central asia", "Apple Inc." → "apple". */
@@ -168,12 +193,15 @@ export function companyName(name: string): string | null {
 
 /** What the pair is and where it belongs in each tool, from its symbol alone (the stock's sector comes from a lookup). */
 export function classify(symbol: string, sector: string | null = null, name: string | null = null): PairContext {
-  const { core, suffix, crypto } = coreOf(symbol);
+  const { core, suffix, crypto, cryptoQuote } = coreOf(symbol);
   const out = (b: Base, label: string): PairContext => ({ ...b, symbol, label: b.label ?? label, sector });
 
   if (crypto && !KNOWN[core]) {
-    const c = COIN[crypto] ?? { label: crypto, regimeKey: "btc", regimeProxy: true, keywords: [crypto.toLowerCase(), "crypto"] };
-    return out(base({ kind: "crypto", geo: { key: "btc", sign: 1 }, ...c, keywords: [...new Set([...(c.keywords ?? []), crypto.toLowerCase()])] }), crypto);
+    const c = COIN[crypto] ?? { label: crypto, regimeKey: "btc", regimeProxy: true };
+    // Against another coin (SOL/BTC) the pair is about both.
+    const cross = cryptoQuote && !STABLE_QUOTES.has(cryptoQuote) ? cryptoQuote : null;
+    const keywords = [...new Set([...coinKeywords(crypto), ...(cross ? coinKeywords(cross) : []), "crypto"])];
+    return out(base({ kind: "crypto", geo: { key: "btc", sign: 1 }, ...c, ...(cross ? { label: `${crypto}/${cross}` } : {}), keywords }), crypto);
   }
   if (KNOWN[core]) return out(KNOWN[core], core);
 
@@ -260,7 +288,10 @@ async function part<T>(f: () => Promise<T>, ms = 10_000): Promise<T | null> {
 /** Whether a headline names the pair. */
 export function mentions(text: string, keywords: string[]): boolean {
   const t = text.toLowerCase();
-  return keywords.some((k) => (k.length <= 3 ? new RegExp(`(^|[^a-z0-9$])\\$?${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`).test(t) : t.includes(k)));
+  const esc = (k: string) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Whole words only ("gold" not in "golden", "eth" not in "ethereum"), a ticker with or without
+  // its $; a keyword written "$link" only with it.
+  return keywords.some((k) => new RegExp(`(^|[^a-z0-9$])${k.startsWith("$") ? `\\$${esc(k.slice(1))}` : `\\$?${esc(k)}`}(?![a-z0-9])`).test(t));
 }
 
 export type PairBrief = {

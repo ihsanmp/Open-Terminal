@@ -51,5 +51,25 @@ describe("the chart's pair in the desk's tools", () => {
     expect(mentions("Ethereum ETFs see outflows", ["eth"])).toBe(false);
     expect(mentions("$ETH breaks $3,000", ["eth"])).toBe(true);
     expect(mentions("Apple unveils new iPhone", ["aapl", "apple"])).toBe(true);
+    // Whole words only, and a $-keyword only with its $.
+    expect(mentions("Golden week ahead", ["gold"])).toBe(false);
+    expect(mentions("Link in bio", ["$link", "chainlink"])).toBe(false);
+    expect(mentions("$LINK up 10% as Chainlink ships CCIP v2", ["$link"])).toBe(true);
+    expect(mentions("Bitcoin's dominance climbs", ["bitcoin"])).toBe(true);
+  });
+
+  it("reads a coin against another coin as both, and names the coins as posts do", async () => {
+    const { coinKeywords } = await import("./paircontext.js");
+    expect(coreOf("BINANCE:SOLBTC")).toMatchObject({ crypto: "SOL", cryptoQuote: "BTC" });
+    expect(coreOf("COINBASE:ZEC")).toMatchObject({ crypto: "ZEC", cryptoQuote: null });
+    expect(coreOf("BINANCE:ETHUSDT")).toMatchObject({ crypto: "ETH", cryptoQuote: "USDT" });
+    expect(coreOf("BINANCE:BTCIDR")).toMatchObject({ crypto: "BTC", cryptoQuote: "IDR" });
+    const solbtc = classify("BINANCE:SOLBTC");
+    expect(solbtc.label).toBe("SOL/BTC");
+    expect(solbtc.keywords).toEqual(expect.arrayContaining(["sol", "solana", "btc", "bitcoin"]));
+    expect(classify("COINBASE:ZEC").keywords).toEqual(expect.arrayContaining(["zec", "zcash"]));
+    // Against a currency or a stablecoin, only the coin.
+    expect(classify("BINANCE:BTCIDR").keywords).not.toContain("idr");
+    expect(coinKeywords("LINK")).toEqual(["chainlink", "$link"]);
   });
 });

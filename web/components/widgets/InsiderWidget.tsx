@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useState, type ReactNode } from "react";
 import { apiDelete, apiGet, apiPost, fmt, fmtBig } from "../../lib/api";
 import { KOL_ACCOUNTS, kolOf, type KolAccount } from "../../lib/kol-list";
+import { BROAD_KEYWORDS, mentions, usePairContext } from "../../lib/pair";
 import { usePoll } from "../../lib/refresh";
 import { useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 
@@ -219,22 +220,20 @@ function PostCard({ post, onRemove }: { post: Post; onRemove?: () => void }) {
   );
 }
 
-/** The symbol's ticker and, for the big coins, their names, to find posts that mention it. */
-function mentionsOf(symbol: string): RegExp | null {
-  const base = symbol.replace(/^\^/, "").replace(/-USDT?$|=X$|=F$|\.[A-Z]+$/i, "").toUpperCase();
-  if (base.length < 2) return null;
-  const names: Record<string, string[]> = { BTC: ["bitcoin"], ETH: ["ethereum", "ether"], SOL: ["solana"], XRP: ["ripple"], GC: ["gold", "emas"], SI: ["silver"], CL: ["oil", "crude"], SPX: ["s&p 500"], GSPC: ["s&p 500"] };
-  const words = [base, ...(names[base] ?? [])].map((w) => w.replace(/[.*+?^${}()|[\]\\&]/g, "\\$&"));
-  return new RegExp(`(^|[^A-Za-z0-9])\\$?(${words.join("|")})(?![A-Za-z0-9])`, "i");
-}
+/** The pair as the filter button names it: a coin pair's label (SOL/BTC), else its ticker without the exchange. */
+const pairName = (symbol: string, label: string | undefined, crypto: boolean) => (crypto && label ? label : symbol.replace(/^[A-Z0-9_]+:/, ""));
 
-function Posts({ symbol }: { symbol: string }) {
+function Posts() {
   const qc = useQueryClient();
   const poll = usePoll(30_000);
   const { data, error, isLoading } = useQuery({ queryKey: ["social"], queryFn: () => apiGet<Feed>("/api/social"), refetchInterval: poll });
   const [filter, setFilter] = useWidgetSetting<string>("insiderSource", "all");
   const [onlyConfirmed, setOnlyConfirmed] = useWidgetSetting<boolean>("insiderConfirmed", false);
   const [onlySymbol, setOnlySymbol] = useWidgetSetting<boolean>("insiderSymbol", false);
+  // The pair open on the chart, and the words posts name it by (server: paircontext.ts).
+  const { symbol, ctx } = usePairContext();
+  const keywords = (ctx?.keywords ?? []).filter((k) => !BROAD_KEYWORDS.has(k));
+  const name = pairName(symbol, ctx?.label, ctx?.kind === "crypto");
   const [paste, setPaste] = useState("");
   const [pasteMsg, setPasteMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -280,11 +279,13 @@ function Posts({ symbol }: { symbol: string }) {
   };
 
   const sources = data?.sources ?? [];
-  const mention = onlySymbol ? mentionsOf(symbol) : null;
-  const posts = (data?.posts ?? []).filter((p) => {
+  const all = data?.posts ?? [];
+  const aboutPair = (p: Post) => mentions(`${p.text} ${p.quoted?.text ?? ""}`, keywords);
+  const pairCount = keywords.length ? all.filter(aboutPair).length : 0;
+  const posts = all.filter((p) => {
     if (filter === "x" ? p.via !== "manual" : filter !== "all" && p.sourceId !== filter) return false;
     if (onlyConfirmed && !["onchain", "confirmed", "official", "article"].includes(p.status)) return false;
-    if (mention && !mention.test(`${p.text} ${p.quoted?.text ?? ""}`)) return false;
+    if (onlySymbol && !aboutPair(p)) return false;
     return true;
   });
   const manualCount = (data?.posts ?? []).filter((p) => p.via === "manual").length;
@@ -363,13 +364,27 @@ function Posts({ symbol }: { symbol: string }) {
               X (tempel) {manualCount}
             </button>
           )}
-          <label className="flex items-center gap-1 ml-auto cursor-pointer" title="Hanya postingan yang terbukti: dikonfirmasi media resmi, dari sumber resminya sendiri, atau transfer on-chain">
+          <button
+            className={`term-btn ml-auto ${onlySymbol ? "active" : ""}`}
+            disabled={!keywords.length}
+            onClick={() => setOnlySymbol(!onlySymbol)}
+            title={
+              keywords.length
+                ? `Hanya postingan tentang pair yang dibuka di chart (${symbol}): yang menyebut ${keywords.join(", ")}. ${onlySymbol ? "Klik untuk menampilkan semua." : ""}`
+                : `Membaca pair ${symbol}…`
+            }
+          >
+            🎯 Hanya {name} {data && keywords.length ? <span className="dim">({pairCount})</span> : null}
+          </button>
+          <label className="flex items-center gap-1 cursor-pointer" title="Hanya postingan yang terbukti: dikonfirmasi media resmi, dari sumber resminya sendiri, atau transfer on-chain">
             <input type="checkbox" checked={onlyConfirmed} onChange={(e) => setOnlyConfirmed(e.target.checked)} /> Hanya terkonfirmasi
           </label>
-          <label className="flex items-center gap-1 cursor-pointer" title={`Hanya postingan yang menyebut ${symbol}`}>
-            <input type="checkbox" checked={onlySymbol} onChange={(e) => setOnlySymbol(e.target.checked)} /> Sebut {symbol}
-          </label>
         </div>
+        {onlySymbol && keywords.length > 0 && (
+          <div className="text-fs-10 dim">
+            Pair di chart: <span className="amber">{name}</span> · postingan yang menyebut {keywords.join(", ")} · ganti pair di chart, filter ikut berganti
+          </div>
+        )}
       </div>
       {listing ? (
         <KolList sources={data ? sources : null} />
@@ -377,7 +392,11 @@ function Posts({ symbol }: { symbol: string }) {
       <div className="flex-1 min-h-0 overflow-auto">
         {error && <div className="p-2 down">Gagal memuat: {(error as Error).message}</div>}
         {isLoading && <div className="p-2 dim">Membaca akun-akun…</div>}
-        {data && posts.length === 0 && <div className="p-3 dim">Belum ada postingan{onlyConfirmed || onlySymbol ? " yang cocok dengan filter" : ""}.</div>}
+        {data && posts.length === 0 && (
+          <div className="p-3 dim">
+            {onlySymbol ? `Belum ada postingan dari akun-akun ini yang menyebut ${name}${onlyConfirmed ? " dan terkonfirmasi" : ""}.` : `Belum ada postingan${onlyConfirmed ? " yang cocok dengan filter" : ""}.`}
+          </div>
+        )}
         {posts.slice(0, shown).map((p) => (
           <PostCard
             key={p.id}
@@ -591,7 +610,7 @@ export default function InsiderWidget({ widget }: { widget: WidgetInstance }) {
           Form 4 (SEC) · {symbol}
         </button>
       </div>
-      <div className="flex-1 min-h-0">{view === "posts" ? <Posts symbol={symbol} /> : <Form4 symbol={symbol} />}</div>
+      <div className="flex-1 min-h-0">{view === "posts" ? <Posts /> : <Form4 symbol={symbol} />}</div>
     </div>
   );
 }

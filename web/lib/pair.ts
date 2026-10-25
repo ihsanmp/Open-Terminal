@@ -46,11 +46,18 @@ export function usePairContext() {
   return { symbol, ctx: q.data ?? null, loading: q.isLoading };
 }
 
-/** Whether a text names the pair (short names as whole words only: "eth" not in "ethereum"). */
+/**
+ * Whether a text names the pair: whole words only ("gold" not in "golden", "eth" not in
+ * "ethereum"), a ticker with or without its $; a keyword written "$link" only with it.
+ */
 export function mentions(text: string, keywords: string[]): boolean {
   const t = text.toLowerCase();
-  return keywords.some((k) => (k.length <= 3 ? new RegExp(`(^|[^a-z0-9$])\\$?${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`).test(t) : t.includes(k)));
+  const esc = (k: string) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return keywords.some((k) => new RegExp(`(^|[^a-z0-9$])${k.startsWith("$") ? `\\$${esc(k.slice(1))}` : `\\$?${esc(k)}`}(?![a-z0-9])`).test(t));
 }
+
+/** Keywords too broad to tell one pair's news from its market's ("crypto" names every coin). */
+export const BROAD_KEYWORDS = new Set(["crypto"]);
 
 /**
  * A widget setting that follows the pair: set to `fromPair` whenever the chart's pair changes
