@@ -42,6 +42,8 @@ export function parseFrames(raw: string): string[] {
 const MAX_SOCKETS = 3;
 const PER_SOCKET = 6;
 const IDLE_MS = 60_000;
+/** How long a socket may take to open (it takes ~0.5 s). */
+const CONNECT_MS = 10_000;
 
 type Msg = { m?: string; p?: any[] };
 
@@ -60,11 +62,16 @@ class Conn {
     // Node's WebSocket (undici) takes request headers in its options object.
     this.ws = new (WebSocket as unknown as new (url: string, opts: unknown) => WebSocket)(URL, { headers: HEADERS });
     this.ready = new Promise((resolve) => {
+      // A connection that stalls while opening would hold its requests (and their room on the
+      // socket) for good, and every chart after them would wait: it is given up instead.
+      const stalled = setTimeout(() => end(), CONNECT_MS);
       this.ws.onopen = () => {
+        clearTimeout(stalled);
         this.ws.send(frame("set_auth_token", ["unauthorized_user_token"]));
         resolve(true);
       };
       const end = () => {
+        clearTimeout(stalled);
         resolve(false);
         this.close();
       };

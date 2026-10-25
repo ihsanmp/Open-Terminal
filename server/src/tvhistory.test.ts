@@ -78,7 +78,11 @@ describe("TradingView chart history", () => {
     // No bars of its own: a pair's chart. Bars of its own (even fewer): its own chart.
     const only = (has: Record<string, number>) => async (symbols: string[]) =>
       Object.fromEntries(symbols.map((s) => [s, has[s] ? Array.from({ length: has[s] }, (_, i) => bar(100 + i, s === "COINBASE:ZEC" ? 9 : 1)) : null]));
-    expect((await tvHistory("COINBASE:ZEC", "4h", only({ "COINBASE:ZECUSD": 3, "BINANCE:ZECUSDT": 5 }), async () => [])).length).toBe(5);
+    // The exchange's own pair before a longer one elsewhere; with none, the longest that reports volume.
+    expect((await tvHistory("COINBASE:ZEC", "4h", only({ "COINBASE:ZECUSD": 3, "BINANCE:ZECUSDT": 5 }), async () => [])).length).toBe(3);
+    const index = async (symbols: string[]) =>
+      Object.fromEntries(symbols.map((s) => [s, s === "CRYPTO:ZECUSD" ? Array.from({ length: 9 }, (_, i) => bar(100 + i, 0)) : s === "KUCOIN:ZECUSDT" ? Array.from({ length: 4 }, (_, i) => bar(100 + i, 1)) : null]));
+    expect((await tvHistory("COINBASE:ZEC", "4h", index, async () => [])).length).toBe(4);
     expect((await tvHistory("COINBASE:ZEC", "4h", only({ "COINBASE:ZEC": 2, "BINANCE:ZECUSDT": 5 }), async () => [])).map((c) => c.volume)).toEqual([9, 9]);
   });
 });

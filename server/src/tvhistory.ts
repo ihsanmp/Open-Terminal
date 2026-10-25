@@ -152,6 +152,17 @@ const toCandles = (bars: tvchart.TvBar[]): Candle[] =>
     .filter((b) => [b.open, b.high, b.low, b.close].every(Number.isFinite))
     .map((b) => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume ?? 0 }));
 
+/** Coin-only tickers chart their own exchange's pair since this time; their picks from before are made again. */
+const SAME_EXCHANGE_SINCE = Date.UTC(2026, 9, 25, 4);
+
+/** The listing chosen for this chart before, while it stands. */
+function pickOf(key: string, symbol: string): { ticker: string; at: number } | undefined {
+  const pick = loadPicks()[key];
+  if (!pick || Date.now() - pick.at >= PICK_MS) return undefined;
+  if (pick.at < SAME_EXCHANGE_SINCE && coinOnlyAlternates(symbol).length > 0) return undefined;
+  return pick;
+}
+
 /**
  * `seed`: the history an earlier run saved (the disk cache), so a refresh after a restart asks the
  * chosen listing for only the bars since, not all of them again.
@@ -161,8 +172,8 @@ export async function tvHistory(symbol: string, interval: Interval, fetchBars = 
   const live = fetchBars === tvchart.bars;
   const key = `${symbol}|${interval}`;
   if (live && !known.has(key) && seed?.length) {
-    const pick = loadPicks()[key];
-    if (pick && Date.now() - pick.at < PICK_MS) known.set(key, { ticker: pick.ticker, bars: seed.map((c) => ({ ...c })), at: Date.now() });
+    const pick = pickOf(key, symbol);
+    if (pick) known.set(key, { ticker: pick.ticker, bars: seed.map((c) => ({ ...c })), at: Date.now() });
   }
   const kept = live ? known.get(key) : undefined;
   if (kept && Date.now() - kept.at < REPICK_MS && kept.bars.length) {
@@ -192,8 +203,8 @@ export async function tvHistory(symbol: string, interval: Interval, fetchBars = 
     if (known.size > MAX_KNOWN) known.delete(known.keys().next().value!);
   };
   // The listing chosen before (this run or an earlier one): only it is asked.
-  const pick = live ? loadPicks()[key] : undefined;
-  if (pick && Date.now() - pick.at < PICK_MS) {
+  const pick = live ? pickOf(key, symbol) : undefined;
+  if (pick) {
     const got = (await fetchBars([pick.ticker], TV_RESOLUTION[interval], TV_DEPTH[interval], 10_000))[pick.ticker];
     if (got?.length) {
       remember(pick.ticker, got);
@@ -215,7 +226,10 @@ export async function tvHistory(symbol: string, interval: Interval, fetchBars = 
     const found = list === candidates ? await onExchanges : await fetchBars(list, TV_RESOLUTION[interval], TV_DEPTH[interval], 10_000);
     // A ticker asked for by name is charted as itself whenever it has bars; its stand-ins only when it has none.
     const exact = list === candidates && isTvPair(symbol) ? found[symbol.toUpperCase()] : null;
-    best = exact?.length ? exact : pickLongest(list, found, cryptoBase(symbol) !== null);
+    // A coin-only ticker (COINBASE:ZEC) stands for the coin on that exchange: its own USD or USDT
+    // pair before the longest elsewhere (an index such as CRYPTO:ZECUSD reports no volume).
+    const sameExchange = list === candidates ? pickLongest(coinOnlyAlternates(symbol).slice(0, 2), found, true) : null;
+    best = exact?.length ? exact : sameExchange ?? pickLongest(list, found, cryptoBase(symbol) !== null || coinOnlyAlternates(symbol).length > 0);
     ticker = list.find((t) => found[t] === best) ?? null;
     if (best) break;
   }

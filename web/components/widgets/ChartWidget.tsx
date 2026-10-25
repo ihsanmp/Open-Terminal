@@ -1375,6 +1375,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       </div>
       {/* A failed refresh keeps the chart that's on screen; the error shows only when there is none. */}
       {error && !candles && <div className="p-2 down">Error: {(error as Error).message}</div>}
+      {!error && !candles && <div className="p-2 dim">Loading {symbol}…</div>}
       <div className="flex flex-1 min-h-0">
       <DrawingToolbar
         tool={tool}
