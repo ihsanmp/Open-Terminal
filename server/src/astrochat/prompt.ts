@@ -37,6 +37,24 @@ soal apa yang terbukti dan tidak. Jawab dalam bahasa pengguna (biasanya Indonesi
   pengguna ("wajar sih kalau kamu ragu…"). Istilah teknis tetap dipakai, tapi dijelaskan dengan kata biasa.
 - Santai bukan berarti asal: angka, ketidakpastian, dan prinsip di bawah tetap berlaku penuh.
 
+# Membaca suasana (rapport talk)
+- Baca perasaan di balik pertanyaan dari kata-katanya: antusias, cemas/panik (mis. habis rugi, takut
+  ketinggalan), sedih/capek, kesal, atau biasa saja. Tanggapi perasaannya dulu dalam satu kalimat pendek yang
+  tulus ("Iya, ngerti kok, rugi kayak gitu bikin kepikiran"), baru masuk ke isi. Jangan lebay atau
+  berlebihan memuji; satu validasi cukup.
+- Samakan energinya: pengguna antusias → ikut bersemangat; cemas → tenang, pelan, kalimat pendek, beri satu
+  pegangan konkret; kesal → singkat, to the point, tanpa basa-basi; sedih/capek → lembut, tidak menggurui.
+- Kalau harus tidak setuju, pakai urutan validasi → alasan berdasarkan data → alternatif ("Masuk akal sih
+  kamu mikir gitu, tapi datanya bilang …, jadi mungkin lebih aman …").
+- Pelembut ("kayaknya", "mungkin", "gimana menurutmu?") untuk SARAN dan OPINI, bukan untuk angka yang jelas
+  terbaca dari data. Ajak berpikir bareng, jangan menggurui.
+
+# Penanda nada (wajib)
+Baris PERTAMA jawabanmu hanya berisi penanda nada untuk suara pembaca, salah satu dari:
+⟦nada:santai⟧ ⟦nada:antusias⟧ ⟦nada:menenangkan⟧ ⟦nada:tegas⟧ ⟦nada:lembut⟧
+(antusias = energi tinggi; menenangkan = pengguna cemas/panik; tegas = pengguna kesal atau minta jawaban
+lugas; lembut = pengguna sedih/capek; santai = selain itu). Penanda ini dibuang sebelum ditampilkan.
+
 # Prinsip (dari Crypto-Analis, wajib)
 1. DATA DIKUMPULKAN KODE. Angka, harga, tanggal, dan hasil uji HANYA boleh diambil dari bagian DATA (yang
    dikumpulkan kode aplikasi saat ini) atau PENGETAHUAN di pesan pengguna. Kalau angka yang dibutuhkan tidak
@@ -157,4 +175,17 @@ export function modelFor(question: string): ClaudeModel {
   const words = q.split(/\s+/).filter(Boolean).length;
   if (words <= 4 && /^(hai|halo|hello|hi|hey|pagi|siang|sore|malam|makasih|terima kasih|thanks|ok|oke|sip|mantap)\b/.test(q)) return "haiku";
   return "sonnet";
+}
+
+/** The tones the answer may be read in (the reader's voice: web/lib/astro-chat/voice.ts). */
+export const TONES = ["santai", "antusias", "menenangkan", "tegas", "lembut"] as const;
+export type Tone = (typeof TONES)[number];
+
+/** The answer without its tone mark (its first line, ⟦nada:…⟧), and the tone it names. */
+export function splitTone(answer: string): { text: string; tone: Tone } {
+  const m = /^\s*⟦\s*nada\s*:\s*([a-z]+)\s*⟧\s*\n?/i.exec(answer);
+  const named = m?.[1].toLowerCase();
+  const tone = (TONES as readonly string[]).includes(named ?? "") ? (named as Tone) : "santai";
+  // A mark anywhere else (a slip) goes too.
+  return { text: (m ? answer.slice(m[0].length) : answer).replace(/⟦\s*nada\s*:[^⟧]*⟧\s*/gi, "").trim(), tone };
 }

@@ -7,7 +7,7 @@ import { chatEnv } from "../../lib/astro-chat/env";
 import type { QuantForecast } from "../../lib/quant";
 import { apiGet, apiPost } from "../../lib/api";
 import { lookAtScreen, NO_PICTURE, wantsScreen } from "../../lib/astro-chat/screen";
-import { canListen, canSpeak, listen, setPref, setVoiceReply, speak, stopSpeaking, usePref, useSpeakingId, useVoiceReply } from "../../lib/astro-chat/voice";
+import { canListen, canSpeak, listen, setPref, setVoiceReply, speak, stopSpeaking, usePref, useSpeakingId, useVoiceReply, type Mood } from "../../lib/astro-chat/voice";
 
 // The Astro Calendar's chat (offline: lib/astro-chat), in the floating bubble's panel
 // (AstroChatBubble). A reply to one of its messages carries on from that message's thread (its asset,
@@ -28,6 +28,8 @@ export type Msg = {
   note?: string;
   /** Asked with a look at the screen (lib/astro-chat/screen.ts); for an answer, whether it had the picture. */
   screen?: "picture" | "text";
+  /** The mood Claude marked for reading it out (lib/astro-chat/voice.ts MOODS). */
+  tone?: Mood;
 };
 type Engine = "online" | "offline";
 const ENGINE_KEY = "ot-astro-engine";
@@ -196,7 +198,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
           setLooking(withScreen);
           const screen = withScreen ? await lookAtScreen() : null;
           setLooking(false);
-          const c = await apiPost<{ text: string; model: string; ms: number }>("/api/astro-chat", { question: q, thread, offline: r?.text ?? "", screen, spoken: voiceReply || spoken });
+          const c = await apiPost<{ text: string; model: string; ms: number; tone?: Mood }>("/api/astro-chat", { question: q, thread, offline: r?.text ?? "", screen, spoken: voiceReply || spoken });
           bot = {
             id: newId(),
             role: "bot",
@@ -206,6 +208,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
             replyTo: user.id,
             engine: "claude",
             model: c.model,
+            tone: c.tone,
             ms: c.ms,
             screen: screen ? (screen.shot ? "picture" : "text") : undefined,
             note: screen && !screen.shot ? NO_PICTURE[screen.reason] ?? NO_PICTURE.failed : undefined,
@@ -217,7 +220,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
       update((prev) => [...prev, bot]);
       setBusy(false);
       // Read out when answers are (🔊), and always when the question was said.
-      if (online && (voiceReply || spoken)) speak(bot.text, bot.id);
+      if (online && (voiceReply || spoken)) speak(bot.text, bot.id, bot.tone);
     }, 20);
   };
 
@@ -329,7 +332,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
                   {hasVoice.speak && (
                     <button
                       className={`text-fs-10 px-1.5 rounded-sm border ${speakingId === m.id ? "border-[#4fc3f7] text-[#8fd8ff]" : "border-[var(--border)] dim hover:text-[var(--text)]"}`}
-                      onClick={() => (speakingId === m.id ? stopSpeaking() : speak(m.text, m.id))}
+                      onClick={() => (speakingId === m.id ? stopSpeaking() : speak(m.text, m.id, m.tone))}
                       title={speakingId === m.id ? "Hentikan" : "Dengarkan jawaban ini"}
                     >
                       {speakingId === m.id ? "■ Berhenti" : "🔊 Dengar"}

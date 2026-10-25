@@ -99,18 +99,38 @@ export function pickVoice(): SpeechSynthesisVoice | null {
   return all.find((v) => FEMALE.test(v.name)) ?? all.find((v) => !/ardi|male|pria/i.test(v.name)) ?? all[0] ?? null;
 }
 
+/** The mood an answer is read in, as Claude marks it (server: astrochat/prompt.ts, splitTone). */
+export type Mood = "santai" | "antusias" | "menenangkan" | "tegas" | "lembut";
+
 /**
- * How a sentence is said, so the voice isn't flat: a question rises, an exclamation is brisker, a
- * caution ("tapi", "hati-hati") slower and lower, and the rest varies a little sentence to sentence.
+ * Each mood's voice, after the pairing of user states with speech in the voice-agent notes the user
+ * gave: excited is matched (higher, faster); anxious is calmed (slower, softer, longer breaths); annoyed
+ * gets it straight (slower, falling, no rising questions); tired or sad gets it gently (softest, longest
+ * pauses). `pause` is the breath between sentences (ms); questions rise by `lift`.
  */
-export function toneOf(sentence: string, i: number): { rate: number; pitch: number } {
+export const MOODS: Record<Mood, { rate: number; pitch: number; volume: number; pause: number; lift: number }> = {
+  santai: { rate: 1.04, pitch: 1.02, volume: 1, pause: 140, lift: 0.12 },
+  antusias: { rate: 1.12, pitch: 1.12, volume: 1, pause: 60, lift: 0.16 },
+  menenangkan: { rate: 0.94, pitch: 0.98, volume: 0.85, pause: 380, lift: 0.06 },
+  tegas: { rate: 0.95, pitch: 0.94, volume: 1, pause: 220, lift: 0 },
+  lembut: { rate: 0.92, pitch: 0.97, volume: 0.8, pause: 480, lift: 0.05 },
+};
+
+/**
+ * How a sentence is said in a mood, so the voice isn't flat: a question rises, an exclamation is
+ * brisker, a caution ("tapi", "hati-hati") slower and lower, "nah"/"jadi" lighter, and the rest
+ * sways a little from sentence to sentence.
+ */
+export function toneOf(sentence: string, i: number, mood: Mood = "santai"): { rate: number; pitch: number; volume: number } {
+  const m = MOODS[mood] ?? MOODS.santai;
   const s = sentence.trim();
-  if (/\?["')]*$/.test(s)) return { rate: 1.02, pitch: 1.14 };
-  if (/!["')]*$/.test(s)) return { rate: 1.1, pitch: 1.1 };
-  if (/^(tapi|namun|hati-hati|awas|ingat|sayangnya|risikonya)\b/i.test(s)) return { rate: 0.96, pitch: 0.95 };
-  if (/^(nah|jadi|oke|intinya|singkatnya)\b/i.test(s)) return { rate: 1.06, pitch: 1.06 };
+  const at = (dr: number, dp: number) => ({ rate: +(m.rate + dr).toFixed(3), pitch: +(m.pitch + dp).toFixed(3), volume: m.volume });
+  if (/\?["')]*$/.test(s)) return at(-0.02, m.lift);
+  if (/!["')]*$/.test(s)) return at(0.06, 0.08);
+  if (/^(tapi|namun|hati-hati|awas|ingat|sayangnya|risikonya)\b/i.test(s)) return at(-0.08, -0.07);
+  if (/^(nah|jadi|oke|intinya|singkatnya)\b/i.test(s)) return at(0.02, 0.04);
   const sway = [0, 0.04, -0.02, 0.02][i % 4];
-  return { rate: 1.04 + sway / 2, pitch: 1.02 + sway };
+  return at(sway / 2, sway);
 }
 
 // Which message is being read, for its button; kept outside React so every message sees it.
@@ -123,43 +143,46 @@ const subscribe = (l: () => void) => {
 };
 export const useSpeakingId = () => useSyncExternalStore(subscribe, () => speakingId, () => null);
 
-/** Reads a message out (stopping whatever was being read); `id` marks it as the one playing. */
-export function speak(text: string, id: string | null = null): void {
+/** Bumped by each new reading and by stop, so a pause's timer from an older one does nothing. */
+let reading = 0;
+
+/** Reads a message out in its mood (stopping whatever was being read); `id` marks it as the one playing. */
+export function speak(text: string, id: string | null = null, mood: Mood = "santai"): void {
   if (!canSpeak()) return;
   const synth = window.speechSynthesis;
   synth.cancel();
   const voice = pickVoice();
-  // Sentence by sentence (short ones together), each in its own tone.
+  // Sentence by sentence (fragments joined), each in its own tone, a breath between them.
   const parts = chunks(toSpeech(text), 140);
   if (!parts.length) return;
+  const run = ++reading;
   speakingId = id;
   changed();
-  parts.forEach((p, i) => {
-    const u = new SpeechSynthesisUtterance(p);
+  const done = () => {
+    if (run === reading && speakingId === id) {
+      speakingId = null;
+      changed();
+    }
+  };
+  const say = (i: number) => {
+    if (run !== reading) return;
+    if (i >= parts.length) return done();
+    const u = new SpeechSynthesisUtterance(parts[i]);
     u.lang = voice?.lang ?? LANG;
     if (voice) u.voice = voice;
-    const tone = toneOf(p, i);
+    const tone = toneOf(parts[i], i, mood);
     u.rate = tone.rate;
     u.pitch = tone.pitch;
-    if (i === parts.length - 1) {
-      u.onend = () => {
-        if (speakingId === id) {
-          speakingId = null;
-          changed();
-        }
-      };
-    }
-    u.onerror = () => {
-      if (speakingId === id) {
-        speakingId = null;
-        changed();
-      }
-    };
+    u.volume = tone.volume;
+    u.onend = () => window.setTimeout(() => say(i + 1), MOODS[mood]?.pause ?? 140);
+    u.onerror = done;
     synth.speak(u);
-  });
+  };
+  say(0);
 }
 
 export function stopSpeaking(): void {
+  reading++;
   if (canSpeak()) window.speechSynthesis.cancel();
   speakingId = null;
   changed();
