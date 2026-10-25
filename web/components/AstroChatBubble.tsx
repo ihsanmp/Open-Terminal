@@ -2,10 +2,12 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DEFAULT_PANEL, fitSize, resized, type Edges, type Size } from "../lib/astro-chat/panel-size";
 
 // The Astro chat as a small floating bubble over every page: dragged anywhere (kept where it's
 // left), clicked open into a compact portrait panel beside it, on the side with room, so the data
-// underneath stays in sight. The panel moves by its header too. What it shows (the chat, the
+// underneath stays in sight. The panel moves by its header too, and is resized by its edges and
+// corners; the size last chosen is kept and the panel opens at it. What it shows (the chat, the
 // planets, the prices) is loaded the first time it opens.
 
 const ChatPanel = dynamic(() => import("./AstroChatPanel"), { ssr: false, loading: () => <div className="p-3 dim text-fs-11">Memuat asisten…</div> });
@@ -14,6 +16,7 @@ type Pos = { x: number; y: number };
 const SIZE = 52;
 const MARGIN = 8;
 const BUBBLE_KEY = "ot-astro-bubble";
+const PANEL_SIZE_KEY = "ot-astro-panel-size";
 
 const read = (key: string): Pos | null => {
   try {
@@ -23,7 +26,15 @@ const read = (key: string): Pos | null => {
     return null;
   }
 };
-const write = (key: string, p: Pos) => {
+const readSize = (): Size | null => {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(PANEL_SIZE_KEY) ?? "null");
+    return v && Number.isFinite(v.w) && Number.isFinite(v.h) ? { w: v.w, h: v.h } : null;
+  } catch {
+    return null;
+  }
+};
+const write = (key: string, p: Pos | Size) => {
   try {
     window.localStorage.setItem(key, JSON.stringify(p));
   } catch {
@@ -35,16 +46,26 @@ const clamp = (p: Pos, w: number, h: number): Pos => ({
   y: Math.min(Math.max(MARGIN, p.y), window.innerHeight - h - MARGIN),
 });
 
-/** The panel's size: portrait, and never more than the window leaves room for. */
-const panelSize = () => ({ w: Math.min(360, window.innerWidth - 2 * MARGIN), h: Math.min(560, window.innerHeight - 2 * MARGIN) });
+const viewSize = (): Size => ({ w: window.innerWidth, h: window.innerHeight });
 
 /** Where the panel opens: beside the bubble on the side with more room, its bottom level with the bubble's. */
-function panelBeside(b: Pos): Pos {
-  const { w, h } = panelSize();
+function panelBeside(b: Pos, { w, h }: Size): Pos {
   const right = b.x + SIZE / 2 > window.innerWidth / 2;
   const x = right ? b.x - w - MARGIN : b.x + SIZE + MARGIN;
   return clamp({ x, y: b.y + SIZE - h }, w, h);
 }
+
+/** The panel's resize handles: each edge, and each corner for both at once. */
+const HANDLES: Array<[Edges, string, string]> = [
+  [{ l: true }, "left-0 top-3 bottom-3 w-1.5 cursor-ew-resize", "kiri"],
+  [{ r: true }, "right-0 top-3 bottom-3 w-1.5 cursor-ew-resize", "kanan"],
+  [{ t: true }, "top-0 left-3 right-3 h-1.5 cursor-ns-resize", "atas"],
+  [{ b: true }, "bottom-0 left-3 right-3 h-1.5 cursor-ns-resize", "bawah"],
+  [{ l: true, t: true }, "left-0 top-0 w-3 h-3 cursor-nwse-resize", "kiri atas"],
+  [{ r: true, t: true }, "right-0 top-0 w-3 h-3 cursor-nesw-resize", "kanan atas"],
+  [{ l: true, b: true }, "left-0 bottom-0 w-3 h-3 cursor-nesw-resize", "kiri bawah"],
+  [{ r: true, b: true }, "right-0 bottom-0 w-3 h-3 cursor-nwse-resize", "kanan bawah"],
+];
 
 function Face() {
   // A gold rounded diamond with a smile.
@@ -69,6 +90,12 @@ export default function AstroChatBubble() {
   const [bubble, setBubble] = useState<Pos>(() => clamp(read(BUBBLE_KEY) ?? { x: window.innerWidth - SIZE - 24, y: window.innerHeight - SIZE - 96 }, SIZE, SIZE));
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState<Pos | null>(null);
+  // The size chosen last (kept across sessions), fitted to the window as it is now.
+  const [wanted, setWanted] = useState<Size>(() => readSize() ?? DEFAULT_PANEL);
+  const size = fitSize(wanted, viewSize());
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
+  const resizing = useRef<{ edges: Edges; start: Pos; rect: Pos & Size } | null>(null);
   const [loaded, setLoaded] = useState(false);
   const drag = useRef<{ kind: "bubble" | "panel"; start: Pos; bubbleAt: Pos; panelAt: Pos | null; moved: boolean } | null>(null);
 
@@ -76,7 +103,7 @@ export default function AstroChatBubble() {
   useEffect(() => {
     const onResize = () => {
       setBubble((b) => clamp(b, SIZE, SIZE));
-      setPanel((p) => (p ? clamp(p, panelSize().w, panelSize().h) : p));
+      setPanel((p) => (p ? clamp(p, sizeRef.current.w, sizeRef.current.h) : p));
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
@@ -85,7 +112,7 @@ export default function AstroChatBubble() {
   const toggle = useCallback(() => {
     setOpen((o) => {
       if (!o) {
-        setPanel(panelBeside(bubble));
+        setPanel(panelBeside(bubble, sizeRef.current));
         setLoaded(true);
       }
       return !o;
@@ -109,10 +136,9 @@ export default function AstroChatBubble() {
     if (d.kind === "bubble") {
       const b = clamp({ x: d.bubbleAt.x + dx, y: d.bubbleAt.y + dy }, SIZE, SIZE);
       setBubble(b);
-      if (open) setPanel(panelBeside(b));
+      if (open) setPanel(panelBeside(b, size));
     } else if (d.panelAt) {
-      const { w, h } = panelSize();
-      const p = clamp({ x: d.panelAt.x + dx, y: d.panelAt.y + dy }, w, h);
+      const p = clamp({ x: d.panelAt.x + dx, y: d.panelAt.y + dy }, size.w, size.h);
       setPanel(p);
       setBubble(clamp({ x: d.bubbleAt.x + (p.x - d.panelAt.x), y: d.bubbleAt.y + (p.y - d.panelAt.y) }, SIZE, SIZE));
     }
@@ -125,7 +151,26 @@ export default function AstroChatBubble() {
     else if (d.kind === "bubble") toggle();
   };
 
-  const size = panelSize();
+  // Resizing by an edge or a corner; the size is kept when the pointer lets go.
+  const resizeDown = (edges: Edges) => (e: React.PointerEvent) => {
+    if (e.button !== 0 || !panel) return;
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    resizing.current = { edges, start: { x: e.clientX, y: e.clientY }, rect: { ...panel, ...size } };
+  };
+  const resizeMove = (e: React.PointerEvent) => {
+    const r = resizing.current;
+    if (!r) return;
+    const next = resized(r.rect, r.edges, e.clientX - r.start.x, e.clientY - r.start.y, viewSize());
+    setPanel({ x: next.x, y: next.y });
+    setWanted({ w: next.w, h: next.h });
+  };
+  const resizeUp = () => {
+    if (!resizing.current) return;
+    resizing.current = null;
+    setWanted((s) => (write(PANEL_SIZE_KEY, s), s));
+  };
+
   return (
     <>
       {open && panel && (
@@ -156,6 +201,18 @@ export default function AstroChatBubble() {
           </div>
           {loaded && <ChatPanel />}
           <div className="text-fs-9 dim text-center pb-1">Dihitung dari data aplikasi, bukan saran investasi.</div>
+          {HANDLES.map(([edges, cls, label]) => (
+            <div
+              key={label}
+              className={`absolute z-30 touch-none ${cls}`}
+              onPointerDown={resizeDown(edges)}
+              onPointerMove={resizeMove}
+              onPointerUp={resizeUp}
+              onPointerCancel={resizeUp}
+              title="Seret untuk mengubah ukuran (ukurannya diingat)"
+              aria-label={`Ubah ukuran dari ${label}`}
+            />
+          ))}
         </div>
       )}
       <button
