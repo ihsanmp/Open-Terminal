@@ -11,6 +11,7 @@ out/
 # Database
 data/*.db*
 data/.api-key
+data/.elevenlabs-key
 
 # Desktop app runtime files
 data/logs/

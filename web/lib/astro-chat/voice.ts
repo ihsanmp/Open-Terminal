@@ -148,6 +148,16 @@ let reading = 0;
 
 /** Reads a message out in its mood (stopping whatever was being read); `id` marks it as the one playing. */
 export function speak(text: string, id: string | null = null, mood: Mood = "santai"): void {
+  stopAudio();
+  if (elevenOn()) {
+    speakEleven(text, id, mood);
+    return;
+  }
+  speakBrowser(text, id, mood);
+}
+
+/** The browser's own voice (Edge: Gadis): the one used without ElevenLabs, and when it fails. */
+function speakBrowser(text: string, id: string | null, mood: Mood, keepRun = false): void {
   if (!canSpeak()) return;
   const synth = window.speechSynthesis;
   synth.cancel();
@@ -155,7 +165,7 @@ export function speak(text: string, id: string | null = null, mood: Mood = "sant
   // Sentence by sentence (fragments joined), each in its own tone, a breath between them.
   const parts = chunks(toSpeech(text), 140);
   if (!parts.length) return;
-  const run = ++reading;
+  const run = keepRun ? reading : ++reading;
   speakingId = id;
   changed();
   const done = () => {
@@ -183,6 +193,7 @@ export function speak(text: string, id: string | null = null, mood: Mood = "sant
 
 export function stopSpeaking(): void {
   reading++;
+  stopAudio();
   if (canSpeak()) window.speechSynthesis.cancel();
   speakingId = null;
   changed();
@@ -288,4 +299,113 @@ export function usePref(key: string, fallback: boolean): boolean {
 export function setPref(key: string, on: boolean): void {
   write(key, on ? "1" : "0");
   changed();
+}
+
+// ---------------------------------------------------------------- ElevenLabs (the assistant's own voice)
+
+export type ElevenState = { configured: boolean; fromEnv: boolean; voiceId: string; model: string };
+let eleven: ElevenState | null = null;
+/** Why the last answer wasn't read in the ElevenLabs voice (then Gadis read it), for the chat to say. */
+let elevenIssue: string | null = null;
+
+/** Asks the server whether ElevenLabs is set up (after a key is saved or removed, again). */
+export async function refreshEleven(): Promise<ElevenState | null> {
+  try {
+    const r = await fetch("/api/astro-voice");
+    eleven = r.ok ? ((await r.json()) as ElevenState) : null;
+  } catch {
+    eleven = null;
+  }
+  changed();
+  return eleven;
+}
+export const useEleven = () => useSyncExternalStore(subscribe, () => eleven, () => null);
+export const useElevenIssue = () => useSyncExternalStore(subscribe, () => elevenIssue, () => null);
+/** The ElevenLabs voice is used when it's set up and its switch in the ✦ Claude menu is on. */
+const elevenOn = () => Boolean(eleven?.configured) && read("astroEleven") !== "0";
+
+/** An answer in pieces of a few sentences, so the first is heard while the next is made. */
+export function elevenPieces(text: string): string[] {
+  const sentences = chunks(text, 400, 0);
+  const out: string[] = [];
+  let cur = "";
+  for (const s of sentences) {
+    // The first piece short (heard sooner), the rest up to ~400 characters.
+    const max = out.length === 0 ? 160 : 400;
+    if (cur && cur.length + s.length + 1 > max) {
+      out.push(cur);
+      cur = s;
+    } else cur = cur ? `${cur} ${s}` : s;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+let audio: HTMLAudioElement | null = null;
+const urls: string[] = [];
+function stopAudio(): void {
+  if (audio) {
+    audio.onended = null;
+    audio.onerror = null;
+    audio.pause();
+    audio = null;
+  }
+  while (urls.length) URL.revokeObjectURL(urls.pop()!);
+}
+
+async function fetchSpeech(text: string, mood: Mood): Promise<string> {
+  const r = await fetch("/api/astro-voice/speech", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, tone: mood }) });
+  if (!r.ok) {
+    let msg = `suara ElevenLabs gagal (${r.status})`;
+    try {
+      msg = ((await r.json()) as { error?: string }).error ?? msg;
+    } catch {
+      // not JSON
+    }
+    throw new Error(msg);
+  }
+  const url = URL.createObjectURL(await r.blob());
+  urls.push(url);
+  return url;
+}
+
+function speakEleven(text: string, id: string | null, mood: Mood): void {
+  const parts = elevenPieces(toSpeech(text));
+  if (!parts.length) return;
+  const run = ++reading;
+  speakingId = id;
+  elevenIssue = null;
+  changed();
+  // Each piece is made while the one before it plays, and played as soon as it's in and its turn comes.
+  const pending = parts.map(() => null as Promise<string> | null);
+  const want = (i: number) => (pending[i] ??= fetchSpeech(parts[i], mood));
+  const finish = () => {
+    if (run === reading && speakingId === id) {
+      speakingId = null;
+      changed();
+    }
+  };
+  const play = async (i: number) => {
+    if (run !== reading) return;
+    if (i >= parts.length) return finish();
+    if (i + 1 < parts.length) void want(i + 1).catch(() => undefined);
+    let url: string;
+    try {
+      url = await want(i);
+    } catch (err) {
+      if (run !== reading) return;
+      // The rest in the browser's voice, and why.
+      elevenIssue = `${err instanceof Error ? err.message : String(err)} Dibacakan dengan suara cadangan (Gadis).`;
+      changed();
+      speakBrowser(parts.slice(i).join(" "), id, mood, true);
+      return;
+    }
+    if (run !== reading) return;
+    const a = new Audio(url);
+    audio = a;
+    a.onended = () => play(i + 1);
+    a.onerror = () => play(i + 1);
+    a.play().catch(() => play(i + 1));
+  };
+  void play(0);
 }

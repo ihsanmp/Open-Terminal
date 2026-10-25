@@ -7,7 +7,7 @@ import { chatEnv } from "../../lib/astro-chat/env";
 import type { QuantForecast } from "../../lib/quant";
 import { apiGet, apiPost } from "../../lib/api";
 import { lookAtScreen, NO_PICTURE, wantsScreen } from "../../lib/astro-chat/screen";
-import { canListen, canSpeak, listen, setPref, setVoiceReply, speak, stopSpeaking, usePref, useSpeakingId, useVoiceReply, type Mood } from "../../lib/astro-chat/voice";
+import { canListen, canSpeak, listen, refreshEleven, setPref, setVoiceReply, speak, stopSpeaking, useEleven, useElevenIssue, usePref, useSpeakingId, useVoiceReply, type Mood } from "../../lib/astro-chat/voice";
 
 // The Astro Calendar's chat (offline: lib/astro-chat), in the floating bubble's panel
 // (AstroChatBubble). A reply to one of its messages carries on from that message's thread (its asset,
@@ -130,6 +130,9 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
   const stopListening = useRef<(() => void) | null>(null);
   const [hasVoice, setHasVoice] = useState({ speak: false, listen: false });
   useEffect(() => setHasVoice({ speak: canSpeak(), listen: canListen() }), []);
+  // Whether the assistant's own ElevenLabs voice is set up; why it last fell back to Gadis.
+  useEffect(() => void refreshEleven(), []);
+  const elevenIssue = useElevenIssue();
   const box = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const env = useMemo(() => chatEnv(events, forecast), [events, forecast]);
@@ -293,6 +296,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
                   </span>
                 </label>
               ))}
+              {hasVoice.speak && <ElevenSettings />}
             </div>
           )}
         </div>
@@ -389,6 +393,9 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
             </button>
           </div>
         )}
+        {elevenIssue && voiceReply && (
+          <div className="px-2.5 pt-1.5 text-fs-10 text-[#e0a050]">{elevenIssue}</div>
+        )}
         {voiceError && (
           <div className="flex items-center gap-2 px-2.5 pt-1.5 text-fs-10 text-[#e0a050]">
             <span className="flex-1">{voiceError}</span>
@@ -429,6 +436,77 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The ✦ Claude menu's ElevenLabs part: the switch, the key (kept on the server, never shown) and the voice. */
+function ElevenSettings() {
+  const el = useEleven();
+  const on = usePref("astroEleven", true);
+  const [key, setKey] = useState("");
+  const [voiceId, setVoiceId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const save = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await apiPost<{ name: string; voiceId: string }>("/api/astro-voice", { key: key.trim() || undefined, voiceId: voiceId.trim() || el?.voiceId });
+      setKey("");
+      setVoiceId("");
+      setMsg({ ok: true, text: `Tersimpan: suara "${r.name}".` });
+      await refreshEleven();
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const forget = async () => {
+    await fetch("/api/astro-voice/key", { method: "DELETE" });
+    setMsg({ ok: true, text: "API key dihapus dari komputer ini." });
+    await refreshEleven();
+  };
+  return (
+    <div className="border-t border-[var(--border)] mt-1 pt-1.5 px-1.5 flex flex-col gap-1">
+      <label className={`flex items-start gap-2 py-0.5 ${el?.configured ? "cursor-pointer" : "opacity-60"}`}>
+        <input type="checkbox" className="mt-0.5" checked={Boolean(el?.configured) && on} disabled={!el?.configured} onChange={(e) => setPref("astroEleven", e.target.checked)} />
+        <span>
+          <span className="text-[var(--text)]">🎙 Suara sendiri (ElevenLabs)</span>
+          <span className="block dim text-fs-9 leading-snug">
+            {el?.configured ? `Aktif · voice ${el.voiceId} · ${el.model}. Kalau gagal (kuota habis, offline), dibacakan Gadis.` : "Belum terpasang: tempel API key ElevenLabs di bawah."}
+          </span>
+        </span>
+      </label>
+      {!el?.fromEnv && (
+        <input
+          type="password"
+          autoComplete="off"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          placeholder={el?.configured ? "API key baru (kosongkan bila tetap)" : "API key ElevenLabs (sk_…)"}
+          className="w-full text-fs-10 !py-0.5"
+        />
+      )}
+      <input value={voiceId} onChange={(e) => setVoiceId(e.target.value)} placeholder={`Voice ID (${el?.voiceId ?? "…"})`} spellCheck={false} className="w-full text-fs-10 !py-0.5" />
+      <div className="flex flex-wrap gap-1">
+        <button className="term-btn !text-fs-10" disabled={busy || (!key.trim() && !voiceId.trim())} onClick={save}>
+          {busy ? "Memeriksa…" : "Simpan"}
+        </button>
+        {el?.configured && (
+          <button className="term-btn !text-fs-10" onClick={() => speak("Hai! Aku di sini, siap nemenin kamu lihat chart hari ini. Mau mulai dari mana?", null, "antusias")}>
+            ▶ Coba suara
+          </button>
+        )}
+        {el?.configured && !el.fromEnv && (
+          <button className="term-btn !text-fs-10" onClick={forget} title="Hapus API key dari komputer ini">
+            Hapus key
+          </button>
+        )}
+      </div>
+      {msg && <div className={`text-fs-9 ${msg.ok ? "up" : "down"}`}>{msg.text}</div>}
+      <div className="dim text-fs-9 leading-snug">Key disimpan di server aplikasi di komputer ini, tidak ditampilkan lagi. Setiap jawaban yang dibacakan memakai kuota karakter ElevenLabs.</div>
     </div>
   );
 }
