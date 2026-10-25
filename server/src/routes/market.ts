@@ -31,6 +31,7 @@ import * as newcoins from "../providers/newcoins.js";
 import { futuresTickers } from "../providers/futures.js";
 import * as moneyflow from "../providers/moneyflow.js";
 import * as transfers from "../providers/transfers.js";
+import { alertAssets, pickAlerts } from "../providers/whalealerts.js";
 import * as newsArchive from "../news/archive.js";
 import * as tvquotes from "../live/tvquotes.js";
 import * as fedwatch from "../providers/fedwatch.js";
@@ -991,6 +992,24 @@ marketRouter.get("/transfers/:symbol", async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
   try {
     res.json(await cached(`transfers:${symbol}`, 15_000, () => transfers.transfersOf(symbol, cryptoBase(symbol), onBinance)));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// The whales' and institutions' buys and sells of the chart's pair, for its pop-ups (providers/whalealerts.ts).
+marketRouter.get("/whale-alerts", async (req, res) => {
+  const symbol = String(req.query.symbol ?? "").trim().toUpperCase();
+  if (!symbol) return res.status(400).json({ error: "symbol required" });
+  try {
+    const assets = alertAssets(symbol);
+    const byAsset = await Promise.all(
+      assets.map(async (asset) => {
+        const t = await cached(`transfers:${asset}`, 15_000, () => transfers.transfersOf(asset, cryptoBase(asset), onBinance)).catch(() => null);
+        return { asset: cryptoBase(asset) ?? asset, rows: t?.rows ?? [] };
+      })
+    );
+    res.json({ symbol, assets: byAsset.map((a) => a.asset), alerts: pickAlerts(byAsset) });
   } catch (err) {
     fail(req, res, err);
   }

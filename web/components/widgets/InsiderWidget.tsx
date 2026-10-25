@@ -5,6 +5,7 @@ import { Fragment, useState, type ReactNode } from "react";
 import { apiDelete, apiGet, apiPost, fmt, fmtBig } from "../../lib/api";
 import { KOL_ACCOUNTS, kolOf, type KolAccount } from "../../lib/kol-list";
 import { BROAD_KEYWORDS, mentions, usePairContext } from "../../lib/pair";
+import { setPopupsOn, usePopupsOn } from "../../lib/whale-popups";
 import { usePoll } from "../../lib/refresh";
 import { useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
 
@@ -234,6 +235,7 @@ function Posts() {
   const { symbol, ctx } = usePairContext();
   const keywords = (ctx?.keywords ?? []).filter((k) => !BROAD_KEYWORDS.has(k));
   const name = pairName(symbol, ctx?.label, ctx?.kind === "crypto");
+  const popups = usePopupsOn();
   const [paste, setPaste] = useState("");
   const [pasteMsg, setPasteMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -375,6 +377,13 @@ function Posts() {
             }
           >
             🎯 Hanya {name} {data && keywords.length ? <span className="dim">({pairCount})</span> : null}
+          </button>
+          <button
+            className={`term-btn ${popups ? "active" : ""}`}
+            onClick={() => setPopupsOn(!popups)}
+            title={`Pop-up di bagian atas layar saat whale atau institusi membeli/menjual ${name}: arus ETF spot, pembelian perusahaan treasury, transaksi orang dalam (Form 4), whale on-chain, order besar di bursa. ${popups ? "Klik untuk mematikan." : "Klik untuk menyalakan."}`}
+          >
+            {popups ? "🔔" : "🔕"} Pop-up whale
           </button>
           <label className="flex items-center gap-1 cursor-pointer" title="Hanya postingan yang terbukti: dikonfirmasi media resmi, dari sumber resminya sendiri, atau transfer on-chain">
             <input type="checkbox" checked={onlyConfirmed} onChange={(e) => setOnlyConfirmed(e.target.checked)} /> Hanya terkonfirmasi

@@ -11,6 +11,7 @@ import { hubOf, hubTab, isHub, pageFor } from "../lib/menu";
 import Workspace from "./Workspace";
 import CommandPalette from "./CommandPalette";
 import AstroChatBubble from "./AstroChatBubble";
+import WhaleToasts from "./WhaleToasts";
 import { followOtherWindows, useTerminal, type View, type WidgetType } from "../store/terminal";
 import { startWorkspaceBackup } from "../store/workspace-backup";
 
@@ -128,6 +129,7 @@ export default function Terminal() {
       <CommandPalette />
       {/* The Astro chat, floating over every page. */}
       <AstroChatBubble />
+      <WhaleToasts />
     </div>
   );
 }
