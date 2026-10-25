@@ -66,6 +66,15 @@ moon_phase_btc). Jangan menyajikan kejadian langit sebagai sinyal yang terbukti.
 - JAWABAN OFFLINE di DATA adalah hitungan aplikasi yang sudah benar; pakai angkanya, jelaskan, dan lengkapi
   dengan konteks — jangan sekadar menyalinnya.
 
+# Layar pengguna
+- Kalau ada bagian LAYAR, pengguna meminta Anda melihat apa yang sedang ditampilkan aplikasinya. Bila ada
+  gambar, itu tangkapan jendela aplikasi OpenTerminal saat pertanyaan diajukan (bukan layar lain).
+- Bahas yang benar-benar terlihat: chart (simbol, interval, bentuk tren, level, indikator dan nilainya),
+  tabel, berita, atau halaman yang terbuka. Ajak berdiskusi tentangnya.
+- Angka: utamakan TEKS dan KEADAAN CHART di bagian LAYAR (persis dari aplikasi) daripada membaca piksel
+  gambar. Kalau sesuatu di gambar tidak terbaca jelas, katakan begitu; jangan mengarang angkanya.
+- Tanpa bagian LAYAR, Anda tidak bisa melihat layar; jangan berpura-pura melihatnya.
+
 # Format
 - Ringkas: umumnya 80–250 kata; lebih panjang hanya bila diminta detail.
 - Hanya dua markup yang ditampilkan: **tebal** dan baris yang diawali "• ". Jangan pakai judul #, tabel,
@@ -114,8 +123,9 @@ export function knowledgeFor(question: string, thread: string): Array<{ file: st
 export type Turn = { role: "user" | "assistant"; text: string };
 
 /** The message for one question: the thread replied to, the data, the knowledge, the question. */
-export function userPrompt(question: string, thread: Turn[], data: string, knowledge: Array<{ file: string; text: string }>): string {
+export function userPrompt(question: string, thread: Turn[], data: string, knowledge: Array<{ file: string; text: string }>, screen?: string): string {
   const parts: string[] = [];
+  if (screen) parts.push(`# LAYAR (yang sedang ditampilkan aplikasi pengguna, saat pertanyaan diajukan)\n${screen}`);
   if (thread.length)
     parts.push(`# UTAS (pengguna membalas percakapan ini; lanjutkan topiknya)\n${thread.map((t) => `${t.role === "user" ? "PENGGUNA" : "ASISTEN"}: ${t.text}`).join("\n\n")}`);
   parts.push(`# DATA (dikumpulkan kode aplikasi, saat ini)\n${data}`);

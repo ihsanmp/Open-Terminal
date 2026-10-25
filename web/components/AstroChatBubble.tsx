@@ -134,6 +134,7 @@ export default function AstroChatBubble() {
           style={{ left: panel.x, top: panel.y, width: size.w, height: size.h }}
           role="dialog"
           aria-label="Asisten Astro"
+          data-no-screen
         >
           <div
             className="flex items-center gap-2 px-3 py-2 cursor-move select-none border-b border-[var(--border)]"
@@ -172,6 +173,7 @@ export default function AstroChatBubble() {
         title="Asisten Astro: klik untuk bertanya, seret untuk memindah"
         aria-label="Buka Asisten Astro"
         aria-expanded={open}
+        data-no-screen
       >
         <Face />
       </button>

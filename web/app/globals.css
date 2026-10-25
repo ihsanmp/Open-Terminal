@@ -237,3 +237,9 @@ a.term-btn:hover {
 }
 .wg-article th,
 .wg-article td { border: 1px solid var(--border); padding: 2px 6px; }
+
+/* The assistant's own panel and bubble, hidden for the moment its look at the screen is taken
+   (lib/astro-chat/screen.ts), so the picture shows the app under them. */
+.ot-capturing [data-no-screen] {
+  visibility: hidden !important;
+}

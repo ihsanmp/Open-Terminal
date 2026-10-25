@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { cliArgs, parseOutput } from "./claude.js";
+import { cliArgs, imageMessage, parseOutput } from "./claude.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { knowledgeFor, modelFor, systemPrompt, userPrompt } from "./prompt.js";
 
 describe("the Astro chat's prompt", () => {
@@ -48,5 +51,26 @@ describe("the Claude Code CLI", () => {
     expect(parseOutput('{"type":"result","result":"Halo!","is_error":false,"total_cost_usd":0.001,"modelUsage":{"claude-sonnet-5-5":{}}}')).toEqual({ text: "Halo!", model: "claude-sonnet-5-5", costUsd: 0.001, error: null });
     expect(parseOutput('{"result":"Not logged in · Please run /login","is_error":true}').error).toMatch(/login/);
     expect(parseOutput("").error).toBeTruthy();
+  });
+
+  it("asks with a picture of the screen as one stream-json message, and reads its result", () => {
+    expect(cliArgs("sys.md", "sonnet", true)).toEqual(expect.arrayContaining(["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"]));
+    expect(cliArgs("sys.md", "sonnet")).not.toContain("stream-json");
+    const dir = mkdtempSync(join(tmpdir(), "astro-"));
+    const png = join(dir, "s.png");
+    writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const msg = JSON.parse(imageMessage("Apa yang terlihat?", [png]));
+    expect(msg.type).toBe("user");
+    expect(msg.message.content[0]).toMatchObject({ type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw==" } });
+    expect(msg.message.content[1]).toEqual({ type: "text", text: "Apa yang terlihat?" });
+    // stream-json answers with several messages: the result is read, whatever follows it.
+    const out = ['{"type":"system","subtype":"init"}', '{"type":"assistant","message":{}}', '{"type":"result","result":"Chart SOL/BTC.","is_error":false,"total_cost_usd":0.002,"modelUsage":{"claude-sonnet-5-5":{}}}', '{"type":"telemetry","x":1}'].join("\n");
+    expect(parseOutput(out)).toMatchObject({ text: "Chart SOL/BTC.", model: "claude-sonnet-5-5", error: null });
+  });
+
+  it("puts the screen first in the question when there is one", () => {
+    const q = userPrompt("lihat layar", [], "data", [], "Jendela: Chart — OpenTerminal");
+    expect(q.indexOf("# LAYAR")).toBeLessThan(q.indexOf("# DATA"));
+    expect(userPrompt("halo", [], "data", [])).not.toContain("# LAYAR");
   });
 });

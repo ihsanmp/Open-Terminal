@@ -6,6 +6,7 @@ import { respond, type Context } from "../../lib/astro-chat/answer";
 import { chatEnv } from "../../lib/astro-chat/env";
 import type { QuantForecast } from "../../lib/quant";
 import { apiGet, apiPost } from "../../lib/api";
+import { lookAtScreen, NO_PICTURE, wantsScreen } from "../../lib/astro-chat/screen";
 
 // The Astro Calendar's chat (offline: lib/astro-chat), in the floating bubble's panel
 // (AstroChatBubble). A reply to one of its messages carries on from that message's thread (its asset,
@@ -24,6 +25,8 @@ export type Msg = {
   model?: string;
   ms?: number;
   note?: string;
+  /** Asked with a look at the screen (lib/astro-chat/screen.ts); for an answer, whether it had the picture. */
+  screen?: "picture" | "text";
 };
 type Engine = "online" | "offline";
 const ENGINE_KEY = "ot-astro-engine";
@@ -103,6 +106,9 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
   const [input, setInput] = useState("");
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // 👁: the next question goes with a look at the screen (also when it asks about the screen itself).
+  const [look, setLook] = useState(false);
+  const [looking, setLooking] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const env = useMemo(() => chatEnv(events, forecast), [events, forecast]);
@@ -145,10 +151,12 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
     if (!q || busy) return;
     const target = byId(reply);
     const thread = threadOf(target);
-    const user: Msg = { id: newId(), role: "user", text: q, replyTo: target?.id };
+    const withScreen = online && (look || wantsScreen(q));
+    const user: Msg = { id: newId(), role: "user", text: q, replyTo: target?.id, screen: withScreen ? "picture" : undefined };
     setBusy(true);
     setInput("");
     setReplyTo(null);
+    setLook(false);
     update((prev) => [...(prev.length ? prev : [WELCOME]), user]);
     // The offline answer first (after the question shows: some read decades of prices). Online, it
     // goes to Claude as the app's own numbers, with the thread replied to; if Claude can't answer,
@@ -167,8 +175,23 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
       let bot: Msg;
       if (online) {
         try {
-          const c = await apiPost<{ text: string; model: string; ms: number }>("/api/astro-chat", { question: q, thread, offline: r?.text ?? "" });
-          bot = { id: newId(), role: "bot", text: c.text, ctx: r?.ctx, suggestions: r?.suggestions, replyTo: user.id, engine: "claude", model: c.model, ms: c.ms };
+          setLooking(withScreen);
+          const screen = withScreen ? await lookAtScreen() : null;
+          setLooking(false);
+          const c = await apiPost<{ text: string; model: string; ms: number }>("/api/astro-chat", { question: q, thread, offline: r?.text ?? "", screen });
+          bot = {
+            id: newId(),
+            role: "bot",
+            text: c.text,
+            ctx: r?.ctx,
+            suggestions: r?.suggestions,
+            replyTo: user.id,
+            engine: "claude",
+            model: c.model,
+            ms: c.ms,
+            screen: screen ? (screen.shot ? "picture" : "text") : undefined,
+            note: screen && !screen.shot ? NO_PICTURE[screen.reason] ?? NO_PICTURE.failed : undefined,
+          };
         } catch (err) {
           bot = offlineMsg(`Claude tidak menjawab (${err instanceof Error ? err.message : String(err)}); ini jawaban offline.`);
         }
@@ -215,9 +238,11 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
               <div className={`rounded-xl px-3 py-2 leading-relaxed text-fs-11 ${isUser ? "bg-[#3b2a14] text-[#f6ead6]" : "bg-[#1a1a1a] border border-[var(--border)] text-[#d8d8d8]"}`}>
                 <Rich text={m.text} />
               </div>
+              {isUser && m.screen && <div className="text-fs-9 dim mt-0.5">👁 dengan layar</div>}
               {!isUser && m.id !== "welcome" && (m.engine || m.note) && (
                 <div className="text-fs-9 dim mt-0.5">
                   {m.engine === "claude" ? `✦ Claude ${modelName(m.model)}${m.ms ? ` · ${Math.round(m.ms / 1000)} dtk` : ""}` : "offline"}
+                  {m.screen === "picture" && <span title="Jawaban ini melihat tangkapan jendela aplikasi, teks yang tampil, dan keadaan chart"> · 👁 melihat layar</span>}
                   {m.note && <span className="text-[#e0a050]"> · {m.note}</span>}
                 </div>
               )}
@@ -256,7 +281,11 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
             </div>
           );
         })}
-        {busy && <div className="self-start dim text-fs-10">{online ? "✦ Claude sedang menyusun jawaban… (biasanya 10–40 detik)" : "Menghitung…"}</div>}
+        {busy && (
+          <div className="self-start dim text-fs-10">
+            {looking ? "👁 Melihat layar…" : online ? "✦ Claude sedang menyusun jawaban… (biasanya 10–40 detik)" : "Menghitung…"}
+          </div>
+        )}
       </div>
       <div className="border border-[var(--border)] rounded-xl bg-[var(--panel-2)] mx-2 mb-2">
         {replying && (
@@ -286,6 +315,18 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
             placeholder={replying ? "Lanjutkan topik ini… (Esc batal membalas)" : "Tanya hal baru… (↩ Balas untuk melanjutkan)"}
             className="flex-1 resize-none bg-transparent outline-none text-fs-11 px-1"
           />
+          <button
+            className={`term-btn shrink-0 ${look ? "active" : ""}`}
+            disabled={!online}
+            onClick={() => setLook((l) => !l)}
+            title={
+              online
+                ? "Lampirkan layar: Claude melihat tangkapan jendela aplikasi (panel chat ini disembunyikan sesaat), teks yang tampil, dan keadaan chart. Otomatis bila pertanyaan menyebut layar/chart ini."
+                : "Melihat layar butuh mode ✦ Claude"
+            }
+          >
+            👁 Layar
+          </button>
           <button className="term-btn active shrink-0" onClick={() => send(input, replyTo)} disabled={busy || !input.trim()}>
             Kirim
           </button>

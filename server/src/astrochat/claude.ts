@@ -5,7 +5,7 @@
 
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { dataDir } from "../db.js";
@@ -46,10 +46,12 @@ const cliPath = () => (process.env.CLAUDE_CLI || !existsSync(FALLBACK) ? CLI : F
  * file: with the knowledge it runs far past Windows' ~32 000-character command line; the question
  * goes in on stdin for the same reason).
  */
-export function cliArgs(systemFile: string, model: ClaudeModel): string[] {
+export function cliArgs(systemFile: string, model: ClaudeModel, withImages = false): string[] {
   return [
     "-p",
-    "--output-format", "json",
+    // With pictures the question goes in as a message of its own (text and images), which the CLI
+    // takes only as stream-json, and answers as stream-json (the result last).
+    ...(withImages ? ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"] : ["--output-format", "json"]),
     "--model", model,
     "--system-prompt-file", systemFile,
     "--tools", "",
@@ -63,7 +65,14 @@ export function cliArgs(systemFile: string, model: ClaudeModel): string[] {
 
 /** The answer out of the CLI's JSON (`result`), its model and cost. */
 export function parseOutput(stdout: string): { text: string; model: string | null; costUsd: number | null; error: string | null } {
-  const line = stdout.trim().split("\n").reverse().find((l) => l.startsWith("{"));
+  const lines = stdout
+    .trim()
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("{"))
+    .reverse();
+  // stream-json: the "result" message among the others; json: the one line.
+  const line = lines.find((l) => /"type"\s*:\s*"result"/.test(l)) ?? lines[0];
   if (!line) return { text: "", model: null, costUsd: null, error: stdout.trim().slice(0, 300) || "no output" };
   try {
     const j = JSON.parse(line) as { result?: string; is_error?: boolean; total_cost_usd?: number; modelUsage?: Record<string, unknown>; subtype?: string };
@@ -78,7 +87,17 @@ export function parseOutput(stdout: string): { text: string; model: string | nul
 // One question at a time: the CLI is a process each, and the account's limits are shared.
 let queue: Promise<unknown> = Promise.resolve();
 
-export function askClaude(prompt: string, system: string, model: ClaudeModel, timeoutMs = 150_000): Promise<ClaudeReply> {
+/** The question as one stream-json message: each picture (PNG files), then the text. */
+export function imageMessage(prompt: string, images: string[]): string {
+  const content = [
+    ...images.map((f) => ({ type: "image", source: { type: "base64", media_type: "image/png", data: readFileSync(f).toString("base64") } })),
+    { type: "text", text: prompt },
+  ];
+  return `${JSON.stringify({ type: "user", message: { role: "user", content } })}\n`;
+}
+
+/** `images`: pictures to look at with the question (the app's window: astrochat/screen.ts). */
+export function askClaude(prompt: string, system: string, model: ClaudeModel, timeoutMs = 150_000, images: string[] = []): Promise<ClaudeReply> {
   const run = () =>
     new Promise<ClaudeReply>((resolve, reject) => {
       if (!existsSync(cwd)) mkdirSync(cwd, { recursive: true });
@@ -86,9 +105,9 @@ export function askClaude(prompt: string, system: string, model: ClaudeModel, ti
       // The system prompt by its content's hash: the same one is written once.
       const systemFile = join(dataDir, "astro-chat", `system-${createHash("sha1").update(system).digest("hex").slice(0, 12)}.md`);
       if (!existsSync(systemFile)) writeFileSync(systemFile, system);
-      const p = spawn(cliPath(), cliArgs(systemFile, model), { cwd, windowsHide: true, shell: false, env: { ...process.env, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } });
+      const p = spawn(cliPath(), cliArgs(systemFile, model, images.length > 0), { cwd, windowsHide: true, shell: false, env: { ...process.env, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } });
       p.stdin.on("error", () => undefined);
-      p.stdin.end(prompt);
+      p.stdin.end(images.length ? imageMessage(prompt, images) : prompt);
       let out = "";
       let err = "";
       const timer = setTimeout(() => {
