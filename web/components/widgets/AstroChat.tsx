@@ -279,7 +279,14 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
             <span className="ml-1 dim">▾</span>
           </button>
           {menuOpen && online && (
-            <div className="absolute left-0 top-full mt-1 z-20 w-[250px] bg-[#1a1a1a] border border-[var(--border)] rounded-lg shadow-xl p-1.5 text-fs-11 flex flex-col gap-0.5">
+            <div
+              // As tall as the chat panel leaves room for (it clips what's below), scrolling beyond.
+              ref={(el) => {
+                const panel = el?.closest('[aria-label="Asisten Astro"]');
+                if (el && panel) el.style.maxHeight = `${Math.max(160, panel.getBoundingClientRect().bottom - el.getBoundingClientRect().top - 8)}px`;
+              }}
+              className="absolute left-0 top-full mt-1 z-20 w-[250px] overflow-y-auto bg-[#1a1a1a] border border-[var(--border)] rounded-lg shadow-xl p-1.5 text-fs-11 flex flex-col gap-0.5"
+            >
               <div className="dim text-fs-9 uppercase tracking-wider px-1.5 pb-0.5">Fitur online</div>
               {(
                 [
