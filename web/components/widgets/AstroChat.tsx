@@ -118,8 +118,18 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
   useEffect(() => {
     if (!menuOpen) return;
     const close = (e: MouseEvent) => !menuRef.current?.contains(e.target as Node) && setMenuOpen(false);
+    // Esc closes it too; caught first, so it doesn't also close the panel or cancel a reply.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setMenuOpen(false);
+    };
     window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", onKey, true);
+    };
   }, [menuOpen]);
   const [looking, setLooking] = useState(false);
   // Voice: answers read out (🔊), questions said (🎤).
