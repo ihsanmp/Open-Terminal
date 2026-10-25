@@ -43,6 +43,8 @@ export function matchCoins(coins: Coin[], query: string, limit = 6): SearchResul
 const LISTED_KINDS = new Set(["stock", "fund", "dr"]);
 /** A coin from the ranked board (matchCoins), not a token found on an exchange. */
 const RANKED_COIN = /^Crypto( #\d+)?$/;
+/** A coin among the hundred largest (matchCoins labels its rank "Crypto #N"). */
+const topCoin = (r: SearchResult) => r.type === "crypto" && Number(/^Crypto #(\d+)$/.exec(r.exchange)?.[1] ?? Infinity) <= 100;
 
 /**
  * Merge result lists (earlier lists win ties) and order them so Enter picks the
@@ -62,7 +64,11 @@ export function rankResults(lists: SearchResult[][], query: string, limit = 25):
     const sym = r.symbol.toUpperCase();
     // OANDA:EURUSD is "EURUSD" typed.
     const bare = sym.includes(":") ? sym.slice(sym.indexOf(":") + 1) : sym;
-    if (sym === needle || bare === needle || (pair && sym === coin)) return 0;
+    if (sym === needle || (pair && sym === coin)) return 0;
+    // A top coin named or tickered as typed ("bitcoin", "eth") is what's meant, before another
+    // exchange's ticker that only spells the word (BBG:BITCOIN, a Bloomberg index).
+    if (topCoin(r) && (sym === `${needle}-USD` || r.name.toUpperCase() === needle)) return 0;
+    if (bare === needle) return 0.5;
     if (sym === `${needle}-USD` || sym === `^${needle}` || r.name.toUpperCase() === needle) {
       // A token off the ranked board that only borrows the name (APPLE-USD, "Apple") goes after
       // the company it is named for; a ranked coin (Bitcoin, Solana) stays first.

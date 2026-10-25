@@ -125,4 +125,15 @@ describe("search beyond stocks", () => {
     // Asked for as a pair, the token is what was typed.
     expect(rankResults([[stock("AAPL", "Apple Inc.")], [token("APPLE-USD", "Apple", "UNISWAP3POLYGON")]], "apple-usd")[0].symbol).toBe("APPLE-USD");
   });
+
+  it("puts a top coin named as typed before another exchange's ticker spelling the word", () => {
+    const index = (symbol: string, name: string): SearchResult => ({ symbol, name, exchange: symbol.split(":")[0], type: "index" });
+    const coin = (symbol: string, name: string, rank: number): SearchResult => ({ symbol, name, exchange: `Crypto #${rank}`, type: "crypto" });
+    const bitcoin = rankResults([[index("BBG:BITCOIN", "Bloomberg Bitcoin Index")], [coin("BTC-USD", "Bitcoin", 1), coin("BITCOIN-USD", "HarryPotterObamaSonic10Inu", 806)]], "bitcoin");
+    expect(bitcoin.map((r) => r.symbol)).toEqual(["BTC-USD", "BBG:BITCOIN", "BITCOIN-USD"]);
+    // A coin far down the board doesn't jump an index that is spelled as typed.
+    expect(rankResults([[index("BBG:FOO", "Foo index")], [coin("FOO-USD", "Foo", 900)]], "foo")[0].symbol).toBe("BBG:FOO");
+    // A ticker typed exactly still wins.
+    expect(rankResults([[{ symbol: "BTC", name: "Grayscale Bitcoin Mini Trust", exchange: "AMEX", type: "fund" }], [coin("BTC-USD", "Bitcoin", 1)]], "btc")[0].symbol).toBe("BTC");
+  });
 });
