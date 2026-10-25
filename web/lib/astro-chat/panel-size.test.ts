@@ -9,6 +9,8 @@ describe("the chat panel's size", () => {
     expect(fitSize({ w: 500, h: 600 }, view)).toEqual({ w: 500, h: 600 });
     expect(fitSize({ w: 100, h: 100 }, view)).toEqual(MIN_PANEL);
     expect(fitSize({ w: 5000, h: 5000 }, view)).toEqual({ w: 1384, h: 834 });
+    // A window with no size (minimized): the least, not nothing.
+    expect(fitSize({ w: 500, h: 600 }, { w: 0, h: 0 })).toEqual(MIN_PANEL);
   });
 
   it("grows from the edge dragged, the opposite edges staying put", () => {

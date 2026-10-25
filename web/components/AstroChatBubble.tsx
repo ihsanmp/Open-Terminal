@@ -67,6 +67,15 @@ const HANDLES: Array<[Edges, string, string]> = [
   [{ r: true, b: true }, "right-0 bottom-0 w-3 h-3 cursor-nwse-resize", "kanan bawah"],
 ];
 
+/** Follows the pointer outside the element while it's held (some pens and touch screens refuse; then it doesn't). */
+const capture = (e: React.PointerEvent) => {
+  try {
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  } catch {
+    // the drag still works while the pointer stays over the element
+  }
+};
+
 function Face() {
   // A gold rounded diamond with a smile.
   return (
@@ -121,7 +130,7 @@ export default function AstroChatBubble() {
 
   const down = (kind: "bubble" | "panel") => (e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    capture(e);
     drag.current = { kind, start: { x: e.clientX, y: e.clientY }, bubbleAt: bubble, panelAt: panel, moved: false };
   };
   // The two move together: the open panel stays beside the dragged bubble (switching sides as it
@@ -155,7 +164,7 @@ export default function AstroChatBubble() {
   const resizeDown = (edges: Edges) => (e: React.PointerEvent) => {
     if (e.button !== 0 || !panel) return;
     e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    capture(e);
     resizing.current = { edges, start: { x: e.clientX, y: e.clientY }, rect: { ...panel, ...size } };
   };
   const resizeMove = (e: React.PointerEvent) => {

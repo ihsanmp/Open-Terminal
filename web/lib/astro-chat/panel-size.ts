@@ -11,10 +11,13 @@ export const DEFAULT_PANEL: Size = { w: 360, h: 560 };
 /** Smaller than this the chat, its menu and the message box don't fit. */
 export const MIN_PANEL: Size = { w: 300, h: 380 };
 
-/** The size wanted, within the least the chat needs and what the window leaves room for. */
+/**
+ * The size wanted, within what the window leaves room for and never under the least the chat
+ * needs (a window minimized or squeezed to nothing doesn't shrink it to nothing).
+ */
 export const fitSize = (s: Size, view: Size): Size => ({
-  w: Math.round(Math.min(Math.max(MIN_PANEL.w, s.w), view.w - 2 * MARGIN)),
-  h: Math.round(Math.min(Math.max(MIN_PANEL.h, s.h), view.h - 2 * MARGIN)),
+  w: Math.round(Math.max(MIN_PANEL.w, Math.min(s.w, view.w - 2 * MARGIN))),
+  h: Math.round(Math.max(MIN_PANEL.h, Math.min(s.h, view.h - 2 * MARGIN))),
 });
 
 /** Which edges a resize handle moves: left, right, top, bottom. */
