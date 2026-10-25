@@ -148,7 +148,11 @@ function shifted<T>(values: T[], offset: number, total: number, empty: T): T[] {
 /** Decimals needed to show a price series: as many as its prices are quoted in (EURUSD's five,
  *  a stock's two — TradingView's tick size), and enough for sub-cent tokens. */
 /** A view with at least one of the `count` bars in it. */
-const showsBars = (r: { from: number; to: number }, count: number) => r.to > r.from && r.from < count - 0.5 && r.to > 0.5;
+const showsBars = (r: { from: number; to: number }, count: number) => r.to > r.from && r.from < count - 0.5 && r.to > 0.5 && r.from > -count;
+/** The least bar spacing the chart allows (px); a view at it was squeezed, not chosen. */
+const MIN_BAR_SPACING = 0.01;
+/** Narrower than this the chart isn't on screen (a page that isn't shown): its view waits. */
+const MIN_VIEW_WIDTH = 50;
 
 function pricePrecision(candles: Candle[], converted = false): number {
   const recent = candles.slice(-300);
@@ -723,7 +727,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       timeScale: {
         borderColor: "#262626",
         timeVisible: intraday,
-        minBarSpacing: 0.01,
+        minBarSpacing: MIN_BAR_SPACING,
         // The vertical grid is drawn apart from the axis marks (lib/chart-grid), so the axis is free
         // to label as densely as it fits, as TradingView's does.
         uniformDistribution: false,
@@ -952,7 +956,25 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       setAxes((prev) => (prev.right === right && prev.bottom === bottom ? prev : { right, bottom }));
     };
     const raf = requestAnimationFrame(measurePanes);
-    const ro = new ResizeObserver(measurePanes);
+    // The opening view is set once the chart has its width: set while it has none (built on a page
+    // that isn't shown), the library squeezes the bars to its least spacing (0.01 px) and keeps that
+    // spacing when the chart widens, so thousands of bar slots fill the view and the chart looks blank.
+    let viewSet = false;
+    const openView = () => {
+      viewSet = true;
+      const preset = pendingPreset.current;
+      if (preset && preset.interval === interval) {
+        // A date-range button: its span, from where it starts to the latest bar.
+        pendingPreset.current = null;
+        chart.timeScale().setVisibleLogicalRange({ from: presetStart(candleTimes, preset.span) - 0.5, to: candles.length + 1 });
+      } else if (saved) chart.timeScale().setVisibleLogicalRange(saved);
+      // The latest bars in view; the rest of the loaded history sits to the left.
+      else chart.timeScale().setVisibleLogicalRange(latestBarsView(candles.length, el.clientWidth * 0.94));
+    };
+    const ro = new ResizeObserver(() => {
+      measurePanes();
+      if (!viewSet && el.clientWidth >= MIN_VIEW_WIDTH) openView();
+    });
     ro.observe(el);
 
     let lastMeasure = 0;
@@ -967,14 +989,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       }
     });
 
-    const preset = pendingPreset.current;
-    if (preset && preset.interval === interval) {
-      // A date-range button: its span, from where it starts to the latest bar.
-      pendingPreset.current = null;
-      chart.timeScale().setVisibleLogicalRange({ from: presetStart(candleTimes, preset.span) - 0.5, to: candles.length + 1 });
-    } else if (saved) chart.timeScale().setVisibleLogicalRange(saved);
-    // The latest bars in view; the rest of the loaded history sits to the left.
-    else chart.timeScale().setVisibleLogicalRange(latestBarsView(candles.length, el.clientWidth * 0.94));
+    if (el.clientWidth >= MIN_VIEW_WIDTH) openView();
 
     // ---- navigation and price scale, as on TradingView (lib/chart-nav.ts) ----
     const priceScale = chart.priceScale("right");
@@ -1227,7 +1242,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       // or scrolled past the last bar, would open the chart on blank time far ahead (and the axis,
       // stretched to reach it, would carry it further each rebuild).
       const r = chart.timeScale().getVisibleLogicalRange();
-      savedRange.current = r && el.clientWidth > 0 && showsBars(r, candles.length) ? { key: viewKey, range: r } : null;
+      const squeezed = chart.timeScale().options().barSpacing <= MIN_BAR_SPACING * 1.5;
+      savedRange.current = r && el.clientWidth >= MIN_VIEW_WIDTH && !squeezed && showsBars(r, candles.length) ? { key: viewKey, range: r } : null;
       const pr = priceScale.options().autoScale ? null : priceScale.getVisibleRange();
       savedPrice.current = pr ? { key: priceKey, range: pr } : null;
       chartRef.current = null;
