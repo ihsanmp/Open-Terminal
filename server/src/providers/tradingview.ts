@@ -268,10 +268,20 @@ export function searchRow(r: { symbol: string; description?: string; type?: stri
   return null;
 }
 
+/** A crypto exchange's spot or perpetual pair as a result (COINBASE:ZECUSD), else null. */
+export function exchangePairRow(r: { symbol: string; description?: string; type?: string; exchange?: string; prefix?: string; source_id?: string }): SearchResult | null {
+  const source = r.prefix || r.source_id;
+  if ((r.type !== "spot" && r.type !== "swap") || !source) return null;
+  const strip = (x: string) => x.replace(/<\/?em>/g, "");
+  return { symbol: `${source}:${strip(r.symbol)}`, name: strip(r.description ?? r.symbol), exchange: r.exchange ?? "", type: "crypto" };
+}
+
 export async function search(query: string, searchType?: string): Promise<SearchResult[]> {
   // "BBCA.JK": TradingView knows that listing as BBCA on IDX, and finds nothing useful for the
-  // whole string — so the code is searched on the exchange the suffix names.
-  const [code, exchange] = splitSuffixed(query) ?? [query, null];
+  // whole string — so the code is searched on the exchange the suffix names. "COINBASE:ZEC" the
+  // same way: as a whole it finds Zcash's market cap and Coinbase's stock, not Coinbase's ZEC.
+  const prefixed = splitPrefixed(query);
+  const [code, exchange] = splitSuffixed(query) ?? prefixed ?? [query, null];
   const type = searchType && SEARCH_TYPES[searchType] ? SEARCH_TYPES[searchType] : "undefined";
   const url = `https://symbol-search.tradingview.com/symbol_search/v3/?text=${encodeURIComponent(
     code
@@ -283,7 +293,9 @@ export async function search(query: string, searchType?: string): Promise<Search
   const seen = new Set<string>();
   const out: SearchResult[] = [];
   for (const r of rows) {
-    const row = searchRow(r);
+    // On one crypto exchange its spot and perpetual pairs are what was asked for (elsewhere the
+    // coin's own row stands for them).
+    const row = searchRow(r) ?? (prefixed ? exchangePairRow(r) : null);
     if (!row || seen.has(row.symbol)) continue;
     seen.add(row.symbol);
     out.push(row);
@@ -304,6 +316,12 @@ const SUFFIX_TO_TV: Record<string, string> = {
 };
 
 const US_EXCHANGES = ["NASDAQ", "NYSE", "AMEX"];
+
+/** A ticker typed with its exchange, TradingView's way (COINBASE:ZEC), as its code and exchange, else null. */
+export function splitPrefixed(query: string): [code: string, exchange: string] | null {
+  const m = /^([A-Z0-9_]{2,24}):([A-Z0-9._!\-]{1,40})$/.exec(query.trim().toUpperCase());
+  return m ? [m[2], m[1]] : null;
+}
 
 /** A Yahoo-style suffixed ticker (BBCA.JK, 0700.HK) as its TradingView code and exchange, else null. */
 export function splitSuffixed(symbol: string): [code: string, exchange: string] | null {

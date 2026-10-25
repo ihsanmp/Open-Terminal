@@ -9,7 +9,9 @@ import { useTerminal } from "../store/terminal";
 // The symbol search, as TradingView's: typed on a chart it opens with what was typed; the
 // categories under the field narrow it (stocks, funds, futures, forex, crypto, indices, bonds,
 // economy); each result shows its ticker, name, kind and exchange. Enter loads the first (or the
-// one picked with the arrows), Shift+Enter adds it to the watchlist too. Before anything is typed
+// one picked with the arrows), Shift+Enter adds it to the watchlist too; pressed before the results
+// for what's typed are in, it waits for them (the last query's, still shown, are not picked, nor
+// can they be clicked: they would load another symbol than the one typed). Before anything is typed
 // it lists the symbols opened last (lib/recent-symbols.ts), the category narrowing them too.
 
 type SearchResult = { symbol: string; name: string; exchange: string; type: string };
@@ -70,7 +72,7 @@ export default function CommandPalette() {
   const listRef = useRef<HTMLDivElement>(null);
 
   const q = query.trim();
-  const { data: results = [], isFetching } = useQuery({
+  const { data: results = [], isFetching, isPlaceholderData } = useQuery({
     queryKey: ["search", category, q],
     queryFn: () => apiGet<SearchResult[]>(`/api/search?q=${encodeURIComponent(q)}${category ? `&type=${category}` : ""}`),
     enabled: open && q.length > 0,
@@ -97,6 +99,10 @@ export default function CommandPalette() {
     type: r.type ?? kindOf(r.symbol),
   }));
   const shown = q ? results : recentRows;
+  // Results of what was typed before, kept on screen until the new ones are in.
+  const outdated = q.length > 0 && (isPlaceholderData || (isFetching && results.length === 0));
+  // Enter pressed while they were outdated: the pick waits for the results (true: to the watchlist too).
+  const [pending, setPending] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -116,12 +122,11 @@ export default function CommandPalette() {
   }, [open, initial]);
 
   useEffect(() => setSelected(0), [shown.length, category]);
+  useEffect(() => setPending(null), [open, q, category]);
   // The row picked with the arrows stays in view.
   useEffect(() => {
     listRef.current?.querySelector<HTMLElement>(`[data-row="${selected}"]`)?.scrollIntoView({ block: "nearest" });
   }, [selected]);
-
-  if (!open) return null;
 
   const pick = (r: SearchResult, watch = false) => {
     // Its name, kind and exchange are kept with it for the recent list.
@@ -130,6 +135,15 @@ export default function CommandPalette() {
     if (watch) addToWatchlist(r.symbol);
     setOpen(false);
   };
+
+  useEffect(() => {
+    if (pending === null || outdated) return;
+    if (shown[0]) pick(shown[0], pending);
+    setPending(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, outdated, shown]);
+
+  if (!open) return null;
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center pt-16" onMouseDown={() => setOpen(false)}>
@@ -164,7 +178,10 @@ export default function CommandPalette() {
                   e.preventDefault();
                   setSelected((s) => Math.max(s - 1, 0));
                 }
-                if (e.key === "Enter" && shown[selected]) pick(shown[selected], e.shiftKey);
+                if (e.key === "Enter") {
+                  if (outdated) setPending(e.shiftKey);
+                  else if (shown[selected]) pick(shown[selected], e.shiftKey);
+                }
               }}
               placeholder="Symbol, ISIN, or CUSIP"
               spellCheck={false}
@@ -200,7 +217,7 @@ export default function CommandPalette() {
             ))}
           </div>
         </div>
-        <div ref={listRef} className="flex-1 min-h-[120px] overflow-auto border-t border-[var(--border)]">
+        <div ref={listRef} className={`flex-1 min-h-[120px] overflow-auto border-t border-[var(--border)] ${outdated ? "opacity-40 pointer-events-none" : ""}`}>
           {!q && recentRows.length > 0 && (
             <div className="px-4 pt-2 pb-1 flex items-center justify-between dim text-fs-10 uppercase tracking-wider">
               <span>Terakhir dibuka</span>
@@ -240,6 +257,7 @@ export default function CommandPalette() {
             </div>
           ))}
           {q && !isFetching && shown.length === 0 && <div className="px-4 py-10 text-center dim">No symbols match your criteria</div>}
+          {outdated && shown.length === 0 && <div className="px-4 py-10 text-center dim">{pending !== null ? `Mencari ${q.toUpperCase()}… dibuka begitu hasilnya ada` : "Mencari…"}</div>}
           {!q && recentRows.length === 0 && (
             <div className="px-4 py-10 text-center dim">
               {recent.length > 0 ? `Belum ada ${CATEGORIES.find(([, t]) => t === category)?.[0] ?? ""} di riwayat. Ketik ticker, nama perusahaan, pair mata uang atau indeks.` : "Type a ticker, a company, a currency pair or an index"}

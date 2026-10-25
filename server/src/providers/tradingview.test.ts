@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { peerIndustries, splitSuffixed, yahooSymbolOf } from "./tradingview.js";
+import { exchangePairRow, peerIndustries, splitPrefixed, splitSuffixed, yahooSymbolOf } from "./tradingview.js";
 
 describe("tradingview symbols", () => {
   it("splits a suffixed ticker into its TradingView code and exchange", () => {
@@ -8,6 +8,15 @@ describe("tradingview symbols", () => {
     expect(splitSuffixed("0700.HK")).toEqual(["700", "HKEX"]);
     expect(splitSuffixed("AAPL")).toBeNull();
     expect(splitSuffixed("BRK.B")).toBeNull();
+  });
+
+  it("splits a ticker typed with its exchange (COINBASE:ZEC) and lists that exchange's pairs", () => {
+    expect(splitPrefixed("COINBASE:ZEC")).toEqual(["ZEC", "COINBASE"]);
+    expect(splitPrefixed("oanda:xauusd")).toEqual(["XAUUSD", "OANDA"]);
+    expect(splitPrefixed("ZEC")).toBeNull();
+    expect(splitPrefixed("ZEC-USD")).toBeNull();
+    expect(exchangePairRow({ symbol: "<em>ZEC</em>USD", description: "Zcash / US Dollar", type: "spot", exchange: "Coinbase", prefix: "COINBASE" })).toEqual({ symbol: "COINBASE:ZECUSD", name: "Zcash / US Dollar", exchange: "Coinbase", type: "crypto" });
+    expect(exchangePairRow({ symbol: "AAPL", type: "stock", exchange: "NASDAQ", prefix: "NASDAQ" })).toBeNull();
   });
 
   it("names a listing the way Yahoo does", () => {
