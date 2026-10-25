@@ -7,6 +7,7 @@ import { chatEnv } from "../../lib/astro-chat/env";
 import type { QuantForecast } from "../../lib/quant";
 import { apiGet, apiPost } from "../../lib/api";
 import { lookAtScreen, NO_PICTURE, wantsScreen } from "../../lib/astro-chat/screen";
+import { canListen, canSpeak, chooseVoice, listen, pickVoice, setVoiceReply, speak, stopSpeaking, useIndonesianVoices, useSpeakingId, useVoiceReply } from "../../lib/astro-chat/voice";
 
 // The Astro Calendar's chat (offline: lib/astro-chat), in the floating bubble's panel
 // (AstroChatBubble). A reply to one of its messages carries on from that message's thread (its asset,
@@ -109,6 +110,15 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
   // 👁: the next question goes with a look at the screen (also when it asks about the screen itself).
   const [look, setLook] = useState(false);
   const [looking, setLooking] = useState(false);
+  // Voice: answers read out (🔊), questions said (🎤).
+  const voiceReply = useVoiceReply();
+  const voices = useIndonesianVoices();
+  const speakingId = useSpeakingId();
+  const [listening, setListening] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const stopListening = useRef<(() => void) | null>(null);
+  const [hasVoice, setHasVoice] = useState({ speak: false, listen: false });
+  useEffect(() => setHasVoice({ speak: canSpeak(), listen: canListen() }), []);
   const box = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const env = useMemo(() => chatEnv(events, forecast), [events, forecast]);
@@ -146,7 +156,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
     return out;
   };
 
-  const send = (text: string, reply: string | null) => {
+  const send = (text: string, reply: string | null, spoken = false) => {
     const q = text.trim();
     if (!q || busy) return;
     const target = byId(reply);
@@ -198,10 +208,36 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
       } else bot = offlineMsg();
       update((prev) => [...prev, bot]);
       setBusy(false);
+      // Read out when answers are (🔊), and always when the question was said.
+      if (voiceReply || spoken) speak(bot.text, bot.id);
     }, 20);
   };
 
   const replying = byId(replyTo);
+
+  /** 🎤: what's said goes in the box as it's heard, and is sent when the speaker stops. */
+  const mic = () => {
+    if (listening) {
+      stopListening.current?.();
+      return;
+    }
+    setVoiceError(null);
+    setListening(true);
+    const target = replyTo;
+    stopListening.current = listen({
+      onText: (t) => setInput(t),
+      onDone: (t) => {
+        setListening(false);
+        stopListening.current = null;
+        if (t) send(t, target, true);
+      },
+      onError: (m) => {
+        setListening(false);
+        stopListening.current = null;
+        setVoiceError(m);
+      },
+    });
+  };
   const lastBot = [...messages].reverse().find((m) => m.role === "bot");
 
   return (
@@ -222,6 +258,32 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
         >
           Offline
         </button>
+        {hasVoice.speak && (
+          <button
+            className={`px-2 py-0.5 rounded-full border whitespace-nowrap shrink-0 ${voiceReply ? "border-[#4fc3f7] text-[#8fd8ff] bg-[#4fc3f71a]" : "border-[var(--border)] dim"}`}
+            onClick={() => setVoiceReply(!voiceReply)}
+            title={voiceReply ? "Jawaban dibacakan: klik untuk mematikan" : "Bacakan setiap jawaban dengan suara (pertanyaan lewat 🎤 selalu dijawab dengan suara)"}
+          >
+            {voiceReply ? "🔊 Suara" : "🔈 Suara"}
+          </button>
+        )}
+        {hasVoice.speak && voiceReply && voices.length > 1 && (
+          <select
+            className="text-fs-10 !py-0 !px-1 shrink-0 max-w-[90px]"
+            value={pickVoice()?.name ?? ""}
+            onChange={(e) => {
+              chooseVoice(e.target.value);
+              speak("Halo, ini suara saya.");
+            }}
+            title="Suara pembaca"
+          >
+            {voices.map((v) => (
+              <option key={v.name} value={v.name}>
+                {v.name.replace(/^Microsoft\s+/, "").replace(/\s+Online.*$/, "").replace(/\s+-.*$/, "")}
+              </option>
+            ))}
+          </select>
+        )}
         <span className="ml-auto dim truncate">{online ? "online · data dikumpulkan aplikasi" : "hitungan aplikasi saja"}</span>
       </div>
       <div ref={box} className="flex-1 min-h-0 overflow-auto flex flex-col gap-2 px-2 pt-2">
@@ -248,6 +310,15 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
               )}
               {!isUser && (
                 <div className={`mt-1 ${m.id === "welcome" ? "flex flex-col items-start gap-1" : "flex flex-wrap items-center gap-1"}`}>
+                  {hasVoice.speak && (
+                    <button
+                      className={`text-fs-10 px-1.5 rounded-sm border ${speakingId === m.id ? "border-[#4fc3f7] text-[#8fd8ff]" : "border-[var(--border)] dim hover:text-[var(--text)]"}`}
+                      onClick={() => (speakingId === m.id ? stopSpeaking() : speak(m.text, m.id))}
+                      title={speakingId === m.id ? "Hentikan" : "Dengarkan jawaban ini"}
+                    >
+                      {speakingId === m.id ? "■ Berhenti" : "🔊 Dengar"}
+                    </button>
+                  )}
                   {m.id !== "welcome" && (
                     <button
                       className={`text-fs-10 px-1.5 rounded-sm border ${replyTo === m.id ? "border-[#ff9a3c] text-[#ff9a3c]" : "border-[var(--border)] dim hover:text-[var(--text)]"}`}
@@ -299,6 +370,14 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
             </button>
           </div>
         )}
+        {voiceError && (
+          <div className="flex items-center gap-2 px-2.5 pt-1.5 text-fs-10 text-[#e0a050]">
+            <span className="flex-1">{voiceError}</span>
+            <button className="dim hover:text-[var(--text)]" onClick={() => setVoiceError(null)} aria-label="Tutup">
+              ✕
+            </button>
+          </div>
+        )}
         <div className="flex items-end gap-2 p-1.5">
           <textarea
             ref={field}
@@ -312,9 +391,20 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
               }
               if (e.key === "Escape") setReplyTo(null);
             }}
-            placeholder={replying ? "Lanjutkan topik ini… (Esc batal membalas)" : "Tanya hal baru… (↩ Balas untuk melanjutkan)"}
+            placeholder={listening ? "Mendengarkan… silakan bicara" : replying ? "Lanjutkan topik ini… (Esc batal membalas)" : "Tanya hal baru… (↩ Balas untuk melanjutkan)"}
             className="flex-1 resize-none bg-transparent outline-none text-fs-11 px-1"
           />
+          {hasVoice.listen && (
+            <button
+              className={`term-btn shrink-0 ${listening ? "!border-[var(--down)] !text-[var(--down)] animate-pulse" : ""}`}
+              onClick={mic}
+              disabled={busy && !listening}
+              title={listening ? "Sedang mendengarkan… klik untuk berhenti" : "Tanya dengan suara (Bahasa Indonesia); dikirim saat Anda berhenti bicara, dan dijawab dengan suara"}
+              aria-pressed={listening}
+            >
+              {listening ? "■ 🎤" : "🎤"}
+            </button>
+          )}
           <button
             className={`term-btn shrink-0 ${look ? "active" : ""}`}
             disabled={!online}
