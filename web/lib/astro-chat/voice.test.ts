@@ -10,6 +10,8 @@ describe("the assistant's voice", () => {
     expect(said).toContain("kurang lebih 2 persen");
     // Each bullet ends as a sentence, so the voice pauses between them.
     expect(said).toContain("Support 0,00125.");
+    // Icons go; a slash between words reads as a list.
+    expect(toSpeech("✦ Claude: harga emas/BTC/DXY 👁")).toBe("Claude: harga emas, BTC, DXY");
   });
 
   it("speaks a long answer in pieces a voice reads through", () => {

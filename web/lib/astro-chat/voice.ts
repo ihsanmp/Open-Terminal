@@ -17,6 +17,10 @@ export function toSpeech(text: string): string {
     .replace(/\*\*/g, "")
     .replace(/^\s*[•\-*]\s+/gm, "")
     .replace(/[_`#>]/g, "")
+    // Icons (✦, 👁, 🔊 …) aren't read out.
+    .replace(/[←-⇿☀-➿⬀-⯿]|\p{Extended_Pictographic}/gu, (c) => (c === "→" ? c : ""))
+    // "emas/BTC/DXY" as a list, not "slash".
+    .replace(/(\p{L})\/(?=\p{L})/gu, "$1, ")
     .replace(/\s*→\s*/g, ", ke ")
     .replace(/\s*(±|\+\/-)\s*/g, " kurang lebih ")
     .replace(/(\d)\s*%/g, "$1 persen")
