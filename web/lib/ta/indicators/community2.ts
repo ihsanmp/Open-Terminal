@@ -737,3 +737,87 @@ community2.push({
   ],
   compute: (bars, p) => kryptonFearGreed(bars, p),
 });
+
+// =====================================================================================
+// Deadband Hysteresis Filter (BackQuant), MPL-2.0
+// =====================================================================================
+
+/**
+ * A baseline that moves only when price leaves a band around it (the deadband): by `response`
+ * times how far past the band price is. The band is ATR × mult, a percent of price, ticks or
+ * points, times Enter Mult. Its slope colors the line and the candles. As in the script, Exit
+ * Mult is computed but never read: between the bands the baseline holds, as inside them.
+ */
+export function deadbandHysteresis(bars: Bars, p: Params): IndicatorResult {
+  const len = bars.length;
+  const x = ta.source(bars, s(p, "source"));
+  const mode = s(p, "thrMode");
+  const atr = mode === "ATR" ? ta.atr(bars, Math.max(1, n(p, "atrLen"))) : null;
+  const mintick = mode === "Ticks" ? inferMintick(bars) : 0;
+  const em = Math.max(n(p, "enterMult"), 0.0001);
+  const response = n(p, "response");
+  const long = s(p, "longColor");
+  const short = s(p, "shortColor");
+  const dbhf = ta.fill(len);
+  const line: Color[] = new Array(len).fill(undefined);
+  const candles: Color[] = new Array(len).fill(undefined);
+  let level = NaN;
+  let trend = 0;
+  let colour = "#FFFFFF";
+  for (let i = 0; i < len; i++) {
+    const v = x[i];
+    if (Number.isNaN(level)) level = v;
+    const base =
+      mode === "ATR"
+        ? ta.nz(atr![i] * n(p, "atrMult"))
+        : mode === "Percent"
+          ? ta.nz(Math.abs(v) * n(p, "pctThresh") * 0.01)
+          : mode === "Ticks"
+            ? mintick * n(p, "tickThresh")
+            : n(p, "ptsThresh");
+    const tauEnter = base * em;
+    const diff = v - level;
+    if (diff > tauEnter) level += response * (diff - tauEnter);
+    else if (diff < -tauEnter) level += response * (diff + tauEnter);
+    dbhf[i] = level;
+    if (i > 0 && level > dbhf[i - 1]) trend = 1;
+    if (i > 0 && level < dbhf[i - 1]) trend = -1;
+    if (trend === 1) colour = long;
+    if (trend === -1) colour = short;
+    line[i] = colorNew(colour, 40);
+    candles[i] = colour;
+  }
+  return {
+    plots: { dbhf: b(p, "showFilter") ? dbhf : ta.fill(len) },
+    colors: { dbhf: line },
+    barColors: b(p, "paintCandles") ? candles : undefined,
+  };
+}
+
+community2.push({
+  id: "deadband-hysteresis-filter",
+  name: "Deadband Hysteresis Filter [BackQuant]",
+  short: "DBHF",
+  category: "Community",
+  overlay: true,
+  aliases: ["Deadband Hysteresis Filter", "Deadband", "Hysteresis", "DBHF", "BackQuant"],
+  description: "BackQuant: garis dasar yang hanya bergerak saat harga keluar dari pita mati (ATR, persen, tick, atau poin); kemiringannya mewarnai garis dan candle.",
+  inputs: [
+    src("close", "source", "Price Source"),
+    select("thrMode", "Threshold Mode", ["ATR", "Percent", "Ticks", "Points"], "ATR"),
+    int("atrLen", "ATR Length", 14),
+    float("atrMult", "ATR Mult", 1.0, 0.1),
+    float("pctThresh", "Percent Threshold", 0.5, 0.1),
+    int("tickThresh", "Tick Threshold", 10),
+    float("ptsThresh", "Points Threshold", 5.0, 0.1),
+    float("enterMult", "Enter Mult", 1.0, 0.1, 0.1),
+    float("exitMult", "Exit Mult", 0.5, 0.05, 0.05),
+    float("response", "Response", 0.2, 0.01, 0.01, 1),
+    bool("showFilter", "Show Filtered Price on chart", true),
+    bool("paintCandles", "Paint candles according to Trend", true),
+    colorInput("longColor", "Long Color", "#33ff00"),
+    colorInput("shortColor", "Short Color", "#ff0000"),
+  ],
+  plots: [{ key: "dbhf", title: "DBHF", color: "#33ff00", width: 4 }],
+  compute: (bars, p) => deadbandHysteresis(bars, p),
+});
