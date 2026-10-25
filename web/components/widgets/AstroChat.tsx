@@ -7,7 +7,7 @@ import { chatEnv } from "../../lib/astro-chat/env";
 import type { QuantForecast } from "../../lib/quant";
 import { apiGet, apiPost } from "../../lib/api";
 import { lookAtScreen, NO_PICTURE, wantsScreen } from "../../lib/astro-chat/screen";
-import { canListen, canSpeak, listen, setVoiceReply, speak, stopSpeaking, useSpeakingId, useVoiceReply } from "../../lib/astro-chat/voice";
+import { canListen, canSpeak, listen, setPref, setVoiceReply, speak, stopSpeaking, usePref, useSpeakingId, useVoiceReply } from "../../lib/astro-chat/voice";
 
 // The Astro Calendar's chat (offline: lib/astro-chat), in the floating bubble's panel
 // (AstroChatBubble). A reply to one of its messages carries on from that message's thread (its asset,
@@ -107,8 +107,18 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
   const [input, setInput] = useState("");
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // 👁: the next question goes with a look at the screen (also when it asks about the screen itself).
-  const [look, setLook] = useState(false);
+  // The ✦ Claude menu's switches, all online: 👁 a look at the screen with every question (without
+  // it, only when a question is about the screen), 🎤 the microphone button, 🔊 answers read out.
+  const screenAlways = usePref("astroScreenAlways", false);
+  const micOn = usePref("astroMic", true);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (e: MouseEvent) => !menuRef.current?.contains(e.target as Node) && setMenuOpen(false);
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [menuOpen]);
   const [looking, setLooking] = useState(false);
   // Voice: answers read out (🔊), questions said (🎤).
   const voiceReply = useVoiceReply();
@@ -160,12 +170,11 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
     if (!q || busy) return;
     const target = byId(reply);
     const thread = threadOf(target);
-    const withScreen = online && (look || wantsScreen(q));
+    const withScreen = online && (screenAlways || wantsScreen(q));
     const user: Msg = { id: newId(), role: "user", text: q, replyTo: target?.id, screen: withScreen ? "picture" : undefined };
     setBusy(true);
     setInput("");
     setReplyTo(null);
-    setLook(false);
     update((prev) => [...(prev.length ? prev : [WELCOME]), user]);
     // The offline answer first (after the question shows: some read decades of prices). Online, it
     // goes to Claude as the app's own numbers, with the thread replied to; if Claude can't answer,
@@ -208,7 +217,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
       update((prev) => [...prev, bot]);
       setBusy(false);
       // Read out when answers are (🔊), and always when the question was said.
-      if (voiceReply || spoken) speak(bot.text, bot.id);
+      if (online && (voiceReply || spoken)) speak(bot.text, bot.id);
     }, 20);
   };
 
@@ -242,14 +251,48 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-2">
       <div className="flex items-center gap-1 px-2 pt-1.5 text-fs-10">
-        <button
-          className={`px-2 py-0.5 rounded-full border whitespace-nowrap shrink-0 ${online ? "border-[#9b87f5] text-[#c9b8ff] bg-[#9b87f51a]" : "border-[var(--border)] dim"}`}
-          onClick={() => setEngine("online")}
-          disabled={claude?.ok === false}
-          title={claude?.ok === false ? "Claude Code CLI tidak ditemukan di komputer ini" : "Jawaban disusun Claude (akun Claude Anda, lewat Claude Code), dengan data dan hitungan aplikasi"}
-        >
-          ✦ Claude{claude?.ok === false ? " (tidak tersedia)" : ""}
-        </button>
+        <div ref={menuRef} className="relative shrink-0">
+          <button
+            className={`px-2 py-0.5 rounded-full border whitespace-nowrap ${online ? "border-[#9b87f5] text-[#c9b8ff] bg-[#9b87f51a]" : "border-[var(--border)] dim"}`}
+            onClick={() => {
+              if (!online) setEngine("online");
+              setMenuOpen((o) => !o);
+            }}
+            disabled={claude?.ok === false}
+            aria-expanded={menuOpen}
+            title={claude?.ok === false ? "Claude Code CLI tidak ditemukan di komputer ini" : "Jawaban disusun Claude (akun Claude Anda, lewat Claude Code), dengan data dan hitungan aplikasi. Klik untuk fitur online: suara dan layar."}
+          >
+            ✦ Claude{claude?.ok === false ? " (tidak tersedia)" : ""}
+            {online && (
+              <span className="ml-1">
+                {voiceReply && hasVoice.speak ? "🔊" : ""}
+                {micOn && hasVoice.listen ? "🎤" : ""}
+                {screenAlways ? "👁" : ""}
+              </span>
+            )}
+            <span className="ml-1 dim">▾</span>
+          </button>
+          {menuOpen && online && (
+            <div className="absolute left-0 top-full mt-1 z-20 w-[250px] bg-[#1a1a1a] border border-[var(--border)] rounded-lg shadow-xl p-1.5 text-fs-11 flex flex-col gap-0.5">
+              <div className="dim text-fs-9 uppercase tracking-wider px-1.5 pb-0.5">Fitur online</div>
+              {(
+                [
+                  ["🔊 Jawab dengan suara", "Setiap jawaban dibacakan (suara perempuan, layanan online Microsoft lewat Edge). Pertanyaan lewat 🎤 selalu dijawab dengan suara.", voiceReply, (on: boolean) => setVoiceReply(on), hasVoice.speak],
+                  ["🎤 Tanya dengan suara", "Tombol mikrofon di kotak pesan: bicara, lalu terkirim saat Anda berhenti (pengenalan suara online).", micOn, (on: boolean) => setPref("astroMic", on), hasVoice.listen],
+                  ["👁 Lihat layar setiap bertanya", "Claude melihat tangkapan jendela aplikasi, teks yang tampil, dan keadaan chart di setiap pertanyaan. Tanpa ini: hanya saat pertanyaan menyebut layar/chart.", screenAlways, (on: boolean) => setPref("astroScreenAlways", on), true],
+                ] as const
+              ).map(([label, help, on, set, available]) => (
+                <label key={label} className={`flex items-start gap-2 px-1.5 py-1 rounded ${available ? "cursor-pointer hover:bg-[#262626]" : "opacity-40"}`} title={help}>
+                  <input type="checkbox" className="mt-0.5" checked={available && on} disabled={!available} onChange={(e) => set(e.target.checked)} />
+                  <span>
+                    <span className="text-[var(--text)]">{label}</span>
+                    <span className="block dim text-fs-9 leading-snug">{available ? help : "Tidak didukung browser ini (buka lewat Edge atau Chrome)."}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
         <button
           className={`px-2 py-0.5 rounded-full border whitespace-nowrap shrink-0 ${!online ? "border-[#c8963c] text-[#e0b860] bg-[#c8963c1a]" : "border-[var(--border)] dim"}`}
           onClick={() => setEngine("offline")}
@@ -257,15 +300,6 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
         >
           Offline
         </button>
-        {hasVoice.speak && (
-          <button
-            className={`px-2 py-0.5 rounded-full border whitespace-nowrap shrink-0 ${voiceReply ? "border-[#4fc3f7] text-[#8fd8ff] bg-[#4fc3f71a]" : "border-[var(--border)] dim"}`}
-            onClick={() => setVoiceReply(!voiceReply)}
-            title={voiceReply ? "Jawaban dibacakan: klik untuk mematikan" : "Bacakan setiap jawaban dengan suara (pertanyaan lewat 🎤 selalu dijawab dengan suara)"}
-          >
-            {voiceReply ? "🔊 Suara" : "🔈 Suara"}
-          </button>
-        )}
         <span className="ml-auto dim truncate">{online ? "online · data dikumpulkan aplikasi" : "hitungan aplikasi saja"}</span>
       </div>
       <div ref={box} className="flex-1 min-h-0 overflow-auto flex flex-col gap-2 px-2 pt-2">
@@ -376,7 +410,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
             placeholder={listening ? "Mendengarkan… silakan bicara" : replying ? "Lanjutkan topik ini… (Esc batal membalas)" : "Tanya hal baru… (↩ Balas untuk melanjutkan)"}
             className="flex-1 resize-none bg-transparent outline-none text-fs-11 px-1"
           />
-          {hasVoice.listen && (
+          {online && micOn && hasVoice.listen && (
             <button
               className={`term-btn shrink-0 ${listening ? "!border-[var(--down)] !text-[var(--down)] animate-pulse" : ""}`}
               onClick={mic}
@@ -387,18 +421,6 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
               {listening ? "■ 🎤" : "🎤"}
             </button>
           )}
-          <button
-            className={`term-btn shrink-0 ${look ? "active" : ""}`}
-            disabled={!online}
-            onClick={() => setLook((l) => !l)}
-            title={
-              online
-                ? "Lampirkan layar: Claude melihat tangkapan jendela aplikasi (panel chat ini disembunyikan sesaat), teks yang tampil, dan keadaan chart. Otomatis bila pertanyaan menyebut layar/chart ini."
-                : "Melihat layar butuh mode ✦ Claude"
-            }
-          >
-            👁 Layar
-          </button>
           <button className="term-btn active shrink-0" onClick={() => send(input, replyTo)} disabled={busy || !input.trim()}>
             Kirim
           </button>

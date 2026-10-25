@@ -248,3 +248,21 @@ export function listen(handlers: { onText: (text: string) => void; onDone: (text
   }
   return () => r.stop();
 }
+
+// ---------------------------------------------------------------- the ✦ Claude menu's switches
+
+/** A switch of the ✦ Claude menu (🎤 the microphone button, 👁 a look at the screen with every question), kept in this browser. */
+export function usePref(key: string, fallback: boolean): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => {
+      const v = read(key);
+      return v === null ? fallback : v === "1";
+    },
+    () => fallback
+  );
+}
+export function setPref(key: string, on: boolean): void {
+  write(key, on ? "1" : "0");
+  changed();
+}
