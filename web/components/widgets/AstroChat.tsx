@@ -7,7 +7,7 @@ import { chatEnv } from "../../lib/astro-chat/env";
 import type { QuantForecast } from "../../lib/quant";
 import { apiGet, apiPost } from "../../lib/api";
 import { lookAtScreen, NO_PICTURE, wantsScreen } from "../../lib/astro-chat/screen";
-import { canListen, canSpeak, listen, refreshEleven, setPref, setVoiceReply, speak, stopSpeaking, useEleven, useElevenIssue, usePref, useSpeakingId, useVoiceReply, type Mood } from "../../lib/astro-chat/voice";
+import { canListen, canSpeak, converse, refreshEleven, setPref, setVoiceReply, speak, stopSpeaking, useEleven, useElevenIssue, usePref, useSpeakingId, useVoiceReply, type Mood } from "../../lib/astro-chat/voice";
 
 // The Astro Calendar's chat (offline: lib/astro-chat), in the floating bubble's panel
 // (AstroChatBubble). A reply to one of its messages carries on from that message's thread (its asset,
@@ -239,29 +239,44 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
 
   const replying = byId(replyTo);
 
-  /** 🎤: what's said goes in the box as it's heard, and is sent when the speaker stops. */
+  // Conversation mode reads these as they are now, not as they were when it was switched on.
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  const replyRef = useRef(replyTo);
+  replyRef.current = replyTo;
+
+  /**
+   * 🎤: conversation mode. The microphone stays on (also while an answer is read out) until it's
+   * clicked again; what's said shows in the box and is sent when the user pauses, and talking over
+   * an answer stops it (lib/astro-chat/voice.ts converse). Said while an answer is still coming, it
+   * waits in the box.
+   */
   const mic = () => {
-    if (listening) {
+    if (listening || stopListening.current) {
       stopListening.current?.();
+      stopListening.current = null;
+      setListening(false);
       return;
     }
     setVoiceError(null);
-    setListening(true);
-    const target = replyTo;
-    stopListening.current = listen({
+    stopListening.current = converse({
       onText: (t) => setInput(t),
-      onDone: (t) => {
-        setListening(false);
-        stopListening.current = null;
-        if (t) send(t, target, true);
+      onUtterance: (t) => {
+        if (busyRef.current) setInput(t);
+        else sendRef.current(t, replyRef.current, true);
       },
       onError: (m) => {
-        setListening(false);
         stopListening.current = null;
+        setListening(false);
         setVoiceError(m);
       },
+      onListening: setListening,
     });
   };
+  // Closing the chat switches the microphone off.
+  useEffect(() => () => stopListening.current?.(), []);
   const lastBot = [...messages].reverse().find((m) => m.role === "bot");
 
   return (
@@ -301,7 +316,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
               {(
                 [
                   ["🔊 Jawab dengan suara", "Setiap jawaban dibacakan (suara perempuan, layanan online Microsoft lewat Edge). Pertanyaan lewat 🎤 selalu dijawab dengan suara.", voiceReply, (on: boolean) => setVoiceReply(on), hasVoice.speak],
-                  ["🎤 Tanya dengan suara", "Tombol mikrofon di kotak pesan: bicara, lalu terkirim saat Anda berhenti (pengenalan suara online).", micOn, (on: boolean) => setPref("astroMic", on), hasVoice.listen],
+                  ["🎤 Tanya dengan suara", "Tombol mikrofon di kotak pesan: mode percakapan. Mikrofon siaga terus (juga saat jawaban dibacakan); bicara kapan saja, terkirim saat Anda jeda, dan asisten berhenti bicara kalau Anda menyela. Klik 🎤 lagi untuk mematikan.", micOn, (on: boolean) => setPref("astroMic", on), hasVoice.listen],
                   ["👁 Lihat layar setiap bertanya", "Claude melihat tangkapan jendela aplikasi, teks yang tampil, dan keadaan chart di setiap pertanyaan. Tanpa ini: hanya saat pertanyaan menyebut layar/chart.", screenAlways, (on: boolean) => setPref("astroScreenAlways", on), true],
                 ] as const
               ).map(([label, help, on, set, available]) => (
@@ -434,15 +449,24 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
               }
               if (e.key === "Escape") setReplyTo(null);
             }}
-            placeholder={listening ? "Mendengarkan… silakan bicara" : replying ? "Lanjutkan topik ini… (Esc batal membalas)" : "Tanya hal baru… (↩ Balas untuk melanjutkan)"}
+            placeholder={
+              listening
+                ? "Mode percakapan: bicara kapan saja, juga untuk menyela jawaban (klik 🎤 untuk mematikan)"
+                : replying
+                  ? "Lanjutkan topik ini… (Esc batal membalas)"
+                  : "Tanya hal baru… (↩ Balas untuk melanjutkan)"
+            }
             className="flex-1 resize-none bg-transparent outline-none text-fs-11 px-1"
           />
           {online && micOn && hasVoice.listen && (
             <button
               className={`term-btn shrink-0 ${listening ? "!border-[var(--down)] !text-[var(--down)] animate-pulse" : ""}`}
               onClick={mic}
-              disabled={busy && !listening}
-              title={listening ? "Sedang mendengarkan… klik untuk berhenti" : "Tanya dengan suara (Bahasa Indonesia); dikirim saat Anda berhenti bicara, dan dijawab dengan suara"}
+              title={
+                listening
+                  ? "Mode percakapan menyala: mikrofon siaga terus, asisten berhenti bicara kalau Anda menyela. Klik untuk mematikan."
+                  : "Mode percakapan (Bahasa Indonesia): mikrofon siaga terus, terkirim saat Anda jeda, dijawab dengan suara, dan bisa menyela jawaban. Klik untuk menyalakan."
+              }
               aria-pressed={listening}
             >
               {listening ? "■ 🎤" : "🎤"}

@@ -136,7 +136,13 @@ export function toneOf(sentence: string, i: number, mood: Mood = "santai"): { ra
 // Which message is being read, for its button; kept outside React so every message sees it.
 let speakingId: string | null = null;
 const listeners = new Set<() => void>();
-const changed = () => listeners.forEach((l) => l());
+let wasSpeaking = false;
+const changed = () => {
+  // Just stopped reading: what the microphone hears in the next moment may still be its voice.
+  if (wasSpeaking && speakingId === null) spokeUntil = Date.now() + 1500;
+  wasSpeaking = speakingId !== null;
+  listeners.forEach((l) => l());
+};
 const subscribe = (l: () => void) => {
   listeners.add(l);
   return () => listeners.delete(l);
@@ -146,9 +152,18 @@ export const useSpeakingId = () => useSyncExternalStore(subscribe, () => speakin
 /** Bumped by each new reading and by stop, so a pause's timer from an older one does nothing. */
 let reading = 0;
 
+/**
+ * What's being read out, and when it last was: the microphone hears it back from the speakers, and
+ * that mustn't count as the user talking (isEcho).
+ */
+let spoken = "";
+let spokeUntil = 0;
+export const assistantSpeaking = () => speakingId !== null || Date.now() < spokeUntil;
+
 /** Reads a message out in its mood (stopping whatever was being read); `id` marks it as the one playing. */
 export function speak(text: string, id: string | null = null, mood: Mood = "santai"): void {
   stopAudio();
+  spoken = toSpeech(text);
   if (elevenOn()) {
     speakEleven(text, id, mood);
     return;
@@ -240,47 +255,113 @@ export const LISTEN_ERRORS: Record<string, string> = {
   "language-not-supported": "Bahasa Indonesia tidak didukung pengenalan suara browser ini.",
 };
 
+const words = (t: string) =>
+  t
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 2);
+
 /**
- * Listens once: `onText` gets what's heard so far as it's said, `onDone` the whole of it when the
- * speaker stops (empty when nothing was understood), `onError` why it couldn't. Returns a stop.
+ * Whether what the microphone heard is the assistant's own voice coming back from the speakers:
+ * most of its words are in what's being read out. The user's own words, even mid-answer, aren't.
  */
-export function listen(handlers: { onText: (text: string) => void; onDone: (text: string) => void; onError: (message: string) => void }): () => void {
+export function isEcho(heard: string, reading: string): boolean {
+  const said = words(heard);
+  if (!said.length || !reading) return false;
+  const out = new Set(words(reading));
+  const shared = said.filter((w) => out.has(w)).length;
+  return shared / said.length >= 0.6;
+}
+
+/** After the last word heard, this long a pause ends what the user says (ms). */
+const UTTERANCE_PAUSE = 1100;
+
+/**
+ * Conversation mode: the microphone stays on until it's switched off (the 🎤 again). What the user
+ * says goes to `onText` as it's heard and to `onUtterance` when they pause; the assistant's voice is
+ * stopped the moment the user starts talking over it (barge-in), and what's only its own voice heard
+ * back is ignored. The recognizer is restarted whenever the browser ends it (silence, its time limit).
+ * Returns the switch-off.
+ */
+export function converse(h: { onText: (text: string) => void; onUtterance: (text: string) => void; onError: (message: string) => void; onListening?: (on: boolean) => void }): () => void {
   const R = Recognizer();
   if (!R) {
-    handlers.onError("Browser ini tidak punya pengenalan suara. Buka aplikasi lewat Edge atau Chrome.");
+    h.onError("Browser ini tidak punya pengenalan suara. Buka aplikasi lewat Edge atau Chrome.");
     return () => undefined;
   }
-  // The voice isn't read over what's being said.
-  stopSpeaking();
-  const r = new R();
-  r.lang = LANG;
-  r.interimResults = true;
-  r.continuous = false;
-  r.maxAlternatives = 1;
-  let finalText = "";
-  let failed = false;
-  r.onresult = (e) => {
-    let interim = "";
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const res = e.results[i];
-      if (res.isFinal) finalText += res[0].transcript;
-      else interim += res[0].transcript;
+  let on = true;
+  let r: Recognition | null = null;
+  let buffer = "";
+  let pause: ReturnType<typeof setTimeout> | undefined;
+  let restarts = 0;
+  const commit = () => {
+    const text = buffer.trim();
+    buffer = "";
+    if (text) h.onUtterance(text);
+  };
+  const start = () => {
+    if (!on) return;
+    r = new R();
+    r.lang = LANG;
+    r.interimResults = true;
+    r.continuous = true;
+    r.maxAlternatives = 1;
+    r.onresult = (e) => {
+      let interim = "";
+      let finals = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (res.isFinal) finals += res[0].transcript;
+        else interim += res[0].transcript;
+      }
+      const heard = `${finals} ${interim}`.trim();
+      // The assistant's own voice heard back: not the user.
+      if (assistantSpeaking() && isEcho(heard, spoken)) return;
+      if (!heard) return;
+      restarts = 0;
+      // The user talks over the answer: it stops, and listens.
+      if (speakingId !== null) stopSpeaking();
+      if (finals) buffer = `${buffer} ${finals}`.trim();
+      h.onText(`${buffer} ${interim}`.trim());
+      clearTimeout(pause);
+      pause = setTimeout(commit, UTTERANCE_PAUSE);
+    };
+    r.onerror = (e) => {
+      if (e.error === "no-speech" || e.error === "aborted") return;
+      on = false;
+      h.onListening?.(false);
+      h.onError(LISTEN_ERRORS[e.error] ?? `Pengenalan suara gagal (${e.error}).`);
+    };
+    r.onend = () => {
+      if (!on) return;
+      // The browser ends it on silence and after a while: again, unless it keeps failing at once.
+      if (++restarts > 20) {
+        on = false;
+        h.onListening?.(false);
+        h.onError("Mikrofon berhenti berulang kali; klik 🎤 untuk mencoba lagi.");
+        return;
+      }
+      setTimeout(start, 250);
+    };
+    try {
+      r.start();
+      h.onListening?.(true);
+    } catch (err) {
+      on = false;
+      h.onListening?.(false);
+      h.onError(`Pengenalan suara tidak bisa dimulai: ${err instanceof Error ? err.message : String(err)}`);
     }
-    handlers.onText(`${finalText}${interim}`.trim());
   };
-  r.onerror = (e) => {
-    failed = true;
-    if (e.error !== "aborted") handlers.onError(LISTEN_ERRORS[e.error] ?? `Pengenalan suara gagal (${e.error}).`);
+  start();
+  return () => {
+    on = false;
+    clearTimeout(pause);
+    commit();
+    r?.abort();
+    h.onListening?.(false);
   };
-  r.onend = () => {
-    if (!failed) handlers.onDone(finalText.trim());
-  };
-  try {
-    r.start();
-  } catch (err) {
-    handlers.onError(`Pengenalan suara tidak bisa dimulai: ${err instanceof Error ? err.message : String(err)}`);
-  }
-  return () => r.stop();
 }
 
 // ---------------------------------------------------------------- the ✦ Claude menu's switches
