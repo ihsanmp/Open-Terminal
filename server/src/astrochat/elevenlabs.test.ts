@@ -35,5 +35,9 @@ describe("the ElevenLabs voice", () => {
     expect(explain(401, '{"detail":{"status":"quota_exceeded","message":"This request exceeds your quota"}}')).toMatch(/Kuota/);
     expect(explain(401, '{"detail":{"status":"invalid_api_key","message":"Invalid API key"}}')).toMatch(/tidak valid/);
     expect(explain(404, '{"detail":{"status":"voice_not_found"}}')).toMatch(/tidak ditemukan/);
+    // A restricted key without Text to Speech: said as that, not as an invalid key.
+    const missing = explain(401, '{"detail":{"type":"authentication_error","code":"unauthorized","message":"The API key you used is missing the permission text_to_speech to execute this operation.","status":"missing_permissions"}}');
+    expect(missing).toMatch(/Text to Speech/);
+    expect(missing).not.toMatch(/tidak valid/);
   });
 });

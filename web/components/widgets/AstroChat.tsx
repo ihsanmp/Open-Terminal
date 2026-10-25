@@ -400,7 +400,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
             </button>
           </div>
         )}
-        {elevenIssue && voiceReply && (
+        {elevenIssue && (
           <div className="px-2.5 pt-1.5 text-fs-10 text-[#e0a050]">{elevenIssue}</div>
         )}
         {voiceError && (
@@ -451,6 +451,8 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
 function ElevenSettings() {
   const el = useEleven();
   const on = usePref("astroEleven", true);
+  // Why the last reading fell back to Gadis (a key without Text to Speech, the quota …).
+  const issue = useElevenIssue();
   const [key, setKey] = useState("");
   const [voiceId, setVoiceId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -513,6 +515,7 @@ function ElevenSettings() {
         )}
       </div>
       {msg && <div className={`text-fs-9 ${msg.ok ? "up" : "down"}`}>{msg.text}</div>}
+      {issue && !msg && <div className="text-fs-9 text-[#e0a050] leading-snug">{issue}</div>}
       <div className="dim text-fs-9 leading-snug">Key disimpan di server aplikasi di komputer ini, tidak ditampilkan lagi. Setiap jawaban yang dibacakan memakai kuota karakter ElevenLabs.</div>
     </div>
   );

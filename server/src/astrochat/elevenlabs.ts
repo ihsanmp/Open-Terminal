@@ -74,6 +74,12 @@ export function explain(status: number, body: string): string {
     detail = body.slice(0, 200);
   }
   if (/quota|credits/i.test(detail)) return "Kuota karakter ElevenLabs habis bulan ini.";
+  // A restricted key without an endpoint's permission: which one, as the key's settings name it.
+  const missing = /missing the permission ([a-z_]+)/i.exec(detail)?.[1] ?? (/missing_permissions/i.test(detail) ? "" : null);
+  if (missing !== null) {
+    const name: Record<string, string> = { text_to_speech: "Text to Speech → Access", voices_read: "Voices → Read" };
+    return `API key ElevenLabs belum diberi izin ${name[missing] ?? (missing || "yang dibutuhkan")}. Ubah izin key itu di ElevenLabs (Developers → API Keys), atau buat key baru dengan izin tersebut.`;
+  }
   if (status === 401 || /invalid_api_key|api key/i.test(detail)) return "API key ElevenLabs tidak valid.";
   if (/voice_not_found|voice.*not found/i.test(detail) || status === 404) return "Suara (voice ID) tidak ditemukan di akun ElevenLabs ini.";
   if (status === 429) return "ElevenLabs sedang membatasi permintaan; coba lagi sebentar.";
@@ -139,6 +145,17 @@ export async function check(key: string, voiceId: string): Promise<{ name: strin
   const res = await fetch(`${API}/voices/${encodeURIComponent(voiceId)}`, { headers: { "xi-api-key": key }, signal: AbortSignal.timeout(20_000) });
   if (!res.ok) throw new VoiceError(explain(res.status, await res.text().catch(() => "")), res.status);
   const j = (await res.json()) as { name?: string };
+  // And that the key may speak: a key restricted to reading voices passes the check above but
+  // can't read an answer out (a few characters of the quota).
+  const model = config().model;
+  try {
+    await post("Hai.", "santai", model, key, voiceId);
+  } catch (err) {
+    const next = MODELS[MODELS.indexOf(model as (typeof MODELS)[number]) + 1];
+    if (!(err instanceof VoiceError) || !next || ![400, 403, 422].includes(err.status)) throw err;
+    await post("Hai.", "santai", next, key, voiceId);
+    saveConfig({ model: next });
+  }
   return { name: j.name ?? voiceId };
 }
 
