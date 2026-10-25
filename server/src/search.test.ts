@@ -112,4 +112,17 @@ describe("search beyond stocks", () => {
     const ranked = rankResults([[{ symbol: "EURUSDX", name: "x", exchange: "", type: "stock" }, { symbol: "OANDA:EURUSD", name: "EUR/USD", exchange: "OANDA", type: "forex" }]], "eurusd");
     expect(ranked[0].symbol).toBe("OANDA:EURUSD");
   });
+
+  it("puts a company before a token that only borrows its name; a ranked coin stays first", () => {
+    const stock = (symbol: string, name: string): SearchResult => ({ symbol, name, exchange: "NASDAQ", type: "stock" });
+    const token = (symbol: string, name: string, exchange: string): SearchResult => ({ symbol, name, exchange, type: "crypto" });
+    const apple = rankResults([[stock("AAPL", "Apple Inc."), stock("APLE", "Apple Hospitality REIT, Inc."), stock("PINE", "Pineapple Corp")], [token("APPLE-USD", "Apple", "UNISWAP3POLYGON")]], "apple");
+    expect(apple.map((r) => r.symbol)).toEqual(["AAPL", "APLE", "APPLE-USD", "PINE"]);
+    const tesla = rankResults([[stock("TSLA", "Tesla, Inc.")], [token("TESLA-USD", "TESLA ROADSTER", "UNISWAP4BASE")]], "tesla");
+    expect(tesla[0].symbol).toBe("TSLA");
+    const bitcoin = rankResults([[stock("BTM", "Bitcoin Depot Inc.")], [token("BTC-USD", "Bitcoin", "Crypto #1")]], "bitcoin");
+    expect(bitcoin[0].symbol).toBe("BTC-USD");
+    // Asked for as a pair, the token is what was typed.
+    expect(rankResults([[stock("AAPL", "Apple Inc.")], [token("APPLE-USD", "Apple", "UNISWAP3POLYGON")]], "apple-usd")[0].symbol).toBe("APPLE-USD");
+  });
 });

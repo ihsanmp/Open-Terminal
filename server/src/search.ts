@@ -39,6 +39,11 @@ export function matchCoins(coins: Coin[], query: string, limit = 6): SearchResul
     .map((c) => ({ symbol: cryptoTicker(c.symbol), name: c.name, exchange: c.rank ? `Crypto #${c.rank}` : "Crypto", type: "crypto" }));
 }
 
+/** Kinds of result that are a company's listing. */
+const LISTED_KINDS = new Set(["stock", "fund", "dr"]);
+/** A coin from the ranked board (matchCoins), not a token found on an exchange. */
+const RANKED_COIN = /^Crypto( #\d+)?$/;
+
 /**
  * Merge result lists (earlier lists win ties) and order them so Enter picks the
  * obvious hit: the symbol the user typed, then the coin/index it names, then
@@ -48,12 +53,22 @@ export function rankResults(lists: SearchResult[][], query: string, limit = 25):
   const needle = query.trim().toUpperCase();
   const { term, pair } = cryptoTerm(query);
   const coin = cryptoTicker(term);
+  // A company whose name starts with the word typed ("apple": Apple Inc.).
+  const named = (r: SearchResult) => {
+    const name = r.name.toUpperCase();
+    return LISTED_KINDS.has(r.type) && name.startsWith(needle) && !/[A-Z0-9]/.test(name.charAt(needle.length));
+  };
   const rank = (r: SearchResult) => {
     const sym = r.symbol.toUpperCase();
     // OANDA:EURUSD is "EURUSD" typed.
     const bare = sym.includes(":") ? sym.slice(sym.indexOf(":") + 1) : sym;
     if (sym === needle || bare === needle || (pair && sym === coin)) return 0;
-    if (sym === `${needle}-USD` || sym === `^${needle}` || r.name.toUpperCase() === needle) return 1;
+    if (sym === `${needle}-USD` || sym === `^${needle}` || r.name.toUpperCase() === needle) {
+      // A token off the ranked board that only borrows the name (APPLE-USD, "Apple") goes after
+      // the company it is named for; a ranked coin (Bitcoin, Solana) stays first.
+      return r.type === "crypto" && !RANKED_COIN.test(r.exchange) ? 1.75 : 1;
+    }
+    if (named(r)) return 1.5;
     if (r.type === "index" || sym.startsWith(needle) || (pair && r.type === "crypto")) return 2;
     return 3;
   };
