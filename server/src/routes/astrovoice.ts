@@ -1,5 +1,5 @@
 import { raw, Router } from "express";
-import { apiKey, check, config, saveConfig, saveKey, speech, transcribe, VOICE_ID_RE, VoiceError, type Mood } from "../astrochat/elevenlabs.js";
+import { apiKey, check, config, saveConfig, saveKey, KEYTERMS, liveToken, speech, transcribe, VOICE_ID_RE, VoiceError, type Mood } from "../astrochat/elevenlabs.js";
 import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { dataDir } from "../db.js";
@@ -55,6 +55,16 @@ astroVoiceRouter.post("/log", (req, res) => {
     // not kept
   }
   res.json({ ok: true });
+});
+
+// The realtime Scribe for conversation mode: a single-use token (the key stays here) and the key
+// terms it's biased to; the page streams the microphone to ElevenLabs with them.
+astroVoiceRouter.post("/live-token", async (_req, res) => {
+  try {
+    res.json({ token: await liveToken(), keyterms: KEYTERMS });
+  } catch (err) {
+    res.status(err instanceof VoiceError && err.status < 500 ? 400 : 502).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 // What the user said in conversation mode, from its recording (a WAV of their turn), to Scribe.

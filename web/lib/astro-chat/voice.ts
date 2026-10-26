@@ -1,7 +1,8 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { closeEar, earOpen, earState, earTrack, hearPlayback, openEar, recording, sinceVoice, stopHearingPlayback } from "./ear";
+import { closeEar, earOpen, earRate, earState, earTrack, hearPlayback, onAudio, openEar, recording, samplesSince, sinceVoice, stopHearingPlayback } from "./ear";
+import { openLive, type Live, type LiveHandlers } from "./scribe-live";
 
 // The Astro chat by voice, with the browser's own speech (no download, nothing installed): what's
 // said is written by its speech recognition (Edge: Microsoft's, Chrome: Google's; online, the
@@ -258,6 +259,14 @@ let spokeUntil = 0;
 /** When it last stopped reading, and when it last began to. */
 let endedAt = 0;
 let spokeFrom = 0;
+/** The last answer as it was read out, to tell its echo in what Scribe wrote. */
+let lastAnswer = "";
+/** Turned down while a cut-in is checked. */
+let ducked = false;
+function duck(on: boolean): void {
+  ducked = on;
+  if (audio) audio.volume = on ? DUCKED : 1;
+}
 const nowSaying = (parts: string[], i: number) => {
   hearing = parts.slice(Math.max(0, i - 1), i + 1).join(" ");
 };
@@ -267,6 +276,7 @@ export const assistantSpeaking = () => speakingId !== null || Date.now() < spoke
 export function speak(text: string, id: string | null = null, mood: Mood = "santai"): void {
   stopAudio();
   spokeFrom = Date.now();
+  lastAnswer = toSpeech(text);
   // Nothing out of the speakers until its first piece plays: anything heard till then is the user.
   hearing = "";
   const decide = () => (elevenOn() ? speakEleven(text, id, mood) : speakBrowser(text, id, mood));
@@ -495,6 +505,12 @@ export function dropFillers(text: string): string {
     .trim();
 }
 
+/** A cut-in is checked on this much of the recording (ms), and not again for this long after one. */
+const CHECK_SPAN = 3000;
+const CHECK_GAP = 2500;
+/** The answer's loudness while a cut-in is checked, so the user is heard over it. */
+const DUCKED = 0.3;
+
 /** A turn's recording begins this long before the recognizer's first word of it (ms): it writes late. */
 const TURN_PREROLL = 1500;
 /** And a cut-in's, this long before the stop word was written: what's said right after it. */
@@ -542,7 +558,7 @@ function flushTrace(): void {
  * talking over it (barge-in), and what's only its own voice heard back is ignored. The recognizer is
  * restarted whenever the browser ends it (silence, its time limit). Returns the switch-off.
  */
-export function converse(h: {
+function converseBrowser(h: {
   onText: (text: string) => void;
   onUtterance: (text: string) => void;
   onError: (message: string) => void;
@@ -584,6 +600,51 @@ export function converse(h: {
   let turnFrom = 0;
   let cutAt = 0;
   let sttOff = false;
+  // A cut-in being checked by Scribe, when the last was, and how many words of the user's own each
+  // result had when it was checked (checked again only when more come).
+  let checking = false;
+  let checkedAt = 0;
+  const checkedOwn = new Map<number, number>();
+  /**
+   * A cut-in the recognizer's words suggest, on the echo-cancelled track: the answer turned down,
+   * the last moments of the recording to Scribe, and the answer stopped only if Scribe heard words
+   * of the user's own (true: being checked).
+   */
+  const maybeUser = (i: number, said: string): boolean => {
+    if (!onTrack || checking || sttOff || !eleven?.configured || Date.now() - checkedAt < CHECK_GAP) return false;
+    const own = ownWords(afterEcho(said, hearing), hearing).length;
+    if (own <= (checkedOwn.get(i) ?? 0)) return false;
+    const clip = recording(Date.now() - CHECK_SPAN, Date.now());
+    if (!clip) return false;
+    checkedOwn.set(i, own);
+    checking = true;
+    checkedAt = Date.now();
+    const answer = hearing;
+    const run = spokeFrom;
+    duck(true);
+    void transcribeTurn(clip).then((got) => {
+      checking = false;
+      const text = "text" in got ? dropFillers(got.text) : "";
+      const user = text !== "" && ownWords(text, answer).length > 0 && !isEcho(text, answer);
+      note("checked", { said, scribe: "text" in got ? got.text : null, user });
+      if (!user || speakingId === null || spokeFrom !== run || !on) return duck(false);
+      // The user, says Scribe: it stops, and listens; what's said from a moment ago is theirs.
+      stopSpeaking();
+      duck(false);
+      echoSlots.delete(i);
+      userSlots.set(i, Date.now());
+      cutSlot = -1;
+      cutAt = Date.now();
+      turnFrom = Date.now() - CHECK_SPAN;
+      floor = true;
+      floorAt = Date.now();
+      lastHeard = Date.now();
+      pending = text;
+      h.onText(`${buffer} ${pending}`.trim());
+      waitToSend();
+    });
+    return true;
+  };
   tracing = true;
   note("on", { ear: earState() });
   const tracer = window.setInterval(() => {
@@ -629,10 +690,13 @@ export function converse(h: {
         sttOff = true;
         h.onNote?.(`${got.off} Kata-katamu ditulis pengenal suara browser (bahasa Indonesia saja).`);
       }
-      const said = "text" in got ? (cut ? afterLeadingStop(got.text) : got.text) : "";
-      const final = dropFillers(said) || text;
-      note("stt", { browser: text, scribe: "text" in got ? got.text : null, language: "language" in got ? got.language : null, error: "error" in got ? got.error : "off" in got ? got.off : null, ms: Date.now() - t0 });
-      h.onUtterance(final);
+      const scribe = "text" in got ? dropFillers(cut ? afterLeadingStop(got.text) : got.text) : null;
+      // Scribe heard the recording and found no words, or only the answer's: nobody spoke (echo
+      // that got past the recognizer); not sent. When it couldn't be asked, the browser's words go.
+      const nobody = scribe !== null && (!scribe || (lastAnswer !== "" && isEcho(scribe, lastAnswer)));
+      note("stt", { browser: text, scribe: "text" in got ? got.text : null, language: "language" in got ? got.language : null, error: "error" in got ? got.error : "off" in got ? got.off : null, nobody, ms: Date.now() - t0 });
+      if (nobody) return h.onText("");
+      h.onUtterance(scribe || text);
     });
   };
   /** Sends once the user has been quiet long enough: by the ear when it's open, else by the words. */
@@ -694,9 +758,11 @@ export function converse(h: {
         }
         if (echoSlots.has(i)) {
           // The recognizer doesn't split the user's voice from the echo it runs into: a word that
-          // means stop, heard in the echo's own result, still stops it.
+          // means stop, heard in the echo's own result, still stops it; new words of the user's
+          // own in it are checked by Scribe.
           if (!speaking || stopWordAt(said, hearing) < 0) {
-            decided.push(`e: ${said}`);
+            if (speaking && maybeUser(i, said)) decided.push(`check: ${said}`);
+            else decided.push(`e: ${said}`);
             continue;
           }
           echoSlots.delete(i);
@@ -709,17 +775,18 @@ export function converse(h: {
           if (speaking) {
             // While it reads, what the microphone hears is taken for its echo (on the raw microphone
             // it's as loud as the user, and comes out garbled), unless a word that means stop is
-            // heard, or, on the echo-cancelled one, words mostly of the user's own.
-            if (stopWordAt(said, hearing) < 0 && !(onTrack && ownTalk(said, hearing))) {
+            // heard; on the echo-cancelled one, words of the user's own are checked by Scribe
+            // (what leaks through comes out of the recognizer as words, out of Scribe as nothing).
+            if (stopWordAt(said, hearing) < 0) {
               echoSlots.add(i);
-              decided.push(`echo: ${said}`);
+              decided.push(`${maybeUser(i, said) ? "check" : "echo"}: ${said}`);
               continue;
             }
             stopSpeaking();
             cutSlot = i;
             cutAt = Date.now();
             turnFrom = cutAt - CUT_PREROLL;
-            take(i, `${stopWordAt(said, hearing) < 0 ? "talk" : "stop"}: ${said}`);
+            take(i, `stop: ${said}`);
           } else if (hearing && sinceEnd < ECHO_TAIL) {
             // Begun just as it ended: its last words, the recognizer being a moment behind.
             echoSlots.add(i);
@@ -812,6 +879,223 @@ export function converse(h: {
     if (!on) return;
     commit("switched off");
     r?.abort();
+    stop();
+  };
+}
+
+type ConverseHandlers = Parameters<typeof converseBrowser>[0];
+
+/** The realtime Scribe refused for good this time (key not allowed, quota): the browser's recognizer. */
+let liveOff = false;
+
+/**
+ * Conversation mode: by ElevenLabs' realtime Scribe on the echo-cancelled microphone when
+ * ElevenLabs is set up (it writes Indonesian and English as said, as it hears them, and not the
+ * assistant's own voice), else by the browser's recognizer. Returns the switch-off.
+ */
+export function converse(h: ConverseHandlers): () => void {
+  if (liveOff || !eleven?.configured) return converseBrowser(h);
+  let stopInner: (() => void) | null = null;
+  let off = false;
+  const fallBack = (why: string, fatal: boolean) => {
+    if (off) return;
+    if (fatal) {
+      liveOff = true;
+      h.onNote?.(`${why} Kata-katamu ditulis pengenal suara browser (bahasa Indonesia saja).`);
+    }
+    stopInner?.();
+    stopInner = converseBrowser(h);
+  };
+  stopInner = converseLive(h, fallBack);
+  return () => {
+    off = true;
+    stopInner?.();
+  };
+}
+
+/** Sent this long after Scribe's last word of the turn was settled, when it doesn't lead on (ms). */
+const SEND_AFTER_COMMIT = 250;
+/** Audio is streamed while the user's voice was heard this recently (ms), so Scribe hears the quiet that ends a stretch. */
+const STREAM_HOLD = 2500;
+/** When the stream opens, what was said this long before goes first (ms): the voice is caught a moment late. */
+const STREAM_PREROLL = 800;
+/** A stream not used this long is closed (ms); the next voice opens another. */
+const STREAM_IDLE = 20_000;
+
+function converseLive(h: ConverseHandlers, fallBack: (why: string, fatal: boolean) => void): () => void {
+  let on = true;
+  let live: Live | null = null;
+  let connecting = false;
+  let streamedAt = 0;
+  let voiceAt = 0;
+  // After a failed connection, not again before this; after a few in a row, the browser's recognizer.
+  let retryAt = 0;
+  let failures = 0;
+  // The turn: what Scribe settled of it, what it's still hearing, when, whether it began as a cut-in.
+  let settled = "";
+  let partial = "";
+  let settledAt = 0;
+  let heardAt = 0;
+  let floor = false;
+  let floorAt = 0;
+  let cut = false;
+  let pause: ReturnType<typeof setTimeout> | undefined;
+  tracing = true;
+  note("on", { live: true, ear: earState() });
+  const tracer = window.setInterval(() => {
+    if (assistantSpeaking() || sinceVoice() < 3000) note("ear", earState());
+  }, 250);
+  const flusher = window.setInterval(flushTrace, 3000);
+  const show = () => h.onText(`${settled} ${partial}`.trim());
+
+  const send = (why: string) => {
+    clearTimeout(pause);
+    const all = `${settled} ${partial}`.trim();
+    const text = dropFillers(cut ? afterLeadingStop(all) : all);
+    note("send", { text, why, cut });
+    settled = "";
+    partial = "";
+    floor = false;
+    cut = false;
+    if (text) h.onUtterance(text);
+    else h.onText("");
+  };
+  /** Sends once Scribe has settled the turn and nothing more came; longer after "ehmm" or a word that leads on. */
+  const waitToSend = () => {
+    clearTimeout(pause);
+    const check = () => {
+      if (!on || !`${settled} ${partial}`.trim()) return;
+      const now = Date.now();
+      const going = stillGoing(`${settled} ${partial}`);
+      if (settled && !partial.trim() && now - settledAt >= SEND_AFTER_COMMIT + (going ? STILL_GOING : 0)) return send("settled");
+      // Scribe heard words and never settled them (the stream closed under it): after a while, as they are.
+      if (now - heardAt >= QUIET_MAX + (going ? STILL_GOING : 0)) return send("no new words");
+      pause = setTimeout(check, 150);
+    };
+    pause = setTimeout(check, 150);
+  };
+
+  /** What Scribe heard: the user's, or the answer's own voice (only while, and just after, it reads). */
+  const judge = (text: string, final: boolean): boolean => {
+    const now = Date.now();
+    if (floor && floorAt < spokeFrom) floor = false;
+    if (floor) return true;
+    if (speakingId !== null) {
+      // While it reads: a word that means stop, or words mostly of the user's own (what leaks of its
+      // voice comes out of Scribe as nothing, or as its own words).
+      const stop = stopWordAt(text, hearing) >= 0;
+      const own = ownWords(afterEcho(text, hearing), hearing).length;
+      if (!stop && (own < 2 || isEcho(text, hearing))) {
+        note("heard", { text, final, who: "echo", hearing: hearing.slice(0, 200) });
+        return false;
+      }
+      stopSpeaking();
+      cut = true;
+      note("heard", { text, final, who: stop ? "stop" : "talk", hearing: hearing.slice(0, 200) });
+    } else if (hearing && now - endedAt < ECHO_GRACE && isEcho(text, lastAnswer)) {
+      note("heard", { text, final, who: "late echo" });
+      return false;
+    } else note("heard", { text, final, who: "user" });
+    floor = true;
+    floorAt = now;
+    return true;
+  };
+
+  const handlers: LiveHandlers = {
+    partial(text) {
+      failures = 0;
+      if (!on || !text.trim() || !judge(text, false)) return;
+      partial = text;
+      heardAt = Date.now();
+      show();
+      waitToSend();
+    },
+    committed(text) {
+      failures = 0;
+      if (!on) return;
+      partial = "";
+      if (text.trim() && judge(text, true)) {
+        settled = `${settled} ${text}`.trim();
+        settledAt = heardAt = Date.now();
+      }
+      show();
+      waitToSend();
+    },
+    failed(message, fatal) {
+      note("live failed", { message, fatal });
+      live = null;
+      retryAt = Date.now() + 5000;
+      if (fatal) fallBack(`Speech to Text realtime ElevenLabs: ${message}.`, true);
+      else if (++failures >= 3) fallBack("", false);
+    },
+    closed() {
+      note("live closed");
+      live = null;
+    },
+  };
+
+  const connect = async () => {
+    if (live || connecting || !on || Date.now() < retryAt) return;
+    connecting = true;
+    const opened = await openLive(earRate(), handlers);
+    connecting = false;
+    if (!on) return opened?.close();
+    if (!opened) return;
+    live = opened;
+    streamedAt = Date.now();
+    note("live open");
+    // What was said while it opened.
+    live.send(samplesSince(Date.now() - STREAM_PREROLL));
+  };
+
+  // The microphone to Scribe while the user's voice is about (and a moment after, so it hears the
+  // quiet that ends what they say); nothing streamed in silence, nothing paid for it.
+  let unsubscribe: (() => void) | null = null;
+  const stream = (f: Float32Array) => {
+    if (!on) return;
+    const now = Date.now();
+    if (sinceVoice(now) < 300) voiceAt = now;
+    const wanted = now - voiceAt < STREAM_HOLD;
+    if (!live) {
+      if (wanted) void connect();
+      return;
+    }
+    if (wanted) {
+      live.send(f);
+      streamedAt = now;
+    } else if (now - streamedAt > STREAM_IDLE) {
+      live.close();
+      live = null;
+    }
+  };
+
+  const stop = () => {
+    on = false;
+    clearTimeout(pause);
+    window.clearInterval(tracer);
+    window.clearInterval(flusher);
+    unsubscribe?.();
+    live?.close();
+    live = null;
+    note("off");
+    flushTrace();
+    tracing = false;
+    closeEar();
+    h.onListening?.(false);
+  };
+
+  void openEar().then((open) => {
+    note("ear open", { open });
+    if (!on) return closeEar();
+    // No echo-cancelled microphone to stream: the browser's recognizer, on the microphone.
+    if (!open) return fallBack("", false);
+    unsubscribe = onAudio(stream);
+    h.onListening?.(true);
+  });
+
+  return () => {
+    if (!on) return;
+    if (`${settled} ${partial}`.trim()) send("switched off");
     stop();
   };
 }
@@ -938,6 +1222,7 @@ function speakEleven(text: string, id: string | null, mood: Mood): void {
     }
     if (run !== reading) return;
     const a = new Audio(url);
+    a.volume = ducked ? DUCKED : 1;
     audio = a;
     a.onended = () => play(i + 1);
     a.onerror = () => play(i + 1);

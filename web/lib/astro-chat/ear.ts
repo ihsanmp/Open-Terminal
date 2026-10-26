@@ -179,6 +179,7 @@ async function startRecording(c: AudioContext, source: MediaStreamAudioSourceNod
       for (let i = 0; i < f.length; i++) r[(written + i) % size] = Math.max(-1, Math.min(1, f[i])) * 32767;
       written += f.length;
       writtenAt = Date.now();
+      audioListeners.forEach((l) => l(f));
     };
     source.connect(node);
     // A worklet runs only when something pulls on it: a silent way out.
@@ -221,6 +222,25 @@ export function recording(from: number, to: number): Blob | null {
   v.setUint32(40, n * 2, true);
   for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, ring[(start + i) % size], true);
   return new Blob([buf], { type: "audio/wav" });
+}
+
+const audioListeners = new Set<(f: Float32Array) => void>();
+/** The echo-cancelled microphone's sound as it comes (batches at earRate()), for streaming it; the unsubscribe. */
+export function onAudio(l: (f: Float32Array) => void): () => void {
+  audioListeners.add(l);
+  return () => audioListeners.delete(l);
+}
+/** The recording's sample rate (the microphone's own). */
+export const earRate = () => rate;
+
+/** The recording from `from` (ms) to now, as 16-bit samples at earRate(): to send what was said just before a stream opened. */
+export function samplesSince(from: number): Int16Array {
+  if (!ring || !written) return new Int16Array(0);
+  const size = ring.length;
+  const start = Math.max(Math.round(written - ((writtenAt - from) * rate) / 1000), written - size + 1, 0);
+  const out = new Int16Array(Math.max(0, written - start));
+  for (let i = 0; i < out.length; i++) out[i] = ring[(start + i) % size];
+  return out;
 }
 
 /** The echo-cancelled microphone itself, for the recognizer to listen to (null when the ear is closed). */

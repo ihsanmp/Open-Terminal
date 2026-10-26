@@ -174,6 +174,20 @@ export async function transcribe(audio: Buffer, mime: string): Promise<{ text: s
 }
 
 /**
+ * A single-use token for the realtime Scribe (15 minutes, one connection), so the page can stream
+ * the microphone to ElevenLabs itself without the key ever leaving the server.
+ */
+export async function liveToken(): Promise<string> {
+  const key = apiKey();
+  if (!key) throw new VoiceError("API key ElevenLabs belum diisi.", 400);
+  const res = await fetch(`${API}/single-use-token/realtime_scribe`, { method: "POST", headers: { "xi-api-key": key }, signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) throw new VoiceError(explain(res.status, await res.text().catch(() => "")), res.status);
+  const j = (await res.json()) as { token?: string };
+  if (!j.token) throw new VoiceError("ElevenLabs tidak memberi token.", 502);
+  return j.token;
+}
+
+/**
  * The words a trader says to the assistant that Scribe gets wrong in an Indonesian sentence ("outflow"
  * written "outdoor"): it's biased toward them. Under 100 of them (more and every request is billed
  * as 20 s); they cost a fifth more.
