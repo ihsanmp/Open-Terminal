@@ -29,7 +29,9 @@ export type WhaleAlert = {
 };
 
 const POLL_MS = 60_000;
-const SHOW_MS = 30_000;
+/** On screen this long, then it fades out over FADE_MS. */
+const SHOW_MS = 3000;
+const FADE_MS = 500;
 const FIRST_LOOK_S = 86_400;
 const MAX_SHOWN = 4;
 
@@ -69,17 +71,27 @@ function ago(seconds: number): string {
 
 function Toast({ a, onClose }: { a: WhaleAlert; onClose: () => void }) {
   const [hover, setHover] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const left = useRef(SHOW_MS);
-  // Closes on its own after a while; not while the pointer is on it.
+  // Fades out on its own after a few seconds; not while the pointer is on it (it comes back if the
+  // pointer catches it fading).
   useEffect(() => {
-    if (hover) return;
+    if (hover) {
+      setLeaving(false);
+      return;
+    }
     const started = Date.now();
-    const t = setTimeout(onClose, left.current);
+    const t = setTimeout(() => setLeaving(true), left.current);
     return () => {
       clearTimeout(t);
-      left.current = Math.max(3000, left.current - (Date.now() - started));
+      left.current = Math.max(1500, left.current - (Date.now() - started));
     };
-  }, [hover, onClose]);
+  }, [hover]);
+  useEffect(() => {
+    if (!leaving) return;
+    const t = setTimeout(onClose, FADE_MS);
+    return () => clearTimeout(t);
+  }, [leaving, onClose]);
   const buy = a.side === "buy";
   const kind = kindOf(a);
   const amount = `${fmt(a.amount, a.amount >= 100 ? 0 : 2)} ${a.unit}`;
@@ -88,6 +100,7 @@ function Toast({ a, onClose }: { a: WhaleAlert; onClose: () => void }) {
       role="status"
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
+      style={{ transition: `opacity ${FADE_MS}ms ease-out, transform ${FADE_MS}ms ease-out`, opacity: leaving ? 0 : 1, transform: leaving ? "translateY(-6px)" : "none" }}
       className={`pointer-events-auto bg-[#141414] border border-[var(--border)] border-l-4 ${buy ? "border-l-[var(--up)]" : "border-l-[var(--down)]"} shadow-2xl px-3 py-2 text-fs-11`}
     >
       <div className="flex items-center gap-2">
@@ -96,7 +109,7 @@ function Toast({ a, onClose }: { a: WhaleAlert; onClose: () => void }) {
         <span className="amber font-bold text-fs-10">{a.asset}</span>
         <span className={`px-1.5 rounded-[3px] text-fs-9 font-bold ${buy ? "bg-[#12301f] up" : "bg-[#3a1414] down"}`}>{buy ? "BELI" : "JUAL"}</span>
         <span className="dim text-fs-9 ml-auto">{ago(a.time)}</span>
-        <button className="dim hover:text-[var(--text)] px-1" title="Tutup" onClick={onClose}>
+        <button className="dim hover:text-[var(--text)] px-1" title="Tutup" onClick={() => setLeaving(true)}>
           ✕
         </button>
       </div>

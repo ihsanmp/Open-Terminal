@@ -272,8 +272,19 @@ const nowSaying = (parts: string[], i: number) => {
 };
 export const assistantSpeaking = () => speakingId !== null || Date.now() < spokeUntil;
 
+/**
+ * Where a reading is (which piece, in which voice), and where it was stopped: "▶ Lanjut" goes on
+ * from there. Only the last message stopped can go on; reading another forgets it.
+ */
+type Place = { id: string; text: string; mood: Mood; engine: "eleven" | "browser"; piece: number };
+let place: Place | null = null;
+let paused: (Place & { offset: number }) | null = null;
+/** The message stopped part-way, for its button to say "Lanjut". */
+export const usePausedId = () => useSyncExternalStore(subscribe, () => paused?.id ?? null, () => null);
+
 /** Reads a message out in its mood (stopping whatever was being read); `id` marks it as the one playing. */
 export function speak(text: string, id: string | null = null, mood: Mood = "santai"): void {
+  paused = null;
   stopAudio();
   spokeFrom = Date.now();
   lastAnswer = toSpeech(text);
@@ -295,7 +306,7 @@ export function speak(text: string, id: string | null = null, mood: Mood = "sant
 }
 
 /** The browser's own voice (Edge: Gadis): the one used without ElevenLabs, and when it fails. */
-function speakBrowser(text: string, id: string | null, mood: Mood, keepRun = false): void {
+function speakBrowser(text: string, id: string | null, mood: Mood, keepRun = false, from = 0): void {
   if (!canSpeak()) return;
   const synth = window.speechSynthesis;
   synth.cancel();
@@ -309,6 +320,7 @@ function speakBrowser(text: string, id: string | null, mood: Mood, keepRun = fal
   changed();
   const done = () => {
     if (run === reading && speakingId === id) {
+      place = null;
       speakingId = null;
       changed();
     }
@@ -316,6 +328,7 @@ function speakBrowser(text: string, id: string | null, mood: Mood, keepRun = fal
   const say = (i: number) => {
     if (run !== reading) return;
     if (i >= parts.length) return done();
+    if (id) place = { id, text, mood, engine: "browser", piece: i };
     const u = new SpeechSynthesisUtterance(parts[i]);
     u.lang = voice?.lang ?? LANG;
     if (voice) u.voice = voice;
@@ -328,15 +341,31 @@ function speakBrowser(text: string, id: string | null, mood: Mood, keepRun = fal
     nowSaying(parts, i);
     synth.speak(u);
   };
-  say(0);
+  say(Math.min(from, parts.length - 1));
 }
 
 export function stopSpeaking(): void {
+  // Stopped part-way: kept, to go on from there (a moment back, for the sentence's sense).
+  if (place && speakingId === place.id) paused = { ...place, offset: place.engine === "eleven" && audio ? Math.max(0, audio.currentTime - 0.4) : 0 };
+  place = null;
   reading++;
   stopAudio();
   if (canSpeak()) window.speechSynthesis.cancel();
   speakingId = null;
   changed();
+}
+
+/** Goes on reading the message stopped part-way, from where it stopped. */
+export function resume(id: string): void {
+  const p = paused;
+  if (!p || p.id !== id) return;
+  paused = null;
+  stopAudio();
+  spokeFrom = Date.now();
+  lastAnswer = toSpeech(p.text);
+  hearing = "";
+  if (p.engine === "eleven" && elevenOn()) speakEleven(p.text, p.id, p.mood, p.piece, p.offset);
+  else speakBrowser(p.text, p.id, p.mood, false, p.engine === "browser" ? p.piece : 0);
 }
 
 /** Whether answers are read out as they come (kept in this browser). */
@@ -1188,7 +1217,7 @@ async function fetchSpeech(text: string, mood: Mood): Promise<string> {
   return url;
 }
 
-function speakEleven(text: string, id: string | null, mood: Mood): void {
+function speakEleven(text: string, id: string | null, mood: Mood, from = 0, offset = 0): void {
   const parts = elevenPieces(toSpeech(text));
   if (!parts.length) return;
   const run = ++reading;
@@ -1201,6 +1230,7 @@ function speakEleven(text: string, id: string | null, mood: Mood): void {
   const want = (i: number) => (pending[i] ??= fetchSpeech(parts[i], mood));
   const finish = () => {
     if (run === reading && speakingId === id) {
+      place = null;
       speakingId = null;
       changed();
     }
@@ -1208,6 +1238,7 @@ function speakEleven(text: string, id: string | null, mood: Mood): void {
   const play = async (i: number) => {
     if (run !== reading) return;
     if (i >= parts.length) return finish();
+    if (id) place = { id, text, mood, engine: "eleven", piece: i };
     if (i + 1 < parts.length) void want(i + 1).catch(() => undefined);
     let url: string;
     try {
@@ -1223,6 +1254,8 @@ function speakEleven(text: string, id: string | null, mood: Mood): void {
     if (run !== reading) return;
     const a = new Audio(url);
     a.volume = ducked ? DUCKED : 1;
+    // Going on from where it was stopped, in the piece it was stopped in.
+    if (i === from && offset > 0) a.currentTime = offset;
     audio = a;
     a.onended = () => play(i + 1);
     a.onerror = () => play(i + 1);
@@ -1233,5 +1266,5 @@ function speakEleven(text: string, id: string | null, mood: Mood): void {
     };
     a.play().catch(() => play(i + 1));
   };
-  void play(0);
+  void play(Math.min(from, parts.length - 1));
 }

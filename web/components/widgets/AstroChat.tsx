@@ -7,7 +7,7 @@ import { chatEnv } from "../../lib/astro-chat/env";
 import type { QuantForecast } from "../../lib/quant";
 import { apiGet, apiPost } from "../../lib/api";
 import { lookAtScreen, NO_PICTURE, readyScreen, wantsScreen } from "../../lib/astro-chat/screen";
-import { canListen, canSpeak, converse, refreshEleven, setPref, setVoiceReply, speak, stopSpeaking, useEleven, useElevenIssue, usePref, useSpeakingId, useVoiceReply, type Mood } from "../../lib/astro-chat/voice";
+import { canListen, canSpeak, converse, refreshEleven, resume, setPref, setVoiceReply, speak, stopSpeaking, useEleven, useElevenIssue, usePref, usePausedId, useSpeakingId, useVoiceReply, type Mood } from "../../lib/astro-chat/voice";
 import { useUserTalking } from "../../lib/astro-chat/ear";
 
 // The Astro Calendar's chat (offline: lib/astro-chat), in the floating bubble's panel
@@ -136,6 +136,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
   // Voice: answers read out (🔊), questions said (🎤).
   const voiceReply = useVoiceReply();
   const speakingId = useSpeakingId();
+  const pausedId = usePausedId();
   const [listening, setListening] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const stopListening = useRef<(() => void) | null>(null);
@@ -373,12 +374,13 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
               {!isUser && (
                 <div className={`mt-1 ${m.id === "welcome" ? "flex flex-col items-start gap-1" : "flex flex-wrap items-center gap-1"}`}>
                   {hasVoice.speak && (
+                    // Reading: stop. Stopped part-way: go on from there. Read to the end (or not yet): from the start.
                     <button
-                      className={`text-fs-10 px-1.5 rounded-sm border ${speakingId === m.id ? "border-[#4fc3f7] text-[#8fd8ff]" : "border-[var(--border)] dim hover:text-[var(--text)]"}`}
-                      onClick={() => (speakingId === m.id ? stopSpeaking() : speak(m.text, m.id, m.tone))}
-                      title={speakingId === m.id ? "Hentikan" : "Dengarkan jawaban ini"}
+                      className={`text-fs-10 px-1.5 rounded-sm border ${speakingId === m.id ? "border-[#4fc3f7] text-[#8fd8ff]" : pausedId === m.id ? "border-[#4fc3f7] text-[#4fc3f7]" : "border-[var(--border)] dim hover:text-[var(--text)]"}`}
+                      onClick={() => (speakingId === m.id ? stopSpeaking() : pausedId === m.id ? resume(m.id) : speak(m.text, m.id, m.tone))}
+                      title={speakingId === m.id ? "Hentikan" : pausedId === m.id ? "Lanjutkan dari tempat berhenti" : "Dengarkan jawaban ini"}
                     >
-                      {speakingId === m.id ? "■ Berhenti" : "🔊 Dengar"}
+                      {speakingId === m.id ? "■ Berhenti" : pausedId === m.id ? "▶ Lanjut" : "🔊 Dengar"}
                     </button>
                   )}
                   {m.id !== "welcome" && (
