@@ -174,12 +174,16 @@ terutama ticker dan istilah Inggris (contoh: "di x" / "dek si" = DXY, "bitkoin" 
 bunyinya, utas, data, dan layar. Kalau tafsiranmu tidak pasti, sebut singkat ("kamu maksud DXY ya?") lalu
 jawab; jangan menolak menjawab hanya karena ejaannya aneh.`;
 
-export function userPrompt(question: string, thread: Turn[], data: string, knowledge: Array<{ file: string; text: string }>, screen?: string, spoken = false, voiced = false): string {
+export function userPrompt(question: string, thread: Turn[], data: string, knowledge: Array<{ file: string; text: string }>, screen?: string, spoken = false, voiced = false, guide = ""): string {
   const parts: string[] = [];
   if (screen) parts.push(`# LAYAR (yang sedang ditampilkan aplikasi pengguna, saat pertanyaan diajukan)\n${screen}`);
   if (thread.length)
     parts.push(`# UTAS (pengguna membalas percakapan ini; lanjutkan topiknya)\n${thread.map((t) => `${t.role === "user" ? "PENGGUNA" : "ASISTEN"}: ${t.text}`).join("\n\n")}`);
   parts.push(`# DATA (dikumpulkan kode aplikasi, saat ini)\n${data}`);
+  // The app's own guide (web/lib/astro-chat/app-guide.ts): what each menu and tab shows and how to
+  // read it, the open page and the ones asked about in full.
+  if (guide) parts.push(`# PANDUAN APLIKASI (fungsi tiap menu/tab dan cara membacanya; pakai ini untuk pertanyaan tentang aplikasi atau halaman yang dibuka)
+${guide}`);
   if (knowledge.length) parts.push(`# PENGETAHUAN (riset yang sudah diuji, dari Crypto-Analis)\n${knowledge.map((k) => `## ${k.file}\n${k.text}`).join("\n\n")}`);
   if (spoken) parts.push(SPOKEN);
   if (voiced) parts.push(VOICED);

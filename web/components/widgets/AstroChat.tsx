@@ -9,6 +9,8 @@ import { apiGet, apiPost } from "../../lib/api";
 import { lookAtScreen, NO_PICTURE, readyScreen, wantsScreen } from "../../lib/astro-chat/screen";
 import { canListen, canSpeak, converse, refreshEleven, resume, setPref, setVoiceReply, speak, stopSpeaking, useEleven, useElevenIssue, usePref, usePausedId, useSpeakingId, useVoiceReply, type Mood } from "../../lib/astro-chat/voice";
 import { useUserTalking } from "../../lib/astro-chat/ear";
+import { guideFor } from "../../lib/astro-chat/app-guide";
+import { useTerminal } from "../../store/terminal";
 import { Icon } from "../Icon";
 
 // The Astro Calendar's chat (offline: lib/astro-chat), in the floating bubble's panel
@@ -149,7 +151,9 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
   const elevenIssue = useElevenIssue();
   const box = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
-  const env = useMemo(() => chatEnv(events, forecast), [events, forecast]);
+  // The page open in the app, so "halaman ini apa?" is answered about it.
+  const view = useTerminal((s) => s.view);
+  const env = useMemo(() => ({ ...chatEnv(events, forecast), view }), [events, forecast, view]);
   const [engine, setEngineState] = useState<Engine>(readEngine);
   const setEngine = (e: Engine) => {
     setEngineState(e);
@@ -220,7 +224,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
           setLooking(withScreen);
           const screen = withScreen ? await lookAtScreen() : null;
           setLooking(false);
-          const c = await apiPost<{ text: string; model: string; ms: number; tone?: Mood }>("/api/astro-chat", { question: q, thread, offline: r?.text ?? "", screen, spoken: voiceReply || spoken, voiced: spoken });
+          const c = await apiPost<{ text: string; model: string; ms: number; tone?: Mood }>("/api/astro-chat", { question: q, thread, offline: r?.text ?? "", screen, spoken: voiceReply || spoken, voiced: spoken, guide: guideFor(q, view) });
           bot = {
             id: newId(),
             role: "bot",

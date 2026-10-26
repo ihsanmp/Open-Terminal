@@ -10,6 +10,7 @@ import { GLYPH, position, SIGNS } from "../astro-calendar/events";
 import { WALK_FORWARD, type Asset, type Series } from "../astro-calendar/impact";
 import type { RetroPeriod, RetroPlanet, SunIngress } from "../astro-calendar/retrograde";
 import type { QuantForecast } from "../quant";
+import { ASKS_GUIDE, ASKS_MENU_LIST, ASKS_THIS_PAGE, guideById, guideEntries, guideIndex, guideText, type GuideEntry } from "./app-guide";
 import { findTopic, topicById, TOPICS } from "./knowledge";
 import { afterStudy, allTimeHigh, closeOn, correlation, extremeDays, maxDrawdown, performance, seasonality, spanStudy, streaks, type Study } from "./stats";
 import { parse, type Metric, type Parsed, type Planet, type SkyEvent, type Span } from "./text";
@@ -25,6 +26,8 @@ export type Env = {
   /** Apparent geocentric longitude of a planet at unix ms. */
   longitude: (planet: Planet, ms: number) => number;
   forecast?: QuantForecast;
+  /** The page open in the app (store/terminal View), for "halaman ini apa?". */
+  view?: string | null;
 };
 
 export type Intent = "timing" | "impact" | "position" | "stats" | "price" | "forecast" | "topic" | "discuss" | "sun";
@@ -465,6 +468,33 @@ function deeper(ctx: Context): Reply | null {
     : null;
 }
 
+// ---------------------------------------------------------------- the app itself
+
+/** What a menu or tab is for and how to read it (app-guide.ts); null when the question isn't about one. */
+function guide(text: string, view: string | null, ctx: Context): Reply | null {
+  const reply = (g: GuideEntry): Reply => ({
+    text: guideText(g),
+    suggestions: ["Menu apa saja yang ada?", ...guideEntries(g.read.join(" ")).filter((o) => o.id !== g.id).slice(0, 2).map((o) => `Cara baca ${o.title}`)],
+    ctx: { ...ctx, intent: "topic", topic: null, depth: 0 },
+  });
+  if (ASKS_MENU_LIST.test(text))
+    return {
+      text: `Menu di aplikasi ini:
+${guideIndex()}
+
+Tanya "cara baca [nama menu]" atau "halaman ini apa" untuk penjelasan lengkapnya.`,
+      suggestions: ["Cara baca Macro Regime", "Cara baca COT", "Halaman ini apa?"],
+      ctx: { ...ctx, intent: "topic", topic: null, depth: 0 },
+    };
+  const named = guideEntries(text);
+  if (ASKS_THIS_PAGE.test(text) && !named.length && view) {
+    const g = guideById(view);
+    if (g) return reply(g);
+  }
+  if (named.length && (ASKS_GUIDE.test(text) || ASKS_THIS_PAGE.test(text))) return reply(named[0]);
+  return null;
+}
+
 // ---------------------------------------------------------------- choosing the answer
 
 const DEFINE = /\b(apa itu|apa maksud|apakah itu|pengertian|definisi|arti|what is|what are|jelaskan tentang|jelaskan apa)\b/;
@@ -473,6 +503,10 @@ export function respond(input: string, env: Env, ctx: Context = {}): Reply {
   const q = parse(input, env.today);
   if (!q.text) return help();
   const entities = q.assets.length + q.planets.length + (q.event ? 1 : 0) + (q.span || q.day !== null ? 1 : 0) + (q.metric ? 1 : 0);
+
+  // The app itself: a menu or a tab, what it shows and how to read it.
+  const g = guide(q.text, env.view ?? null, ctx);
+  if (g) return g;
 
   if (q.help) return help();
   if ((q.greeting || q.thanks) && entities === 0 && q.words.length <= 4)

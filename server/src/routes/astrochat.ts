@@ -60,7 +60,8 @@ astroChatRouter.post("/", async (req, res) => {
     // An answer that will be read out (asked by voice, or with 🔊 on) is said for the ear.
     const spoken = req.body?.spoken === true;
     const voiced = req.body?.voiced === true;
-    const r = await askClaude(userPrompt(question, thread, data, knowledge, look, spoken, voiced), systemPrompt(), model, 150_000, shot?.screen ? [shot.screen.file] : []);
+    const guide = text(req.body?.guide, 14_000);
+    const r = await askClaude(userPrompt(question, thread, data, knowledge, look, spoken, voiced, guide), systemPrompt(), model, 150_000, shot?.screen ? [shot.screen.file] : []);
     // The tone Claude marked for the reader's voice, off the text shown.
     const { text: answer, tone } = splitTone(r.text);
     res.json({ text: answer, tone, model: r.model, ms: r.ms, knowledge: knowledge.map((k) => k.file), screen: shot ? shot.reason : null });
