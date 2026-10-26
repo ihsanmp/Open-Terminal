@@ -393,18 +393,15 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
                       ↩ Balas
                     </button>
                   )}
+                  {/* Suggested questions only on the welcome; under an answer they were in the way. */}
                   {m === lastBot &&
+                    m.id === "welcome" &&
                     m.suggestions?.map((s) => (
                       <button
                         key={s}
-                        className={
-                          m.id === "welcome"
-                            ? "text-fs-11 px-2.5 py-1.5 rounded-lg bg-[#f0c040] border border-[#f0c040] text-[#1a1200] font-semibold hover:bg-[#ffd25a] text-left"
-                            : "text-fs-10 px-1.5 rounded-sm bg-[#f0c04026] border border-[#f0c04099] text-[#f0c040] hover:bg-[#f0c04040]"
-                        }
-                        // A suggestion follows from this message: sent as a reply to it.
-                        onClick={() => send(s, m.id === "welcome" ? null : m.id)}
-                        title={m.id === "welcome" ? s : "Dikirim sebagai balasan pesan ini"}
+                        className="text-fs-11 px-2.5 py-1.5 rounded-lg bg-[#f0c040] border border-[#f0c040] text-[#1a1200] font-semibold hover:bg-[#ffd25a] text-left"
+                        onClick={() => send(s, null)}
+                        title={s}
                       >
                         {s}
                       </button>

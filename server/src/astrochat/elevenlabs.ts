@@ -140,9 +140,6 @@ export async function speech(text: string, mood: Mood): Promise<Buffer> {
   return audio;
 }
 
-/** Speech to text: the newest Scribe first, the one before if this account or the API doesn't have it. */
-export const STT_MODELS = ["scribe_v2", "scribe_v1"] as const;
-
 /**
  * What the user said, written by ElevenLabs' Scribe from their recording: the language found by
  * itself, Indonesian and English mixed as said (the browser's recognizer hears one language only,
@@ -151,10 +148,17 @@ export const STT_MODELS = ["scribe_v2", "scribe_v1"] as const;
 export async function transcribe(audio: Buffer, mime: string): Promise<{ text: string; language: string | null; model: string }> {
   const key = apiKey();
   if (!key) throw new VoiceError("API key ElevenLabs belum diisi.", 400);
-  for (const model of STT_MODELS) {
+  const attempts: { model: string; terms: boolean }[] = [
+    { model: "scribe_v2", terms: true },
+    { model: "scribe_v2", terms: false },
+    { model: "scribe_v1", terms: false },
+  ];
+  for (const [n, { model, terms }] of attempts.entries()) {
     const form = new FormData();
     form.append("model_id", model);
     form.append("tag_audio_events", "false");
+    if (model === "scribe_v2") form.append("no_verbatim", "true");
+    if (terms) for (const t of KEYTERMS) form.append("keyterms", t);
     form.append("file", new Blob([new Uint8Array(audio)], { type: mime }), "speech.wav");
     const res = await fetch(`${API}/speech-to-text`, { method: "POST", headers: { "xi-api-key": key }, body: form, signal: AbortSignal.timeout(30_000) });
     if (res.ok) {
@@ -162,12 +166,29 @@ export async function transcribe(audio: Buffer, mime: string): Promise<{ text: s
       return { text: (j.text ?? "").trim(), language: j.language_code ?? null, model };
     }
     const body = await res.text().catch(() => "");
-    // A model it doesn't know: the one before.
-    if ([400, 422].includes(res.status) && /model/i.test(body) && model !== STT_MODELS[STT_MODELS.length - 1]) continue;
+    // Key terms it won't take, or a model it doesn't know: the next way.
+    if ([400, 422].includes(res.status) && /model|keyterm|no_verbatim/i.test(body) && n < attempts.length - 1) continue;
     throw new VoiceError(explain(res.status, body), res.status);
   }
   throw new VoiceError("Speech to Text ElevenLabs tidak tersedia.", 502);
 }
+
+/**
+ * The words a trader says to the assistant that Scribe gets wrong in an Indonesian sentence ("outflow"
+ * written "outdoor"): it's biased toward them. Under 100 of them (more and every request is billed
+ * as 20 s); they cost a fifth more.
+ */
+export const KEYTERMS = [
+  "outflow", "inflow", "outflows", "inflows", "DXY", "ETF", "ETF flows", "FOMC", "CPI", "PCE", "NFP", "GDP", "the Fed", "rate cut",
+  "rate hike", "yield", "bond yield", "Treasury", "real yield", "support", "resistance", "breakout", "breakdown", "pullback",
+  "rebound", "bullish", "bearish", "sideways", "uptrend", "downtrend", "trend", "chart", "candle", "volume", "liquidity",
+  "market", "trader", "trading", "long", "short", "leverage", "liquidation", "funding rate", "open interest", "whale",
+  "on-chain", "spot", "futures", "halving", "Bitcoin", "BTC", "Ethereum", "ETH", "Solana", "altcoin", "stablecoin", "USDT",
+  "gold", "XAUUSD", "silver", "oil", "WTI", "Brent", "S&P 500", "Nasdaq", "Dow Jones", "VIX", "Nvidia", "dollar index",
+  "risk-on", "risk-off", "safe haven", "hawkish", "dovish", "rally", "dump", "pump", "sell-off", "moving average", "RSI",
+  "MACD", "Fibonacci", "golden cross", "death cross", "overbought", "oversold", "Fear and Greed", "insider", "Mercury retrograde",
+  "eclipse", "full moon", "new moon",
+];
 
 /** Checks a key and a voice together (the voice must be in that account), before they're kept. */
 export async function check(key: string, voiceId: string): Promise<{ name: string }> {

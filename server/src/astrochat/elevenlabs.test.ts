@@ -51,14 +51,20 @@ describe("what the user said, by Scribe", () => {
   it("asks the newest model, and the one before when the API doesn't know it", async () => {
     saveKey("sk_test_0123456789abcdefghij");
     const models: string[] = [];
+    const terms: number[] = [];
     vi.stubGlobal("fetch", async (_url: string, init: { body: FormData }) => {
       const model = String(init.body.get("model_id"));
       models.push(model);
+      terms.push(init.body.getAll("keyterms").length);
       if (model === "scribe_v2") return new Response('{"detail":{"status":"invalid_model","message":"model scribe_v2 not found"}}', { status: 422 });
       return new Response(JSON.stringify({ text: "harga DXY naik, what do you think?", language_code: "ind" }), { status: 200 });
     });
     const r = await transcribe(Buffer.alloc(2000), "audio/wav");
-    expect(models).toEqual(["scribe_v2", "scribe_v1"]);
+    // v2 with the market's key terms, v2 without them, then v1.
+    expect(models).toEqual(["scribe_v2", "scribe_v2", "scribe_v1"]);
+    expect(terms[0]).toBeGreaterThan(50);
+    expect(terms[0]).toBeLessThan(100);
+    expect(terms.slice(1)).toEqual([0, 0]);
     expect(r).toEqual({ text: "harga DXY naik, what do you think?", language: "ind", model: "scribe_v1" });
   });
 

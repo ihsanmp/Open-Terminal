@@ -352,6 +352,7 @@ type Recognition = {
   onresult: ((e: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null;
   onerror: ((e: { error: string }) => void) | null;
   onend: (() => void) | null;
+  onaudiostart?: (() => void) | null;
 };
 
 const Recognizer = (): (new () => Recognition) | null => {
@@ -577,6 +578,8 @@ export function converse(h: {
   let noTrack = false;
   let heardOnTrack = false;
   let voiceOnTrack = 0;
+  let trackSince = 0;
+  let audioStarted = false;
   // When the user's turn began (its recording goes to Scribe from there), and when they cut in.
   let turnFrom = 0;
   let cutAt = 0;
@@ -585,12 +588,17 @@ export function converse(h: {
   note("on", { ear: earState() });
   const tracer = window.setInterval(() => {
     if (assistantSpeaking() || sinceVoice() < 3000) note("ear", earState());
-    // The user heard on the ear for a while, and the recognizer writes nothing: it doesn't take the
-    // track here; the microphone, then.
-    if (onTrack && !heardOnTrack && !assistantSpeaking() && sinceVoice() < 250 && ++voiceOnTrack >= 8) {
-      noTrack = true;
-      note("input", { to: "microphone", why: "nothing written from the track" });
-      r?.abort();
+    // The track not taken here after all: the microphone, then. Told by the recognizer getting no
+    // audio from it, or writing nothing in half a minute of the user talking (not 2 s: the ear,
+    // gain-controlled, takes some room noise for a voice, and the first try gave up on noise).
+    if (onTrack && !noTrack) {
+      const since = Date.now() - trackSince;
+      const off = !audioStarted && since > 5000 ? "no audio from the track" : !heardOnTrack && since > 30_000 && !assistantSpeaking() && sinceVoice() < 250 && ++voiceOnTrack >= 48 ? "nothing written from the track" : null;
+      if (off) {
+        noTrack = true;
+        note("input", { to: "microphone", why: off });
+        r?.abort();
+      }
     }
   }, 250);
   const flusher = window.setInterval(flushTrace, 3000);
@@ -738,6 +746,11 @@ export function converse(h: {
       h.onText(`${buffer} ${pending}`.trim());
       waitToSend();
     };
+    audioStarted = false;
+    r.onaudiostart = () => {
+      audioStarted = true;
+      note("audio start", { onTrack });
+    };
     r.onerror = (e) => {
       note("error", { error: e.error, onTrack });
       if (e.error === "no-speech" || e.error === "aborted") return;
@@ -767,6 +780,7 @@ export function converse(h: {
       onTrack = Boolean(track);
       heardOnTrack = false;
       voiceOnTrack = 0;
+      trackSince = Date.now();
       note("input", { to: onTrack ? "ear" : "microphone" });
       h.onListening?.(true);
     } catch (err) {

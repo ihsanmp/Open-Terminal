@@ -140,12 +140,13 @@ export function openEar(): Promise<boolean> {
 }
 
 /**
- * The recording: the last minute of the echo-cancelled microphone at 16 kHz, so a turn of the
+ * The recording: the last minute of the echo-cancelled microphone, so a turn of the
  * user's can be sent to Scribe (it hears Indonesian and English as said; the browser's recognizer
  * one language only). Taken by a worklet in batches, kept in a ring.
  */
-const RATE = 16_000;
-const RING = RATE * 60;
+/** Kept as long as this (s), at the microphone's own rate: brought down by hand it lost detail Scribe needs. */
+const KEEP_S = 60;
+let rate = 48_000;
 let ring: Int16Array | null = null;
 let written = 0;
 let writtenAt = 0;
@@ -171,23 +172,12 @@ async function startRecording(c: AudioContext, source: MediaStreamAudioSourceNod
     URL.revokeObjectURL(url);
     if (ctx !== c) return;
     const node = new AudioWorkletNode(c, "ot-tap");
-    const r = new Int16Array(RING);
-    const step = c.sampleRate / RATE;
-    let carry = 0;
+    const size = Math.round(c.sampleRate * KEEP_S);
+    const r = new Int16Array(size);
     node.port.onmessage = (e: MessageEvent<Float32Array>) => {
       const f = e.data;
-      // Down to 16 kHz, each sample the average of the ones it stands for.
-      let pos = carry;
-      while (pos < f.length) {
-        const a = Math.floor(pos);
-        const b = Math.min(f.length, Math.max(a + 1, Math.floor(pos + step)));
-        let sum = 0;
-        for (let i = a; i < b; i++) sum += f[i];
-        r[written % RING] = Math.max(-1, Math.min(1, sum / (b - a))) * 32767;
-        written++;
-        pos += step;
-      }
-      carry = pos - f.length;
+      for (let i = 0; i < f.length; i++) r[(written + i) % size] = Math.max(-1, Math.min(1, f[i])) * 32767;
+      written += f.length;
       writtenAt = Date.now();
     };
     source.connect(node);
@@ -196,6 +186,7 @@ async function startRecording(c: AudioContext, source: MediaStreamAudioSourceNod
     mute.gain.value = 0;
     node.connect(mute).connect(c.destination);
     ring = r;
+    rate = c.sampleRate;
     written = 0;
     tap = node;
   } catch {
@@ -203,14 +194,15 @@ async function startRecording(c: AudioContext, source: MediaStreamAudioSourceNod
   }
 }
 
-/** What the microphone heard from `from` to `to` (times in ms), as a 16 kHz WAV; null when there's no recording of it. */
+/** What the microphone heard from `from` to `to` (times in ms), as a WAV; null when there's no recording of it. */
 export function recording(from: number, to: number): Blob | null {
   if (!ring || !written) return null;
-  const at = (t: number) => Math.round(written - ((writtenAt - t) * RATE) / 1000);
-  const start = Math.max(at(from), written - RING + 1, 0);
+  const size = ring.length;
+  const at = (t: number) => Math.round(written - ((writtenAt - t) * rate) / 1000);
+  const start = Math.max(at(from), written - size + 1, 0);
   const end = Math.min(at(to), written);
   const n = end - start;
-  if (n < RATE * 0.3) return null;
+  if (n < rate * 0.3) return null;
   const buf = new ArrayBuffer(44 + n * 2);
   const v = new DataView(buf);
   const text = (o: number, s: string) => [...s].forEach((ch, i) => v.setUint8(o + i, ch.charCodeAt(0)));
@@ -221,13 +213,13 @@ export function recording(from: number, to: number): Blob | null {
   v.setUint32(16, 16, true);
   v.setUint16(20, 1, true);
   v.setUint16(22, 1, true);
-  v.setUint32(24, RATE, true);
-  v.setUint32(28, RATE * 2, true);
+  v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 2, true);
   v.setUint16(32, 2, true);
   v.setUint16(34, 16, true);
   text(36, "data");
   v.setUint32(40, n * 2, true);
-  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, ring[(start + i) % RING], true);
+  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, ring[(start + i) % size], true);
   return new Blob([buf], { type: "audio/wav" });
 }
 
