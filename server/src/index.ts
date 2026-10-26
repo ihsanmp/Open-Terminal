@@ -64,7 +64,7 @@ app.use("/api/social", requireApiKey, socialRouter);
 app.use("/api/notify", requireApiKey, notifyRouter);
 app.use("/api", marketRouter);
 // The Astro chat's online mode runs Claude on the user's own account: the shared secret, and a few a minute.
-app.use("/api/astro-chat", requireApiKey, rateLimit({ windowMs: 60_000, max: 8 }), astroChatRouter);
+app.use("/api/astro-chat", requireApiKey, rateLimit({ windowMs: 60_000, max: 15 }), astroChatRouter);
 // Its ElevenLabs voice: an answer is read in a few pieces, so a limit of its own.
 app.use("/api/astro-voice", requireApiKey, rateLimit({ windowMs: 60_000, max: 60 }), astroVoiceRouter);
 // The paid AI endpoint requires a shared secret; see auth.ts.

@@ -6,7 +6,7 @@ import { respond, type Context } from "../../lib/astro-chat/answer";
 import { chatEnv } from "../../lib/astro-chat/env";
 import type { QuantForecast } from "../../lib/quant";
 import { apiGet, apiPost } from "../../lib/api";
-import { lookAtScreen, NO_PICTURE, wantsScreen } from "../../lib/astro-chat/screen";
+import { lookAtScreen, NO_PICTURE, readyScreen, wantsScreen } from "../../lib/astro-chat/screen";
 import { canListen, canSpeak, converse, refreshEleven, setPref, setVoiceReply, speak, stopSpeaking, useEleven, useElevenIssue, usePref, useSpeakingId, useVoiceReply, type Mood } from "../../lib/astro-chat/voice";
 import { useUserTalking } from "../../lib/astro-chat/ear";
 
@@ -164,6 +164,11 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
       .catch(() => setClaude({ ok: false, version: null }));
   }, []);
   const online = engine === "online" && claude?.ok !== false;
+  // With 👁 on, every question looks at the screen: the server's picture-taker started now, not
+  // with the first question (the panel would be gone for its start).
+  useEffect(() => {
+    if (online && screenAlways) void readyScreen();
+  }, [online, screenAlways]);
 
   useEffect(() => {
     box.current?.scrollTo({ top: box.current.scrollHeight });

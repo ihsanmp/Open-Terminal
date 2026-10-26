@@ -2,13 +2,22 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { hear, resetEar, userSpoke } from "./ear";
 import { whose } from "./voice";
 
-const frames = (level: number, n: number, from: number) => {
-  for (let i = 0; i < n; i++) hear(level, from + i * 40);
+const frames = (level: number, n: number, from: number, played = 0) => {
+  for (let i = 0; i < n; i++) hear(level, played, from + i * 40);
+  return from + n * 40;
+};
+
+/** The answer playing (its level going up and down like speech) and the microphone hearing it at `share`, plus the user at `user`. */
+const speech = (share: number, user: number, n: number, from: number) => {
+  for (let i = 0; i < n; i++) {
+    const played = 0.08 + 0.06 * Math.sin(i / 3);
+    hear(Math.hypot(played * share, user), played, from + i * 40);
+  }
   return from + n * 40;
 };
 
 describe("the second ear", () => {
-  beforeEach(resetEar);
+  beforeEach(() => resetEar());
 
   it("hears a voice over the room, not the room or a click", () => {
     let t = frames(0.003, 50, 0);
@@ -30,6 +39,27 @@ describe("the second ear", () => {
     let t = frames(0.02, 600, 0);
     t = frames(0.02, 25, t);
     expect(userSpoke(500, t)).toBe(false);
+  });
+
+  it("doesn't take the answer's echo for the user, however loud it comes back", () => {
+    let t = frames(0.003, 50, 0);
+    // The speakers loud, close to the microphone: the echo as loud as what's played.
+    t = speech(1, 0, 100, t);
+    expect(userSpoke(2000, t)).toBe(false);
+    // Louder than first thought (twice what's played): heard as the user for a moment at most,
+    // then learned as echo.
+    resetEar();
+    t = frames(0.003, 50, 0);
+    t = speech(2.2, 0, 300, t);
+    expect(userSpoke(2000, t)).toBe(false);
+  });
+
+  it("hears the user talking over the answer", () => {
+    let t = frames(0.003, 50, 0);
+    t = speech(0.6, 0, 150, t);
+    expect(userSpoke(2000, t)).toBe(false);
+    t = speech(0.6, 0.3, 15, t);
+    expect(userSpoke(200, t)).toBe(true);
   });
 });
 

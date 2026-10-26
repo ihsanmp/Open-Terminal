@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { closeEar, earOpen, openEar, userSpoke } from "./ear";
+import { closeEar, earHearsPlayback, earOpen, hearPlayback, openEar, stopHearingPlayback, userSpoke } from "./ear";
 
 // The Astro chat by voice, with the browser's own speech (no download, nothing installed): what's
 // said is written by its speech recognition (Edge: Microsoft's, Chrome: Google's; online, the
@@ -352,11 +352,11 @@ const UTTERANCE_PAUSE = 1100;
 const VOICE_LAG = 2000;
 
 /**
- * Whether the ear's word on the user's voice counts: it's open, and what's read out is the page's
- * own audio (ElevenLabs), which its echo cancellation takes out. The browser's own voice (Gadis)
- * may not be, and would be heard as the user.
+ * Whether the ear's word on the user's voice counts: it's open, and hears what's read out as it's
+ * played (the ElevenLabs voice, the page's own audio), so it knows its echo. The browser's own voice
+ * (Gadis) can't be heard that way: then the words alone tell.
  */
-const earTrusted = () => earOpen() && audio !== null;
+const earTrusted = () => earOpen() && earHearsPlayback();
 
 /**
  * Whom the recognizer heard while an answer is read out (`reading`), or just was: the answer's own
@@ -550,9 +550,11 @@ function stopAudio(): void {
   if (audio) {
     audio.onended = null;
     audio.onerror = null;
+    audio.onplaying = null;
     audio.pause();
     audio = null;
   }
+  stopHearingPlayback();
   while (urls.length) URL.revokeObjectURL(urls.pop()!);
 }
 
@@ -609,6 +611,10 @@ function speakEleven(text: string, id: string | null, mood: Mood): void {
     a.onended = () => play(i + 1);
     a.onerror = () => play(i + 1);
     nowSaying(parts, i);
+    // Its sound to the ear as it plays, to tell its echo from the user (ear.ts).
+    a.onplaying = () => {
+      if (audio === a) hearPlayback(a);
+    };
     a.play().catch(() => play(i + 1));
   };
   void play(0);

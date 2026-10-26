@@ -4,7 +4,7 @@
 // when another window covers it (not while it's minimized). Scaled to at most 1600 px wide, the
 // size Claude reads an image at, and kept only as the last few in data/astro-chat/screens.
 
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dataDir } from "../db.js";
@@ -17,9 +17,13 @@ export const screenSupported = () => process.platform === "win32";
 
 /**
  * The PowerShell: the top-most visible window whose title ends with "OpenTerminal" (the one titled
- * exactly as asked, when there is one), drawn into a PNG. Prints "width height" when done.
+ * exactly as asked, when there is one), drawn into a PNG. Prints "width height" when done ("none",
+ * "minimized" when there's no window to draw). With -Serve it stays on, ready: it prints "ready",
+ * then takes one picture per line it reads (the title and the file, each base64 of UTF-8, a tab
+ * between), answering each with its line. Starting PowerShell and compiling the helper takes about
+ * a second; a picture, a tenth of that.
  */
-export const CAPTURE_PS1 = String.raw`param([string]$Title = '', [string]$Out, [int]$MaxWidth = 1600)
+export const CAPTURE_PS1 = String.raw`param([string]$Title = '', [string]$Out = '', [int]$MaxWidth = 1600, [switch]$Serve)
 $ErrorActionPreference = 'Stop'
 Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
 using System;
@@ -63,33 +67,138 @@ public static class OtCapture {
   }
 }
 '@
-$h = [OtCapture]::Find($Title)
-if ($h -eq [IntPtr]::Zero) { Write-Output 'none'; exit 0 }
-if ($h -eq [IntPtr](-1)) { Write-Output 'minimized'; exit 0 }
-$bmp = [OtCapture]::Shot($h)
-if ($bmp.Width -gt $MaxWidth) {
-  $hgt = [int]($bmp.Height * $MaxWidth / $bmp.Width)
-  $small = New-Object System.Drawing.Bitmap $MaxWidth, $hgt
-  $g = [System.Drawing.Graphics]::FromImage($small)
-  $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-  $g.DrawImage($bmp, 0, 0, $MaxWidth, $hgt)
-  $g.Dispose(); $bmp.Dispose(); $bmp = $small
+function Take([string]$Title, [string]$Out) {
+  $h = [OtCapture]::Find($Title)
+  if ($h -eq [IntPtr]::Zero) { return 'none' }
+  if ($h -eq [IntPtr](-1)) { return 'minimized' }
+  $bmp = [OtCapture]::Shot($h)
+  if ($bmp.Width -gt $MaxWidth) {
+    $hgt = [int]($bmp.Height * $MaxWidth / $bmp.Width)
+    $small = New-Object System.Drawing.Bitmap $MaxWidth, $hgt
+    $g = [System.Drawing.Graphics]::FromImage($small)
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.DrawImage($bmp, 0, 0, $MaxWidth, $hgt)
+    $g.Dispose(); $bmp.Dispose(); $bmp = $small
+  }
+  $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
+  $size = "$($bmp.Width) $($bmp.Height)"
+  $bmp.Dispose()
+  return $size
 }
-$bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
-Write-Output "$($bmp.Width) $($bmp.Height)"
-$bmp.Dispose()
+if (-not $Serve) { Write-Output (Take $Title $Out); exit 0 }
+$utf8 = [System.Text.Encoding]::UTF8
+[Console]::Out.WriteLine('ready'); [Console]::Out.Flush()
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+  $said = 'failed'
+  try {
+    $parts = $line.Split([char]9)
+    $said = Take $utf8.GetString([Convert]::FromBase64String($parts[0])) $utf8.GetString([Convert]::FromBase64String($parts[1]))
+  } catch {}
+  [Console]::Out.WriteLine($said); [Console]::Out.Flush()
+}
 `;
+
+/**
+ * The capturer kept on (CAPTURE_PS1 -Serve), so a picture is taken in a moment: the chat's panel is
+ * hidden for it, and a second of it gone is a glitch. Started when asked to be ready, ended after a
+ * while unused.
+ */
+type Capturer = { ps: ChildProcessWithoutNullStreams; ready: Promise<boolean>; waiting: ((line: string | null) => void)[] };
+let capturer: Capturer | null = null;
+let idle: ReturnType<typeof setTimeout> | undefined;
+const IDLE_MS = 10 * 60_000;
+
+function startCapturer(): Capturer {
+  const script = writeScript();
+  const ps = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-MaxWidth", String(MAX_WIDTH), "-Serve"], { windowsHide: true });
+  const c: Capturer = { ps, ready: Promise.resolve(false), waiting: [] };
+  let buf = "";
+  let onReady: (ok: boolean) => void = () => undefined;
+  c.ready = new Promise((r) => (onReady = r));
+  const readyTimer = setTimeout(() => onReady(false), 20_000);
+  ps.stdout.setEncoding("utf8");
+  ps.stdout.on("data", (d: string) => {
+    buf += d;
+    let i: number;
+    while ((i = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, i).trim();
+      buf = buf.slice(i + 1);
+      if (line === "ready") {
+        clearTimeout(readyTimer);
+        onReady(true);
+      } else if (line) c.waiting.shift()?.(line);
+    }
+  });
+  ps.stderr.on("data", (d) => console.warn("screen capture:", String(d).trim().split("\n")[0]));
+  // Written to after it ended: told by "close", not a crash.
+  ps.stdin.on("error", () => undefined);
+  const gone = () => {
+    clearTimeout(readyTimer);
+    onReady(false);
+    if (capturer === c) capturer = null;
+    for (const w of c.waiting.splice(0)) w(null);
+  };
+  ps.on("error", gone);
+  ps.on("close", gone);
+  return c;
+}
+
+/** Gets the capturer started and ready (true), so the next picture is quick; false when it can't be. */
+export function readyCapture(): Promise<boolean> {
+  if (!screenSupported()) return Promise.resolve(false);
+  capturer ??= startCapturer();
+  clearTimeout(idle);
+  const c = capturer;
+  idle = setTimeout(() => c.ps.kill(), IDLE_MS);
+  return c.ready;
+}
+
+/** One picture by the capturer kept on; null when it isn't there or fails (then the one-off way). */
+async function captureQuick(title: string, file: string): Promise<string | null> {
+  if (!(await readyCapture()) || !capturer) return null;
+  const c = capturer;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      // Stuck: ended, and the picture taken the one-off way.
+      c.ps.kill();
+      resolve(null);
+    }, 10_000);
+    c.waiting.push((line) => {
+      clearTimeout(timer);
+      resolve(line);
+    });
+    const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
+    c.ps.stdin.write(`${b64(title)}\t${b64(file)}\n`);
+  });
+}
+
+function writeScript(): string {
+  if (!existsSync(screensDir)) mkdirSync(screensDir, { recursive: true });
+  const script = join(dataDir, "astro-chat", "capture.ps1");
+  writeFileSync(script, CAPTURE_PS1);
+  return script;
+}
+
+const result = (said: string, file: string): ScreenResult => {
+  if (said === "none" || said === "minimized") return { screen: null, reason: said };
+  const m = /^(\d+) (\d+)$/.exec(said);
+  if (!m || !existsSync(file)) return { screen: null, reason: "failed" };
+  return { screen: { file, width: Number(m[1]), height: Number(m[2]) }, reason: "ok" };
+};
 
 export type Screen = { file: string; width: number; height: number };
 export type ScreenResult = { screen: Screen | null; reason: "ok" | "none" | "minimized" | "unsupported" | "failed" };
 
 /** A picture of the app's window (`title`: the one the question came from, when several are open). */
-export function captureScreen(title = ""): Promise<ScreenResult> {
-  if (!screenSupported()) return Promise.resolve({ screen: null, reason: "unsupported" });
-  if (!existsSync(screensDir)) mkdirSync(screensDir, { recursive: true });
-  const script = join(dataDir, "astro-chat", "capture.ps1");
-  writeFileSync(script, CAPTURE_PS1);
+export async function captureScreen(title = ""): Promise<ScreenResult> {
+  if (!screenSupported()) return { screen: null, reason: "unsupported" };
   const file = join(screensDir, `screen-${Date.now()}.png`);
+  const quick = await captureQuick(title, file);
+  if (quick !== null && quick !== "failed") {
+    prune();
+    return result(quick, file);
+  }
+  const script = writeScript();
   return new Promise((resolve) => {
     const ps = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Title", title, "-Out", file, "-MaxWidth", String(MAX_WIDTH)], {
       windowsHide: true,
@@ -107,14 +216,9 @@ export function captureScreen(title = ""): Promise<ScreenResult> {
     ps.on("close", () => {
       clearTimeout(timer);
       prune();
-      const said = out.trim();
-      if (said === "none" || said === "minimized") return resolve({ screen: null, reason: said });
-      const m = /^(\d+) (\d+)$/.exec(said.split(/\r?\n/).pop() ?? "");
-      if (!m || !existsSync(file)) {
-        if (err) console.warn("screen capture:", err.trim().split("\n")[0]);
-        return resolve({ screen: null, reason: "failed" });
-      }
-      resolve({ screen: { file, width: Number(m[1]), height: Number(m[2]) }, reason: "ok" });
+      const r = result(out.trim().split(/\r?\n/).pop() ?? "", file);
+      if (r.reason === "failed" && err) console.warn("screen capture:", err.trim().split("\n")[0]);
+      resolve(r);
     });
   });
 }

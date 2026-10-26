@@ -68,8 +68,15 @@ export function chartState(): string {
 
 const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 
+/**
+ * Gets the server's picture-taker ready (it takes a second to start), so the chat's panel is hidden
+ * only for the picture itself, a moment, not that second.
+ */
+export const readyScreen = () => apiPost<{ ready: boolean }>("/api/astro-chat/screen/ready", {}).catch(() => null);
+
 /** Looks at the screen: the chat hidden, the text read, the window pictured, the chat back. */
 export async function lookAtScreen(): Promise<ScreenPayload> {
+  await readyScreen();
   const root = document.documentElement;
   root.classList.add("ot-capturing");
   try {

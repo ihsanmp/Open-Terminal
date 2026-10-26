@@ -2,7 +2,7 @@ import { Router } from "express";
 import { gather } from "../astrochat/brief.js";
 import { askClaude, cliStatus } from "../astrochat/claude.js";
 import { knowledgeFor, modelFor, splitTone, systemPrompt, userPrompt, type Turn } from "../astrochat/prompt.js";
-import { captureScreen, screensDir, type ScreenResult } from "../astrochat/screen.js";
+import { captureScreen, readyCapture, screensDir, type ScreenResult } from "../astrochat/screen.js";
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 
@@ -21,7 +21,11 @@ astroChatRouter.get("/status", async (_req, res) => {
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
 
 // The look at the screen, taken first: the client hides the chat's own panel for it, then asks
-// with the picture's id.
+// with the picture's id. Asked to be ready before, so the panel is hidden only for the picture itself.
+astroChatRouter.post("/screen/ready", async (_req, res) => {
+  res.json({ ready: await readyCapture() });
+});
+
 astroChatRouter.post("/screen", async (req, res) => {
   const shot = await captureScreen(text(req.body?.title, 300));
   res.json({ id: shot.screen ? basename(shot.screen.file) : null, reason: shot.reason, width: shot.screen?.width ?? null, height: shot.screen?.height ?? null });
