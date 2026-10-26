@@ -5,13 +5,28 @@ describe("the assistant's voice", () => {
   it("reads an answer without its markup, bullets as pauses, signs as words", () => {
     const said = toSpeech("**Yang terlihat:** BTC naik 5%.\n\n• Support 0,00125\n• Target → 0,00145\nRentang ±2%");
     expect(said).not.toMatch(/\*|•|→|±/);
-    expect(said).toContain("5 persen");
-    expect(said).toContain("ke 0,00145");
-    expect(said).toContain("kurang lebih 2 persen");
+    expect(said).toContain("lima persen");
+    expect(said).toContain("ke nol koma nol nol satu empat lima");
+    expect(said).toContain("kurang lebih dua persen");
     // Each bullet ends as a sentence, so the voice pauses between them.
-    expect(said).toContain("Support 0,00125.");
+    expect(said).toContain("Support nol koma nol nol satu dua lima.");
     // Icons go; a slash between words reads as a list.
     expect(toSpeech("✦ Claude: harga emas/BTC/DXY 👁")).toBe("Claude: harga emas, BTC, DXY");
+  });
+
+  it("says numbers the Indonesian way, in words", () => {
+    expect(toSpeech("BTC di 80.700.")).toBe("BTC di delapan puluh ribu tujuh ratus.");
+    expect(toSpeech("Emas 4.015, yield 4,995, turun -5,27% sebulan, naik +0,46%")).toBe(
+      "Emas empat ribu lima belas, yield empat koma sembilan sembilan lima, turun minus lima koma dua tujuh persen sebulan, naik plus nol koma empat enam persen",
+    );
+    expect(toSpeech("~6% dalam 10 hari, 1.234.567 lot, 1.5 kali")).toBe(
+      "sekitar enam persen dalam sepuluh hari, satu juta dua ratus tiga puluh empat ribu lima ratus enam puluh tujuh lot, satu koma lima kali",
+    );
+    expect(toSpeech("tahun 2026, 111, 1.000, 19")).toBe("tahun dua ribu dua puluh enam, seratus sebelas, seribu, sembilan belas");
+    // Codes, times and dates stay as written.
+    expect(toSpeech("US10Y dan SMA20 pukul 15:30 tanggal 26/10")).toBe("US10Y dan SMA20 pukul 15:30 tanggal 26/10");
+    // A number never splits into two sentences at its dot.
+    expect(chunks(toSpeech("Harga 80.700 lalu 81.200."), 140)).toHaveLength(1);
   });
 
   it("speaks a long answer in pieces a voice reads through", () => {

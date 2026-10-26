@@ -12,7 +12,54 @@ export const LANG = "id-ID";
 
 // ---------------------------------------------------------------- what's spoken
 
-/** The answer as it should be heard: no markup, bullets as pauses, signs read as words. */
+const DIGITS = ["nol", "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan"];
+
+/** A whole number in Indonesian words ("80700": "delapan puluh ribu tujuh ratus"). */
+export function terbilang(n: number): string {
+  const say = (x: number): string => {
+    if (x < 10) return DIGITS[x];
+    if (x === 10) return "sepuluh";
+    if (x === 11) return "sebelas";
+    if (x < 20) return `${DIGITS[x - 10]} belas`;
+    const join = (head: string, rest: number) => (rest ? `${head} ${say(rest)}` : head);
+    if (x < 100) return join(`${DIGITS[Math.floor(x / 10)]} puluh`, x % 10);
+    if (x < 200) return join("seratus", x - 100);
+    if (x < 1000) return join(`${DIGITS[Math.floor(x / 100)]} ratus`, x % 100);
+    if (x < 2000) return join("seribu", x - 1000);
+    for (const [size, name] of [
+      [1e12, "triliun"],
+      [1e9, "miliar"],
+      [1e6, "juta"],
+      [1e3, "ribu"],
+    ] as const) {
+      if (x >= size) return join(`${say(Math.floor(x / size))} ${name}`, x % size);
+    }
+    return String(x);
+  };
+  return say(Math.floor(Math.abs(n)));
+}
+
+/**
+ * A number as written in an Indonesian answer: a dot between thousands ("80.700"), a comma before
+ * the decimals ("4,995"; "1.5" too, written the English way), a sign before it. Not one inside a
+ * word or a code ("US10Y", "SMA20"), a time or a date ("15:30", "26/10").
+ */
+const NUMBER = /(?<![\p{L}\d.,:/])([+\-−]?)(\d{1,3}(?:\.\d{3})+|\d+)(?:([.,])(\d+))?(?![\p{L}\d:/]|[.,]\d)/gu;
+
+/**
+ * The number said in words: the voices read "80.700" as "delapan puluh" and, after a pause, "tujuh
+ * ratus" (the dot taken for a sentence's end), not "delapan puluh ribu tujuh ratus".
+ */
+function spokenNumber(sign: string, whole: string, mark: string | undefined, decimals: string | undefined): string {
+  const digits = whole.replace(/\./g, "");
+  // Too long to be an amount (an account, a phone number): left as written.
+  if (digits.length > 15) return `${sign}${whole}${mark ?? ""}${decimals ?? ""}`;
+  const head = sign === "+" ? "plus " : sign ? "minus " : "";
+  const tail = decimals ? ` koma ${[...decimals].map((d) => DIGITS[Number(d)]).join(" ")}` : "";
+  return `${head}${terbilang(Number(digits))}${tail}`;
+}
+
+/** The answer as it should be heard: no markup, bullets as pauses, signs read as words, numbers in words. */
 export function toSpeech(text: string): string {
   return text
     .replace(/\*\*/g, "")
@@ -24,7 +71,9 @@ export function toSpeech(text: string): string {
     .replace(/(\p{L})\/(?=\p{L})/gu, "$1, ")
     .replace(/\s*→\s*/g, ", ke ")
     .replace(/\s*(±|\+\/-)\s*/g, " kurang lebih ")
+    .replace(/~\s*(?=\d)/g, "sekitar ")
     .replace(/(\d)\s*%/g, "$1 persen")
+    .replace(NUMBER, (_m, sign: string, whole: string, mark: string | undefined, decimals: string | undefined) => spokenNumber(sign, whole, mark, decimals))
     .replace(/\n{2,}/g, ".\n")
     .replace(/([^.!?:;\n])\n/g, "$1.\n")
     .replace(/[ \t]+/g, " ")
