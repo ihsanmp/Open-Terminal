@@ -34,6 +34,8 @@ const ROT: Record<string, { label: string; color: string }> = {
 };
 const tick = { fill: "#808080", fontSize: fontPx(9) };
 const tip = { background: "#111", border: "1px solid #333", fontSize: fontPx(10) };
+// The values in white: Recharts colours them as the series, dark grey on the dark box.
+const tipText = { color: "#fff" };
 
 export default function EtfPage() {
   const poll = usePoll(60_000);
@@ -152,7 +154,7 @@ export default function EtfPage() {
               <ZAxis range={[60, 60]} />
               <ReferenceLine x={0} stroke="#444" />
               <ReferenceLine y={0} stroke="#444" />
-              <Tooltip contentStyle={tip} formatter={(v: number, n: string) => [`${v.toFixed(2)} pp`, n === "x" ? "vs SPY 3 bln" : "percepatan"]} labelFormatter={() => ""} />
+              <Tooltip contentStyle={tip} itemStyle={tipText} labelStyle={tipText} formatter={(v: number, n: string) => [`${v.toFixed(2)} pp`, n === "x" ? "vs SPY 3 bln" : "percepatan"]} labelFormatter={() => ""} />
               <Scatter data={map} isAnimationActive={false}>
                 {map.map((d) => (
                   <Cell key={d.name} fill={ROT[d.rot]?.color ?? "#888"} />
@@ -256,7 +258,7 @@ export default function EtfPage() {
                         <XAxis dataKey="x" hide />
                         <YAxis hide />
                         <ReferenceLine y={0} stroke="#333" />
-                        <Tooltip contentStyle={tip} formatter={(v: number) => [`${signed(v, 1, "")} jt US$`, "arus bersih"]} />
+                        <Tooltip contentStyle={tip} itemStyle={tipText} labelStyle={tipText} formatter={(v: number) => [`${signed(v, 1, "")} jt US$`, "arus bersih"]} />
                         <Bar dataKey="y" isAnimationActive={false}>
                           {days.map((d) => (
                             <Cell key={d.x} fill={d.y >= 0 ? "#36c26b" : "#ff5d5d"} />

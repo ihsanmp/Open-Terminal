@@ -116,7 +116,7 @@ export default function FuturesPage() {
                 <CartesianGrid stroke="#1a1a1a" />
                 <XAxis dataKey="x" tick={tick} />
                 <YAxis tick={tick} width={64} domain={["auto", "auto"]} tickFormatter={(v: number) => (c.kind === "rate" ? `${v.toFixed(2)}%` : price(v))} />
-                <Tooltip contentStyle={{ background: "#111", border: "1px solid #333", fontSize: fontPx(10) }} formatter={(v: number) => [c.kind === "rate" ? `${v.toFixed(3)}%` : price(v), c.kind === "rate" ? "suku bunga" : "harga"]} />
+                <Tooltip itemStyle={{ color: "#fff" }} labelStyle={{ color: "#fff" }} contentStyle={{ background: "#111", border: "1px solid #333", fontSize: fontPx(10) }} formatter={(v: number) => [c.kind === "rate" ? `${v.toFixed(3)}%` : price(v), c.kind === "rate" ? "suku bunga" : "harga"]} />
                 <Line type="monotone" dataKey="y" stroke="#f0a030" strokeWidth={2} dot={{ r: 3, fill: "#f0a030" }} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>

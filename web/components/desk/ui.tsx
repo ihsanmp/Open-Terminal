@@ -74,6 +74,8 @@ export function Spark({ data, color = "#f0a030", height = 60, format }: { data: 
           </defs>
           <YAxis hide domain={["auto", "auto"]} />
           <Tooltip
+            itemStyle={{ color: "#fff" }}
+            labelStyle={{ color: "#fff" }}
             contentStyle={{ background: "#111", border: "1px solid #333", fontSize: fontPx(10) }}
             labelFormatter={(_, p) => (p?.[0]?.payload as { x?: string } | undefined)?.x ?? ""}
             formatter={(v: number) => [format ? format(v) : v.toLocaleString("en-US"), ""]}

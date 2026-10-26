@@ -123,7 +123,7 @@ function EventDetail({ event }: { event: EconEvent }) {
               <CartesianGrid stroke="#1c1c1c" vertical={false} />
               <XAxis dataKey="date" stroke="#808080" fontSize={fontPx(9)} minTickGap={40} />
               <YAxis stroke="#808080" fontSize={fontPx(9)} width={44} domain={["auto", "auto"]} />
-              <Tooltip contentStyle={{ background: "#111", border: "1px solid #262626", fontSize: fontPx(10) }} />
+              <Tooltip itemStyle={{ color: "#fff" }} labelStyle={{ color: "#fff" }} contentStyle={{ background: "#111", border: "1px solid #262626", fontSize: fontPx(10) }} />
               <Line dataKey="actual" name="Actual" stroke="#2962ff" dot={false} strokeWidth={2} isAnimationActive={false} />
               <Line dataKey="forecast" name="Forecast" stroke="#5b9cf6" dot={false} strokeDasharray="4 3" strokeWidth={1} isAnimationActive={false} connectNulls />
             </LineChart>
@@ -464,7 +464,7 @@ function FundingChart({ kind }: { kind: string }) {
             <XAxis dataKey="date" stroke="#808080" fontSize={fontPx(9)} minTickGap={40} />
             <YAxis yAxisId="rate" stroke="#808080" fontSize={fontPx(9)} width={44} domain={["auto", "auto"]} tickFormatter={(v: number) => `${v}%`} />
             <YAxis yAxisId="vol" orientation="right" stroke="#555" fontSize={fontPx(9)} width={52} tickFormatter={(v: number) => `$${fmtBig(v * 1e9)}`} />
-            <Tooltip contentStyle={{ background: "#111", border: "1px solid #262626", fontSize: fontPx(10) }} formatter={(v: number, name: string) => [name === "Volume" ? `$${fmtBig(v * 1e9)}` : `${v}%`, name]} />
+            <Tooltip itemStyle={{ color: "#fff" }} labelStyle={{ color: "#fff" }} contentStyle={{ background: "#111", border: "1px solid #262626", fontSize: fontPx(10) }} formatter={(v: number, name: string) => [name === "Volume" ? `$${fmtBig(v * 1e9)}` : `${v}%`, name]} />
             <Bar yAxisId="vol" dataKey="volume" name="Volume" fill="#26a69a" opacity={0.35} isAnimationActive={false} />
             <Line yAxisId="rate" dataKey="rate" name="Rate" stroke="#ef5350" dot={false} strokeWidth={2} isAnimationActive={false} />
           </ComposedChart>

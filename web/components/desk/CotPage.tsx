@@ -119,7 +119,7 @@ export default function CotPage() {
                 <XAxis dataKey="x" tick={tick} minTickGap={40} tickFormatter={(v: string) => v.slice(0, 7)} />
                 <YAxis tick={tick} width={50} tickFormatter={(v: number) => (Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(0)}rb` : String(v))} />
                 <ReferenceLine y={0} stroke="#444" />
-                <Tooltip contentStyle={{ background: "#111", border: "1px solid #333", fontSize: fontPx(10) }} formatter={(v: number, n: string) => [v.toLocaleString("en-US"), n]} />
+                <Tooltip itemStyle={{ color: "#fff" }} labelStyle={{ color: "#fff" }} contentStyle={{ background: "#111", border: "1px solid #333", fontSize: fontPx(10) }} formatter={(v: number, n: string) => [v.toLocaleString("en-US"), n]} />
                 <Legend wrapperStyle={{ fontSize: fontPx(9) }} />
                 <Line dataKey="spec" name={s.names.spec} stroke="#f0a030" strokeWidth={2} dot={false} isAnimationActive={false} />
                 <Line dataKey="other" name={s.names.other} stroke="#5d9dff" strokeWidth={1} dot={false} isAnimationActive={false} />

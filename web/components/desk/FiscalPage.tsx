@@ -80,7 +80,7 @@ export default function FiscalPage() {
               <CartesianGrid stroke="#1a1a1a" vertical={false} />
               <XAxis dataKey="x" tick={tick} interval={3} />
               <YAxis tick={tick} width={36} tickFormatter={(v: number) => `${v.toFixed(0)}`} />
-              <Tooltip contentStyle={{ background: "#111", border: "1px solid #333", fontSize: fontPx(10) }} formatter={(v: number) => [`$${v.toFixed(1)} miliar`, "bunga"]} />
+              <Tooltip itemStyle={{ color: "#fff" }} labelStyle={{ color: "#fff" }} contentStyle={{ background: "#111", border: "1px solid #333", fontSize: fontPx(10) }} formatter={(v: number) => [`$${v.toFixed(1)} miliar`, "bunga"]} />
               <Bar dataKey="y" fill="#ff7a59" isAnimationActive={false} />
             </BarChart>
           </ResponsiveContainer>
@@ -99,7 +99,7 @@ export default function FiscalPage() {
               <CartesianGrid stroke="#1a1a1a" vertical={false} />
               <XAxis dataKey="x" tick={tick} interval={2} />
               <YAxis tick={tick} width={40} />
-              <Tooltip contentStyle={{ background: "#111", border: "1px solid #333", fontSize: fontPx(10) }} formatter={(v: number) => [`$${v.toFixed(1)} miliar`, v >= 0 ? "defisit" : "surplus"]} />
+              <Tooltip itemStyle={{ color: "#fff" }} labelStyle={{ color: "#fff" }} contentStyle={{ background: "#111", border: "1px solid #333", fontSize: fontPx(10) }} formatter={(v: number) => [`$${v.toFixed(1)} miliar`, v >= 0 ? "defisit" : "surplus"]} />
               <Bar dataKey="y" isAnimationActive={false}>
                 {deficitData.map((d) => (
                   <Cell key={d.x} fill={d.y >= 0 ? "#ff5d5d" : "#36c26b"} />
