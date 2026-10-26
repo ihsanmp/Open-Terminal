@@ -71,8 +71,10 @@ export function hear(mic: number, played: number, now: number): void {
   // running median, so the user now and then doesn't pull it up much; slower while they're heard,
   // but never still, or an echo louder than first thought would pass for the user for good).
   if (playing && mic > 1e-5) coupling += (Math.log(mic / speakers) > coupling ? 1 : -1) * (sure ? LEARN / 3 : LEARN);
-  // The room's level follows the quiet moments down at once and comes back up slowly (~10 s).
-  if (!playing) room = mic < room ? mic : room + (mic - room) * 0.004;
+  // The room's level follows the quiet moments down at once and comes back up slowly (~10 s; ten
+  // times slower for the first 4 s the user is heard, so a long sentence doesn't become the room,
+  // but a fan switched on does: nobody talks 4 s without a breath).
+  if (!playing) room = mic < room ? mic : room + (mic - room) * (sure && above < 100 ? 0.0004 : 0.004);
   above = sure ? above + 1 : 0;
   unsureAbove = maybe ? unsureAbove + 1 : 0;
   if (above >= ONSET_FRAMES) lastVoice = now;
