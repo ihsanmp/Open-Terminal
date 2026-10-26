@@ -59,6 +59,46 @@ function spokenNumber(sign: string, whole: string, mark: string | undefined, dec
   return `${head}${terbilang(Number(digits))}${tail}`;
 }
 
+/** Letters said the English way, written so an Indonesian voice says them so. */
+const LETTERS: Record<string, string> = {
+  A: "ei", B: "bi", C: "si", D: "di", E: "i", F: "ef", G: "ji", H: "eic", I: "ai", J: "jei", K: "kei", L: "el", M: "em",
+  N: "en", O: "ou", P: "pi", Q: "kyu", R: "ar", S: "es", T: "ti", U: "yu", V: "vi", W: "dabelyu", X: "eks", Y: "wai", Z: "zi",
+};
+/** English abbreviations said letter by letter, the English way (not Indonesian ones: "OJK", "BI" stay as they are). */
+const SPELLED = new Set("DXY ETF FOMC CPI PPI PCE GDP NFP SMA EMA RSI MACD ATR ATH ATL BTC ETH USD WTI SPX NDX AI CEO IPO OTC".split(" "));
+/**
+ * English words an answer uses, written as they sound in English for an Indonesian voice (it reads
+ * "support" letter by letter the Indonesian way). Longer phrases first.
+ */
+const IN_ENGLISH: [string, string][] = [
+  ["all-time high", "ol taim hai"], ["moving average", "muving everej"], ["golden cross", "golden kros"], ["death cross", "det kros"],
+  ["stop loss", "stop los"], ["take profit", "teik profit"], ["open interest", "oupen intrest"], ["smart money", "smart mani"],
+  ["price action", "prais ekson"], ["safe haven", "seif heiven"], ["real yield", "riel yild"], ["funding rate", "fanding reit"],
+  ["on-chain", "on cein"], ["support", "sepot"], ["resistance", "resistens"], ["breakout", "breikaut"], ["breakdown", "breikdaun"],
+  ["pullback", "pulbek"], ["rebound", "ribaund"], ["bullish", "bulis"], ["bearish", "beris"], ["sideways", "saidweis"],
+  ["uptrend", "aptren"], ["downtrend", "dauntren"], ["traders", "treiders"], ["trader", "treider"], ["trading", "treiding"],
+  ["chart", "cart"], ["candlestick", "kendelstik"], ["candle", "kendel"], ["market", "markit"], ["yield", "yild"], ["rates", "reits"],
+  ["rate", "reit"], ["outlook", "autluk"], ["hedge", "hej"], ["funding", "fanding"], ["fund", "fand"], ["range", "reinj"],
+  ["swing", "suing"], ["scalping", "skelping"], ["entry", "entri"], ["exit", "eksit"], ["short", "syort"], ["leverage", "leverej"],
+  ["whales", "weils"], ["whale", "weil"], ["inflows", "inflous"], ["inflow", "inflou"], ["outflows", "autflous"], ["outflow", "autflou"],
+  ["futures", "fyucers"], ["halving", "heving"], ["staking", "steiking"], ["mining", "maining"], ["altcoins", "altkoins"],
+  ["altcoin", "altkoin"], ["bitcoin", "bitkoin"], ["ethereum", "itiriem"], ["rally", "reli"], ["crash", "kres"], ["pump", "pamp"],
+  ["dump", "damp"], ["hawkish", "hokis"], ["dovish", "dafis"], ["update", "apdeit"], ["overbought", "overbot"], ["divergence", "daivergens"],
+  ["fear", "fir"], ["greed", "grid"], ["news", "nyus"], ["spread", "spred"], ["treasury", "tresyeri"], ["earnings", "ernings"],
+  ["guidance", "gaidens"], ["shutdown", "syatdaun"], ["setup", "setap"], ["insight", "insait"], ["timing", "taiming"],
+  ["insider", "insaider"], ["buyers", "baiers"], ["buyer", "baier"], ["sellers", "selers"], ["seller", "seler"], ["buy", "bai"],
+  ["sell", "sel"], ["hold", "hould"], ["higher", "haier"], ["high", "hai"], ["lower", "louer"], ["low", "lou"], ["cut", "kat"],
+  ["hike", "haik"], ["screen", "skrin"],
+];
+const ENGLISH_RE = IN_ENGLISH.map(([en, say]) => [new RegExp(`\\b${en.replace(/[ -]/g, "[\\s-]?")}(?=(?:-?(?:nya|mu|ku|lah|kah))?\\b)`, "gi"), say] as const);
+
+/** English words and abbreviations in an answer, written to be said the English way. */
+export function inEnglish(text: string): string {
+  let out = text.replace(/\bS&P\b/g, "es en pi").replace(/(\p{L})\s*&\s*(?=\p{L})/gu, "$1 en ");
+  for (const [re, say] of ENGLISH_RE) out = out.replace(re, say);
+  return out.replace(/\b([A-Z]{2,5})(s?)\b/g, (m, a: string, s: string) => (SPELLED.has(a) ? `${[...a].map((c) => LETTERS[c]).join(" ")}${s}` : m));
+}
+
 /** The answer as it should be heard: no markup, bullets as pauses, signs read as words, numbers in words. */
 export function toSpeech(text: string): string {
   return text
@@ -74,6 +114,7 @@ export function toSpeech(text: string): string {
     .replace(/~\s*(?=\d)/g, "sekitar ")
     .replace(/(\d)\s*%/g, "$1 persen")
     .replace(NUMBER, (_m, sign: string, whole: string, mark: string | undefined, decimals: string | undefined) => spokenNumber(sign, whole, mark, decimals))
+    .replace(/[^\n]+/g, (line) => inEnglish(line))
     .replace(/\n{2,}/g, ".\n")
     .replace(/([^.!?:;\n])\n/g, "$1.\n")
     .replace(/[ \t]+/g, " ")
@@ -214,8 +255,9 @@ let reading = 0;
  */
 let hearing = "";
 let spokeUntil = 0;
-/** When it last stopped reading. */
+/** When it last stopped reading, and when it last began to. */
 let endedAt = 0;
+let spokeFrom = 0;
 const nowSaying = (parts: string[], i: number) => {
   hearing = parts.slice(Math.max(0, i - 1), i + 1).join(" ");
 };
@@ -224,6 +266,7 @@ export const assistantSpeaking = () => speakingId !== null || Date.now() < spoke
 /** Reads a message out in its mood (stopping whatever was being read); `id` marks it as the one playing. */
 export function speak(text: string, id: string | null = null, mood: Mood = "santai"): void {
   stopAudio();
+  spokeFrom = Date.now();
   // Nothing out of the speakers until its first piece plays: anything heard till then is the user.
   hearing = "";
   const decide = () => (elevenOn() ? speakEleven(text, id, mood) : speakBrowser(text, id, mood));
@@ -482,11 +525,12 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
   let restarts = 0;
   // The user has cut in, or is talking: what follows is theirs until they pause, not checked for echo.
   let floor = false;
+  let floorAt = 0;
   // The recognizer's results by their slot in its list: those begun as the answer's echo stay its
   // echo however late their words settle; those the user's stay theirs; the one a stop word was
   // heard in counts from after that word.
   let echoSlots = new Set<number>();
-  let userSlots = new Set<number>();
+  let userSlots = new Map<number, number>();
   let cutSlot = -1;
   tracing = true;
   note("on", { ear: earState() });
@@ -529,7 +573,7 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
     if (!on) return;
     r = new R();
     echoSlots = new Set();
-    userSlots = new Set();
+    userSlots = new Map();
     cutSlot = -1;
     r.lang = LANG;
     r.interimResults = true;
@@ -538,26 +582,53 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
     r.onresult = (e) => {
       const speaking = speakingId !== null;
       const sinceEnd = Date.now() - endedAt;
+      // An answer begun since the user last had the floor: what they said is done; from here on
+      // what's heard is its echo again.
+      if (floor && floorAt < spokeFrom) floor = false;
       let interim = "";
       let finals = "";
       const decided: string[] = [];
+      const take = (i: number, why: string) => {
+        userSlots.set(i, Date.now());
+        floor = true;
+        floorAt = Date.now();
+        if (why) decided.push(why);
+      };
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const res = e.results[i];
         let said = res[0].transcript;
-        if (echoSlots.has(i)) continue;
-        if (!floor && !userSlots.has(i)) {
+        // An empty result is nobody's (the recognizer sends them now and then).
+        if (!said.trim()) continue;
+        // The user's from before this answer, still being added to while it reads: the answer's
+        // echo running on in it.
+        const mine = userSlots.get(i);
+        if (mine !== undefined && speaking && mine < spokeFrom) {
+          userSlots.delete(i);
+          echoSlots.add(i);
+        }
+        if (echoSlots.has(i)) {
+          // The recognizer doesn't split the user's voice from the echo it runs into: a word that
+          // means stop, heard in the echo's own result, still stops it.
+          if (!speaking || stopWordAt(said, hearing) < 0) {
+            decided.push(`e: ${said}`);
+            continue;
+          }
+          echoSlots.delete(i);
+          stopSpeaking();
+          cutSlot = i;
+          take(i, `stop: ${said}`);
+        } else if (!floor && !userSlots.has(i)) {
           if (speaking) {
             // While it reads, all the microphone hears is taken for its echo (it's as loud there as
             // the user, and comes out garbled), unless a word that means stop is heard.
-            const at = stopWordAt(said, hearing);
-            if (at < 0) {
+            if (stopWordAt(said, hearing) < 0) {
               echoSlots.add(i);
               decided.push(`echo: ${said}`);
               continue;
             }
             stopSpeaking();
             cutSlot = i;
-            decided.push(`stop: ${said}`);
+            take(i, `stop: ${said}`);
           } else if (hearing && sinceEnd < ECHO_TAIL) {
             // Begun just as it ended: its last words, the recognizer being a moment behind.
             echoSlots.add(i);
@@ -567,9 +638,7 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
             echoSlots.add(i);
             decided.push(`late echo: ${said}`);
             continue;
-          }
-          userSlots.add(i);
-          floor = true;
+          } else take(i, "");
         }
         // What's said after the word that stopped it is the user's question.
         if (i === cutSlot) said = afterStopWord(said, hearing);

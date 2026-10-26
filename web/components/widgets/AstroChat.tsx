@@ -217,7 +217,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
           setLooking(withScreen);
           const screen = withScreen ? await lookAtScreen() : null;
           setLooking(false);
-          const c = await apiPost<{ text: string; model: string; ms: number; tone?: Mood }>("/api/astro-chat", { question: q, thread, offline: r?.text ?? "", screen, spoken: voiceReply || spoken });
+          const c = await apiPost<{ text: string; model: string; ms: number; tone?: Mood }>("/api/astro-chat", { question: q, thread, offline: r?.text ?? "", screen, spoken: voiceReply || spoken, voiced: spoken });
           bot = {
             id: newId(),
             role: "bot",

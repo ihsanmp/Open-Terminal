@@ -9,15 +9,15 @@ describe("the assistant's voice", () => {
     expect(said).toContain("ke nol koma nol nol satu empat lima");
     expect(said).toContain("kurang lebih dua persen");
     // Each bullet ends as a sentence, so the voice pauses between them.
-    expect(said).toContain("Support nol koma nol nol satu dua lima.");
+    expect(said).toContain("sepot nol koma nol nol satu dua lima.");
     // Icons go; a slash between words reads as a list.
-    expect(toSpeech("✦ Claude: harga emas/BTC/DXY 👁")).toBe("Claude: harga emas, BTC, DXY");
+    expect(toSpeech("✦ Claude: harga emas/BTC/DXY 👁")).toBe("Claude: harga emas, bi ti si, di eks wai");
   });
 
   it("says numbers the Indonesian way, in words", () => {
-    expect(toSpeech("BTC di 80.700.")).toBe("BTC di delapan puluh ribu tujuh ratus.");
+    expect(toSpeech("Harga di 80.700.")).toBe("Harga di delapan puluh ribu tujuh ratus.");
     expect(toSpeech("Emas 4.015, yield 4,995, turun -5,27% sebulan, naik +0,46%")).toBe(
-      "Emas empat ribu lima belas, yield empat koma sembilan sembilan lima, turun minus lima koma dua tujuh persen sebulan, naik plus nol koma empat enam persen",
+      "Emas empat ribu lima belas, yild empat koma sembilan sembilan lima, turun minus lima koma dua tujuh persen sebulan, naik plus nol koma empat enam persen",
     );
     expect(toSpeech("~6% dalam 10 hari, 1.234.567 lot, 1.5 kali")).toBe(
       "sekitar enam persen dalam sepuluh hari, satu juta dua ratus tiga puluh empat ribu lima ratus enam puluh tujuh lot, satu koma lima kali",
@@ -27,6 +27,18 @@ describe("the assistant's voice", () => {
     expect(toSpeech("US10Y dan SMA20 pukul 15:30 tanggal 26/10")).toBe("US10Y dan SMA20 pukul 15:30 tanggal 26/10");
     // A number never splits into two sentences at its dot.
     expect(chunks(toSpeech("Harga 80.700 lalu 81.200."), 140)).toHaveLength(1);
+  });
+
+  it("says English words and abbreviations the English way", () => {
+    expect(toSpeech("Support di 80.700, kalau breakout-nya lolos, trader bakal bullish.")).toBe(
+      "sepot di delapan puluh ribu tujuh ratus, kalau breikaut-nya lolos, treider bakal bulis.",
+    );
+    expect(toSpeech("DXY naik, ETF BTC inflow, FOMC dan CPI minggu ini; S&P dan Fear & Greed")).toBe(
+      "di eks wai naik, i ti ef bi ti si inflou, ef ou em si dan si pi ai minggu ini; es en pi dan fir en grid",
+    );
+    // Indonesian abbreviations and words stay as they are.
+    expect(toSpeech("Kata OJK dan BI, harga turun")).toBe("Kata OJK dan BI, harga turun");
+    expect(toSpeech("chartnya dan supportmu")).toBe("cartnya dan sepotmu");
   });
 
   it("speaks a long answer in pieces a voice reads through", () => {

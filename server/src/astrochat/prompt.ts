@@ -166,7 +166,15 @@ mengalir, tanpa daftar bullet atau tebal. Bulatkan angka seperlunya agar enak di
 hanya kalau penting). Boleh pakai jeda alami lewat tanda baca (koma, titik, tanda tanya) dan ekspresi
 seperti "nah", "jadi", "tapi hati-hati ya". Tutup dengan satu pertanyaan balik kalau itu memajukan obrolan.`;
 
-export function userPrompt(question: string, thread: Turn[], data: string, knowledge: Array<{ file: string; text: string }>, screen?: string, spoken = false): string {
+/** A question said, not typed: what the speech recognizer wrote, misheard words and all. */
+export const VOICED = `# PERTANYAAN DIUCAPKAN
+Pertanyaan di bawah diucapkan pengguna dan ditulis oleh pengenal suara browser, jadi bisa ada salah dengar,
+terutama ticker dan istilah Inggris (contoh: "di x" / "dek si" = DXY, "bitkoin" = Bitcoin, "es en pi" = S&P 500,
+"ef o em si" = FOMC, "si pi ai" = CPI, "nasdak" = Nasdaq, "gold" / "emas" = XAUUSD). Tafsirkan dengan wajar dari
+bunyinya, utas, data, dan layar. Kalau tafsiranmu tidak pasti, sebut singkat ("kamu maksud DXY ya?") lalu
+jawab; jangan menolak menjawab hanya karena ejaannya aneh.`;
+
+export function userPrompt(question: string, thread: Turn[], data: string, knowledge: Array<{ file: string; text: string }>, screen?: string, spoken = false, voiced = false): string {
   const parts: string[] = [];
   if (screen) parts.push(`# LAYAR (yang sedang ditampilkan aplikasi pengguna, saat pertanyaan diajukan)\n${screen}`);
   if (thread.length)
@@ -174,6 +182,7 @@ export function userPrompt(question: string, thread: Turn[], data: string, knowl
   parts.push(`# DATA (dikumpulkan kode aplikasi, saat ini)\n${data}`);
   if (knowledge.length) parts.push(`# PENGETAHUAN (riset yang sudah diuji, dari Crypto-Analis)\n${knowledge.map((k) => `## ${k.file}\n${k.text}`).join("\n\n")}`);
   if (spoken) parts.push(SPOKEN);
+  if (voiced) parts.push(VOICED);
   parts.push(`# PERTANYAAN PENGGUNA${thread.length ? " (balasan)" : " (topik baru)"}\n${question}`);
   return parts.join("\n\n");
 }
