@@ -8,6 +8,7 @@ import type { QuantForecast } from "../../lib/quant";
 import { apiGet, apiPost } from "../../lib/api";
 import { lookAtScreen, NO_PICTURE, wantsScreen } from "../../lib/astro-chat/screen";
 import { canListen, canSpeak, converse, refreshEleven, setPref, setVoiceReply, speak, stopSpeaking, useEleven, useElevenIssue, usePref, useSpeakingId, useVoiceReply, type Mood } from "../../lib/astro-chat/voice";
+import { useUserTalking } from "../../lib/astro-chat/ear";
 
 // The Astro Calendar's chat (offline: lib/astro-chat), in the floating bubble's panel
 // (AstroChatBubble). A reply to one of its messages carries on from that message's thread (its asset,
@@ -458,6 +459,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
             }
             className="flex-1 resize-none bg-transparent outline-none text-fs-11 px-1"
           />
+          {online && micOn && hasVoice.listen && listening && <Voices assistant={speakingId !== null} />}
           {online && micOn && hasVoice.listen && (
             <button
               className={`term-btn shrink-0 ${listening ? "!border-[var(--down)] !text-[var(--down)] animate-pulse" : ""}`}
@@ -477,6 +479,25 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * In conversation mode, whose voice is going: the user's (heard on the echo-cancelled microphone,
+ * lib/astro-chat/ear.ts) or the assistant's (being read out). Each lights while it is.
+ */
+function Voices({ assistant }: { assistant: boolean }) {
+  const user = useUserTalking();
+  const pill = (on: boolean, color: string) => `px-1.5 rounded-full border text-fs-9 leading-4 transition-colors ${on ? color : "border-[var(--border)] dim"}`;
+  return (
+    <div className="shrink-0 flex flex-col gap-0.5 justify-center" aria-live="polite">
+      <span className={pill(user, "border-[var(--up)] text-[var(--up)]")} title="Suara Anda terdengar (mikrofon, suara asisten sudah dipisahkan)">
+        🗣 kamu
+      </span>
+      <span className={pill(assistant, "border-[#9b87f5] text-[#c9b8ff]")} title="Asisten sedang bicara">
+        🔊 asisten
+      </span>
     </div>
   );
 }

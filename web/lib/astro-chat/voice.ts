@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { closeEar, earOpen, openEar, userSpoke } from "./ear";
 
 // The Astro chat by voice, with the browser's own speech (no download, nothing installed): what's
 // said is written by its speech recognition (Edge: Microsoft's, Chrome: Google's; online, the
@@ -289,7 +290,17 @@ const NUMBERS = new Set(
 const numberish = (w: string) => /^\d+$/.test(w) || NUMBERS.has(w);
 
 /** The same word, give or take how the recognizer spells it or a suffix ("kayaknya"/"kayanya", "turun"/"turunnya"). */
-const alike = (a: string, b: string) => a === b || (a.length >= 4 && b.length >= 4 && a.slice(0, 4) === b.slice(0, 4));
+const alike = (a: string, b: string) => a === b || (a.length >= 4 && b.length >= 4 && (a.slice(0, 4) === b.slice(0, 4) || oneOff(a, b)));
+
+/** One letter apart, as the recognizer mishears ("jatoh"/"jatuh", "dalem"/"dalam", "gimna"/"gimana"). */
+function oneOff(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  let j = 0;
+  while (j < a.length - i && j < b.length - i && a[a.length - 1 - j] === b[b.length - 1 - j]) j++;
+  return Math.max(a.length, b.length) - i - j <= 1;
+}
 
 /** The words heard that aren't in what's being read out. */
 export function ownWords(heard: string, reading: string): string[] {
@@ -337,6 +348,36 @@ export function cutsIn(heard: string, reading: string): boolean {
 /** After the last word heard, this long a pause ends what the user says (ms). */
 const UTTERANCE_PAUSE = 1100;
 
+/** The recognizer's words come in this long after they were said (ms): the ear's word is looked at that far back. */
+const VOICE_LAG = 2000;
+
+/**
+ * Whether the ear's word on the user's voice counts: it's open, and what's read out is the page's
+ * own audio (ElevenLabs), which its echo cancellation takes out. The browser's own voice (Gadis)
+ * may not be, and would be heard as the user.
+ */
+const earTrusted = () => earOpen() && audio !== null;
+
+/**
+ * Whom the recognizer heard while an answer is read out (`reading`), or just was: the answer's own
+ * voice coming back from the speakers ("echo") or the user. `said` is what was coming out of them;
+ * `voice` what the second ear says (ear.ts): the user's voice was there, wasn't, or it can't tell
+ * (null), and then only the words tell.
+ */
+export function whose(heard: string, said: string, reading: boolean, voice: boolean | null): "echo" | "user" {
+  if (reading) {
+    // Nobody's voice but the answer's on the echo-cancelled microphone: its echo, whatever the words.
+    if (voice === false) return "echo";
+    // The user's voice was there: any word of their own is them cutting in.
+    if (voice === true) return ownWords(afterEcho(heard, said), said).length > 0 ? "user" : "echo";
+    return cutsIn(heard, said) ? "user" : "echo";
+  }
+  // Just finished: only its last words coming in late are ignored; the user answering straight away
+  // is heard as ever.
+  if (voice === true) return "user";
+  return isEcho(heard, said) ? "echo" : "user";
+}
+
 /**
  * Conversation mode: the microphone stays on until it's switched off (the 🎤 again). What the user
  * says goes to `onText` as it's heard and to `onUtterance` when they pause; the assistant's voice is
@@ -381,20 +422,18 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
       const heard = `${finals} ${interim}`.trim();
       if (!heard) return;
       if (!floor && hearing && assistantSpeaking()) {
-        if (speakingId !== null) {
-          // Still reading: its own voice heard back, or too little yet to tell it from the user, is ignored.
-          if (!cutsIn(heard, hearing)) return;
-          // The user talks over the answer: it stops, and listens.
-          stopSpeaking();
-        } else if (isEcho(heard, hearing)) {
-          // Just finished: only its last words coming in late are ignored; the user answering
-          // straight away is heard as ever.
-          return;
-        }
-        // What the user says, not the answer's echo heard just before it.
-        finals = afterEcho(finals, hearing);
-        if (!finals) interim = afterEcho(interim, hearing);
-        if (!`${finals}${interim}`.trim()) return;
+        const voice = earTrusted() ? userSpoke(VOICE_LAG) : null;
+        if (whose(heard, hearing, speakingId !== null, voice) === "echo") return;
+        // The user talks over the answer: it stops, and listens.
+        if (speakingId !== null) stopSpeaking();
+        // What the user says, not the answer's echo heard just before it (unless that's all there
+        // is and the ear heard them: then it's what they said, the answer's words or not).
+        const f = afterEcho(finals, hearing);
+        const i = f ? interim : afterEcho(interim, hearing);
+        if (`${f}${i}`.trim()) {
+          finals = f;
+          interim = i;
+        } else if (voice !== true) return;
         floor = true;
       }
       restarts = 0;
@@ -406,6 +445,7 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
     r.onerror = (e) => {
       if (e.error === "no-speech" || e.error === "aborted") return;
       on = false;
+      closeEar();
       h.onListening?.(false);
       h.onError(LISTEN_ERRORS[e.error] ?? `Pengenalan suara gagal (${e.error}).`);
     };
@@ -414,6 +454,7 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
       // The browser ends it on silence and after a while: again, unless it keeps failing at once.
       if (++restarts > 20) {
         on = false;
+        closeEar();
         h.onListening?.(false);
         h.onError("Mikrofon berhenti berulang kali; klik 🎤 untuk mencoba lagi.");
         return;
@@ -425,16 +466,22 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
       h.onListening?.(true);
     } catch (err) {
       on = false;
+      closeEar();
       h.onListening?.(false);
       h.onError(`Pengenalan suara tidak bisa dimulai: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
   start();
+  // The second ear, to tell the user's voice from the answer's (without it, the words alone tell).
+  void openEar().then((open) => {
+    if (open && !on) closeEar();
+  });
   return () => {
     on = false;
     clearTimeout(pause);
     commit();
     r?.abort();
+    closeEar();
     h.onListening?.(false);
   };
 }
