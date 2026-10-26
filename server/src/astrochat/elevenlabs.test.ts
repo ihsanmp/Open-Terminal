@@ -1,10 +1,10 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "eleven-"));
-const { apiKey, config, DEFAULT_VOICE, explain, requestBody, saveConfig, saveKey } = await import("./elevenlabs.js");
+const { apiKey, config, DEFAULT_VOICE, explain, requestBody, saveConfig, saveKey, transcribe } = await import("./elevenlabs.js");
 
 describe("the ElevenLabs voice", () => {
   it("starts on the user's designed voice and v3, and keeps what's set", () => {
@@ -39,5 +39,32 @@ describe("the ElevenLabs voice", () => {
     const missing = explain(401, '{"detail":{"type":"authentication_error","code":"unauthorized","message":"The API key you used is missing the permission text_to_speech to execute this operation.","status":"missing_permissions"}}');
     expect(missing).toMatch(/Text to Speech/);
     expect(missing).not.toMatch(/tidak valid/);
+  });
+});
+
+describe("what the user said, by Scribe", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    saveKey(null);
+  });
+
+  it("asks the newest model, and the one before when the API doesn't know it", async () => {
+    saveKey("sk_test_0123456789abcdefghij");
+    const models: string[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: { body: FormData }) => {
+      const model = String(init.body.get("model_id"));
+      models.push(model);
+      if (model === "scribe_v2") return new Response('{"detail":{"status":"invalid_model","message":"model scribe_v2 not found"}}', { status: 422 });
+      return new Response(JSON.stringify({ text: "harga DXY naik, what do you think?", language_code: "ind" }), { status: 200 });
+    });
+    const r = await transcribe(Buffer.alloc(2000), "audio/wav");
+    expect(models).toEqual(["scribe_v2", "scribe_v1"]);
+    expect(r).toEqual({ text: "harga DXY naik, what do you think?", language: "ind", model: "scribe_v1" });
+  });
+
+  it("says a key without Speech to Text as that", async () => {
+    saveKey("sk_test_0123456789abcdefghij");
+    vi.stubGlobal("fetch", async () => new Response('{"detail":{"message":"The API key you used is missing the permission speech_to_text to execute this operation.","status":"missing_permissions"}}', { status: 401 }));
+    await expect(transcribe(Buffer.alloc(2000), "audio/wav")).rejects.toThrow(/Speech to Text/);
   });
 });

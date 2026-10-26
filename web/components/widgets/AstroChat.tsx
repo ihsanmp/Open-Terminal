@@ -279,6 +279,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
         setVoiceError(m);
       },
       onListening: setListening,
+      onNote: setVoiceError,
     });
   };
   // Closing the chat switches the microphone off.
@@ -501,9 +502,14 @@ function Voices({ assistant }: { assistant: boolean }) {
       <span className={pill(user, "border-[var(--up)] text-[var(--up)]")} title="Suara Anda terdengar (mikrofon, suara asisten sudah dipisahkan)">
         🗣 kamu
       </span>
-      <span className={pill(assistant, "border-[#9b87f5] text-[#c9b8ff]")} title="Asisten sedang bicara">
+      <button
+        type="button"
+        className={`${pill(assistant, "border-[#9b87f5] text-[#c9b8ff]")} ${assistant ? "cursor-pointer hover:bg-[#9b87f51a]" : "cursor-default"}`}
+        title={assistant ? "Asisten sedang bicara. Klik untuk menghentikannya (atau bilang \"tunggu\" / \"stop\")." : "Asisten diam"}
+        onClick={() => assistant && stopSpeaking()}
+      >
         🔊 asisten
-      </span>
+      </button>
     </div>
   );
 }

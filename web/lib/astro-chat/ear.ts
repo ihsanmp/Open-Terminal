@@ -104,13 +104,16 @@ export function openEar(): Promise<boolean> {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia || typeof AudioContext === "undefined") return Promise.resolve(false);
   opening = (async () => {
     try {
-      // No gain control: it would turn the echo up and down, and the levels couldn't be compared.
-      const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false } });
+      // Echo-cancelled and evened out: the recognizer listens to this one too (earTrack), and the
+      // user's voice was too quiet for it without gain control.
+      const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       const c = new AudioContext();
       void c.resume();
       micAnalyser = c.createAnalyser();
       micAnalyser.fftSize = 1024;
-      c.createMediaStreamSource(s).connect(micAnalyser);
+      const source = c.createMediaStreamSource(s);
+      source.connect(micAnalyser);
+      void startRecording(c, source);
       micFrame = new Float32Array(micAnalyser.fftSize);
       try {
         const kept = Number(localStorage.getItem(COUPLING_KEY));
@@ -136,10 +139,112 @@ export function openEar(): Promise<boolean> {
   return opening;
 }
 
+/**
+ * The recording: the last minute of the echo-cancelled microphone at 16 kHz, so a turn of the
+ * user's can be sent to Scribe (it hears Indonesian and English as said; the browser's recognizer
+ * one language only). Taken by a worklet in batches, kept in a ring.
+ */
+const RATE = 16_000;
+const RING = RATE * 60;
+let ring: Int16Array | null = null;
+let written = 0;
+let writtenAt = 0;
+let tap: AudioWorkletNode | null = null;
+
+const TAP = `class Tap extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = new Float32Array(2048); this.n = 0; }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (ch) for (let i = 0; i < ch.length; i++) {
+      this.buf[this.n++] = ch[i];
+      if (this.n === this.buf.length) { this.port.postMessage(this.buf.slice(0)); this.n = 0; }
+    }
+    return true;
+  }
+}
+registerProcessor("ot-tap", Tap);`;
+
+async function startRecording(c: AudioContext, source: MediaStreamAudioSourceNode): Promise<void> {
+  try {
+    const url = URL.createObjectURL(new Blob([TAP], { type: "text/javascript" }));
+    await c.audioWorklet.addModule(url);
+    URL.revokeObjectURL(url);
+    if (ctx !== c) return;
+    const node = new AudioWorkletNode(c, "ot-tap");
+    const r = new Int16Array(RING);
+    const step = c.sampleRate / RATE;
+    let carry = 0;
+    node.port.onmessage = (e: MessageEvent<Float32Array>) => {
+      const f = e.data;
+      // Down to 16 kHz, each sample the average of the ones it stands for.
+      let pos = carry;
+      while (pos < f.length) {
+        const a = Math.floor(pos);
+        const b = Math.min(f.length, Math.max(a + 1, Math.floor(pos + step)));
+        let sum = 0;
+        for (let i = a; i < b; i++) sum += f[i];
+        r[written % RING] = Math.max(-1, Math.min(1, sum / (b - a))) * 32767;
+        written++;
+        pos += step;
+      }
+      carry = pos - f.length;
+      writtenAt = Date.now();
+    };
+    source.connect(node);
+    // A worklet runs only when something pulls on it: a silent way out.
+    const mute = c.createGain();
+    mute.gain.value = 0;
+    node.connect(mute).connect(c.destination);
+    ring = r;
+    written = 0;
+    tap = node;
+  } catch {
+    ring = null;
+  }
+}
+
+/** What the microphone heard from `from` to `to` (times in ms), as a 16 kHz WAV; null when there's no recording of it. */
+export function recording(from: number, to: number): Blob | null {
+  if (!ring || !written) return null;
+  const at = (t: number) => Math.round(written - ((writtenAt - t) * RATE) / 1000);
+  const start = Math.max(at(from), written - RING + 1, 0);
+  const end = Math.min(at(to), written);
+  const n = end - start;
+  if (n < RATE * 0.3) return null;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const text = (o: number, s: string) => [...s].forEach((ch, i) => v.setUint8(o + i, ch.charCodeAt(0)));
+  text(0, "RIFF");
+  v.setUint32(4, 36 + n * 2, true);
+  text(8, "WAVE");
+  text(12, "fmt ");
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true);
+  v.setUint32(24, RATE, true);
+  v.setUint32(28, RATE * 2, true);
+  v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true);
+  text(36, "data");
+  v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, ring[(start + i) % RING], true);
+  return new Blob([buf], { type: "audio/wav" });
+}
+
+/** The echo-cancelled microphone itself, for the recognizer to listen to (null when the ear is closed). */
+export function earTrack(): MediaStreamTrack | null {
+  const t = stream?.getAudioTracks()[0];
+  return t && t.readyState === "live" ? t : null;
+}
+
 export function closeEar(): void {
   window.clearInterval(timer);
   if (stream) saveCoupling();
   stopHearingPlayback();
+  tap?.disconnect();
+  tap = null;
+  ring = null;
+  written = 0;
   stream?.getTracks().forEach((t) => t.stop());
   void ctx?.close();
   stream = null;

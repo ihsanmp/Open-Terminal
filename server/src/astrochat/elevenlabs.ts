@@ -77,7 +77,7 @@ export function explain(status: number, body: string): string {
   // A restricted key without an endpoint's permission: which one, as the key's settings name it.
   const missing = /missing the permission ([a-z_]+)/i.exec(detail)?.[1] ?? (/missing_permissions/i.test(detail) ? "" : null);
   if (missing !== null) {
-    const name: Record<string, string> = { text_to_speech: "Text to Speech → Access", voices_read: "Voices → Read" };
+    const name: Record<string, string> = { text_to_speech: "Text to Speech → Access", voices_read: "Voices → Read", speech_to_text: "Speech to Text → Access" };
     return `API key ElevenLabs belum diberi izin ${name[missing] ?? (missing || "yang dibutuhkan")}. Ubah izin key itu di ElevenLabs (Developers → API Keys), atau buat key baru dengan izin tersebut.`;
   }
   if (status === 401 || /invalid_api_key|api key/i.test(detail)) return "API key ElevenLabs tidak valid.";
@@ -138,6 +138,35 @@ export async function speech(text: string, mood: Mood): Promise<Buffer> {
   writeFileSync(file, audio);
   prune();
   return audio;
+}
+
+/** Speech to text: the newest Scribe first, the one before if this account or the API doesn't have it. */
+export const STT_MODELS = ["scribe_v2", "scribe_v1"] as const;
+
+/**
+ * What the user said, written by ElevenLabs' Scribe from their recording: the language found by
+ * itself, Indonesian and English mixed as said (the browser's recognizer hears one language only,
+ * and writes "DXY" as "di x").
+ */
+export async function transcribe(audio: Buffer, mime: string): Promise<{ text: string; language: string | null; model: string }> {
+  const key = apiKey();
+  if (!key) throw new VoiceError("API key ElevenLabs belum diisi.", 400);
+  for (const model of STT_MODELS) {
+    const form = new FormData();
+    form.append("model_id", model);
+    form.append("tag_audio_events", "false");
+    form.append("file", new Blob([new Uint8Array(audio)], { type: mime }), "speech.wav");
+    const res = await fetch(`${API}/speech-to-text`, { method: "POST", headers: { "xi-api-key": key }, body: form, signal: AbortSignal.timeout(30_000) });
+    if (res.ok) {
+      const j = (await res.json()) as { text?: string; language_code?: string };
+      return { text: (j.text ?? "").trim(), language: j.language_code ?? null, model };
+    }
+    const body = await res.text().catch(() => "");
+    // A model it doesn't know: the one before.
+    if ([400, 422].includes(res.status) && /model/i.test(body) && model !== STT_MODELS[STT_MODELS.length - 1]) continue;
+    throw new VoiceError(explain(res.status, body), res.status);
+  }
+  throw new VoiceError("Speech to Text ElevenLabs tidak tersedia.", 502);
 }
 
 /** Checks a key and a voice together (the voice must be in that account), before they're kept. */

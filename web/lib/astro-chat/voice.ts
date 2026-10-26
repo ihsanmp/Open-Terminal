@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { closeEar, earOpen, earState, hearPlayback, openEar, sinceVoice, stopHearingPlayback } from "./ear";
+import { closeEar, earOpen, earState, earTrack, hearPlayback, openEar, recording, sinceVoice, stopHearingPlayback } from "./ear";
 
 // The Astro chat by voice, with the browser's own speech (no download, nothing installed): what's
 // said is written by its speech recognition (Edge: Microsoft's, Chrome: Google's; online, the
@@ -345,7 +345,8 @@ type Recognition = {
   interimResults: boolean;
   continuous: boolean;
   maxAlternatives: number;
-  start(): void;
+  // A track to listen to instead of the microphone (Chromium 135+; older ones ignore it).
+  start(track?: MediaStreamTrack): void;
   stop(): void;
   abort(): void;
   onresult: ((e: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null;
@@ -432,6 +433,19 @@ export function stopWordAt(heard: string, reading: string): number {
     .findIndex((t) => words(t).some((w) => STOP.has(w) && !out.some((o) => alike(w, o))));
 }
 
+/** On the echo-cancelled microphone, the user talking over the answer: mostly words of their own, two or more. */
+export function ownTalk(heard: string, reading: string): boolean {
+  const rest = afterEcho(heard, reading);
+  const own = ownWords(rest, reading);
+  return own.length >= 2 && own.length / Math.max(1, words(rest).length) >= 0.6;
+}
+
+/** What Scribe wrote of a turn that began with a stop word, without it ("tunggu, aku mau…": "aku mau…"). */
+export function afterLeadingStop(said: string): string {
+  const at = stopWordAt(said, "");
+  return at >= 0 && at <= 1 ? said.trim().split(/\s+/).slice(at + 1).join(" ") : said.trim();
+}
+
 /** What the user says after the word that stopped the answer (all of it, if there's none). */
 export function afterStopWord(heard: string, reading: string): string {
   const at = stopWordAt(heard, reading);
@@ -480,6 +494,24 @@ export function dropFillers(text: string): string {
     .trim();
 }
 
+/** A turn's recording begins this long before the recognizer's first word of it (ms): it writes late. */
+const TURN_PREROLL = 1500;
+/** And a cut-in's, this long before the stop word was written: what's said right after it. */
+const CUT_PREROLL = 700;
+
+/** A turn's recording to Scribe: what it wrote, or why not (off: not to be asked again this time). */
+async function transcribeTurn(clip: Blob): Promise<{ text: string; language: string | null } | { error: string } | { off: string }> {
+  try {
+    const r = await fetch("/api/astro-voice/transcribe", { method: "POST", headers: { "content-type": "audio/wav" }, body: clip, signal: AbortSignal.timeout(15_000) });
+    const j = (await r.json().catch(() => ({}))) as { text?: string; language?: string | null; error?: string };
+    if (r.ok) return { text: j.text ?? "", language: j.language ?? null };
+    // The key not allowed, no quota, no key: the same next time.
+    return r.status === 400 ? { off: j.error ?? "Speech to Text ElevenLabs menolak." } : { error: j.error ?? `HTTP ${r.status}` };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /** A result begun this soon after the answer ended is its last words (ms): the recognizer is a moment behind. */
 const ECHO_TAIL = 1200;
 /** For this long after it ended (ms), what's plainly its words is its echo. */
@@ -509,7 +541,14 @@ function flushTrace(): void {
  * talking over it (barge-in), and what's only its own voice heard back is ignored. The recognizer is
  * restarted whenever the browser ends it (silence, its time limit). Returns the switch-off.
  */
-export function converse(h: { onText: (text: string) => void; onUtterance: (text: string) => void; onError: (message: string) => void; onListening?: (on: boolean) => void }): () => void {
+export function converse(h: {
+  onText: (text: string) => void;
+  onUtterance: (text: string) => void;
+  onError: (message: string) => void;
+  onListening?: (on: boolean) => void;
+  /** Something worth saying that doesn't stop it (Scribe not allowed, so the browser's words go). */
+  onNote?: (message: string) => void;
+}): () => void {
   const R = Recognizer();
   if (!R) {
     h.onError("Browser ini tidak punya pengenalan suara. Buka aplikasi lewat Edge atau Chrome.");
@@ -532,24 +571,61 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
   let echoSlots = new Set<number>();
   let userSlots = new Map<number, number>();
   let cutSlot = -1;
+  // Where the recognizer listens: the echo-cancelled microphone (the ear's track) when it can, where
+  // the answer's voice is mostly gone and the user's isn't drowned under it; else the microphone.
+  let onTrack = false;
+  let noTrack = false;
+  let heardOnTrack = false;
+  let voiceOnTrack = 0;
+  // When the user's turn began (its recording goes to Scribe from there), and when they cut in.
+  let turnFrom = 0;
+  let cutAt = 0;
+  let sttOff = false;
   tracing = true;
   note("on", { ear: earState() });
   const tracer = window.setInterval(() => {
     if (assistantSpeaking() || sinceVoice() < 3000) note("ear", earState());
+    // The user heard on the ear for a while, and the recognizer writes nothing: it doesn't take the
+    // track here; the microphone, then.
+    if (onTrack && !heardOnTrack && !assistantSpeaking() && sinceVoice() < 250 && ++voiceOnTrack >= 8) {
+      noTrack = true;
+      note("input", { to: "microphone", why: "nothing written from the track" });
+      r?.abort();
+    }
   }, 250);
   const flusher = window.setInterval(flushTrace, 3000);
   const commit = (why: string) => {
     clearTimeout(pause);
     const text = dropFillers(`${buffer} ${pending}`);
     const unsettled = Boolean(pending);
+    const from = turnFrom;
+    const cut = cutAt;
     buffer = "";
     pending = "";
     floor = false;
+    turnFrom = 0;
+    cutAt = 0;
     note("send", { text, why, unsettled });
-    if (text) h.onUtterance(text);
     // Words still unsettled went with it: the recognizer is started afresh, so they don't come in
     // again, settled, as a message of their own.
     if (unsettled && on) r?.abort();
+    if (!text) return;
+    // The turn's recording to Scribe, which writes Indonesian and English as said; the browser's
+    // words if it can't.
+    const clip = !sttOff && from && eleven?.configured ? recording(from, Date.now()) : null;
+    if (!clip) return h.onUtterance(text);
+    h.onText(`${text} …`);
+    const t0 = Date.now();
+    void transcribeTurn(clip).then((got) => {
+      if ("off" in got) {
+        sttOff = true;
+        h.onNote?.(`${got.off} Kata-katamu ditulis pengenal suara browser (bahasa Indonesia saja).`);
+      }
+      const said = "text" in got ? (cut ? afterLeadingStop(got.text) : got.text) : "";
+      const final = dropFillers(said) || text;
+      note("stt", { browser: text, scribe: "text" in got ? got.text : null, language: "language" in got ? got.language : null, error: "error" in got ? got.error : "off" in got ? got.off : null, ms: Date.now() - t0 });
+      h.onUtterance(final);
+    });
   };
   /** Sends once the user has been quiet long enough: by the ear when it's open, else by the words. */
   const waitToSend = () => {
@@ -589,6 +665,8 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
       let finals = "";
       const decided: string[] = [];
       const take = (i: number, why: string) => {
+        // The turn's recording begins a moment before the recognizer's first word of it (it's late).
+        if (!turnFrom) turnFrom = Math.max(Date.now() - TURN_PREROLL, endedAt);
         userSlots.set(i, Date.now());
         floor = true;
         floorAt = Date.now();
@@ -616,19 +694,24 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
           echoSlots.delete(i);
           stopSpeaking();
           cutSlot = i;
+          cutAt = Date.now();
+          turnFrom = cutAt - CUT_PREROLL;
           take(i, `stop: ${said}`);
         } else if (!floor && !userSlots.has(i)) {
           if (speaking) {
-            // While it reads, all the microphone hears is taken for its echo (it's as loud there as
-            // the user, and comes out garbled), unless a word that means stop is heard.
-            if (stopWordAt(said, hearing) < 0) {
+            // While it reads, what the microphone hears is taken for its echo (on the raw microphone
+            // it's as loud as the user, and comes out garbled), unless a word that means stop is
+            // heard, or, on the echo-cancelled one, words mostly of the user's own.
+            if (stopWordAt(said, hearing) < 0 && !(onTrack && ownTalk(said, hearing))) {
               echoSlots.add(i);
               decided.push(`echo: ${said}`);
               continue;
             }
             stopSpeaking();
             cutSlot = i;
-            take(i, `stop: ${said}`);
+            cutAt = Date.now();
+            turnFrom = cutAt - CUT_PREROLL;
+            take(i, `${stopWordAt(said, hearing) < 0 ? "talk" : "stop"}: ${said}`);
           } else if (hearing && sinceEnd < ECHO_TAIL) {
             // Begun just as it ended: its last words, the recognizer being a moment behind.
             echoSlots.add(i);
@@ -641,11 +724,12 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
           } else take(i, "");
         }
         // What's said after the word that stopped it is the user's question.
-        if (i === cutSlot) said = afterStopWord(said, hearing);
+        if (i === cutSlot) said = stopWordAt(said, hearing) < 0 ? afterEcho(said, hearing) : afterStopWord(said, hearing);
         if (res.isFinal) finals += `${said} `;
         else interim += `${said} `;
       }
       note("heard", { text: `${finals}${interim}`.trim(), final: Boolean(finals), speaking, floor, decided, hearing: hearing.slice(0, 200), ear: earState() });
+      if (onTrack && decided.length + finals.length + interim.length > 0) heardOnTrack = true;
       if (!`${finals}${interim}`.trim()) return;
       restarts = 0;
       lastHeard = Date.now();
@@ -655,8 +739,14 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
       waitToSend();
     };
     r.onerror = (e) => {
-      note("error", { error: e.error });
+      note("error", { error: e.error, onTrack });
       if (e.error === "no-speech" || e.error === "aborted") return;
+      // The track refused: the microphone (the recognizer starts again when it ends).
+      if (onTrack && !noTrack) {
+        noTrack = true;
+        note("input", { to: "microphone", why: e.error });
+        return;
+      }
       stop();
       h.onError(LISTEN_ERRORS[e.error] ?? `Pengenalan suara gagal (${e.error}).`);
     };
@@ -671,7 +761,13 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
       setTimeout(start, 250);
     };
     try {
-      r.start();
+      const track = noTrack ? null : earTrack();
+      if (track) r.start(track);
+      else r.start();
+      onTrack = Boolean(track);
+      heardOnTrack = false;
+      voiceOnTrack = 0;
+      note("input", { to: onTrack ? "ear" : "microphone" });
       h.onListening?.(true);
     } catch (err) {
       stop();
@@ -695,6 +791,8 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
   void openEar().then((open) => {
     note("ear open", { open });
     if (open && !on) closeEar();
+    // Started on the microphone while the ear opened: again, on the ear's track.
+    else if (open && !onTrack && !noTrack) r?.abort();
   });
   return () => {
     if (!on) return;

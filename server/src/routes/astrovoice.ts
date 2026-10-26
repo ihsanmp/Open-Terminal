@@ -1,5 +1,5 @@
-import { Router } from "express";
-import { apiKey, check, config, saveConfig, saveKey, speech, VOICE_ID_RE, VoiceError, type Mood } from "../astrochat/elevenlabs.js";
+import { raw, Router } from "express";
+import { apiKey, check, config, saveConfig, saveKey, speech, transcribe, VOICE_ID_RE, VoiceError, type Mood } from "../astrochat/elevenlabs.js";
 import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { dataDir } from "../db.js";
@@ -55,6 +55,17 @@ astroVoiceRouter.post("/log", (req, res) => {
     // not kept
   }
   res.json({ ok: true });
+});
+
+// What the user said in conversation mode, from its recording (a WAV of their turn), to Scribe.
+astroVoiceRouter.post("/transcribe", raw({ type: ["audio/*", "application/octet-stream"], limit: "8mb" }), async (req, res) => {
+  const audio = Buffer.isBuffer(req.body) ? req.body : null;
+  if (!audio || audio.length < 1000) return res.status(400).json({ error: "audio required" });
+  try {
+    res.json(await transcribe(audio, req.get("content-type") ?? "audio/wav"));
+  } catch (err) {
+    res.status(err instanceof VoiceError && err.status < 500 ? 400 : 502).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 astroVoiceRouter.post("/speech", async (req, res) => {

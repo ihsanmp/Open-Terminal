@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { afterEcho, afterStopWord, isEcho, stopWordAt } from "./voice";
+import { afterEcho, afterLeadingStop, afterStopWord, isEcho, ownTalk, stopWordAt } from "./voice";
 
 const reading = "Tarik napas dulu ya, ngerti kok, rugi dua puluh persen itu bikin kepikiran. Yang pertama, jangan ambil keputusan apa pun dalam keadaan panik.";
 const market = "Wah, ada beberapa yang seru nih. Emas lagi jatuh lumayan dalam, sekitar 4.015, turun ~6% sebulan, kayaknya bukan dari dolar.";
@@ -45,5 +45,19 @@ describe("stopping the answer while it's read out", () => {
     expect(afterStopWord("lumayan dalam stop aku mau tanya soal bitcoin", market)).toBe("aku mau tanya soal bitcoin");
     expect(afterStopWord("tunggu", market)).toBe("");
     expect(afterEcho("turun sebulan kayaknya bukan aku mau tanya", market)).toBe("aku mau tanya");
+  });
+});
+
+describe("on the echo-cancelled microphone", () => {
+  it("takes the user's own words over the answer as cutting in, not a word or two of its echo", () => {
+    expect(ownTalk("aku mau tanya soal bitcoin", market)).toBe(true);
+    expect(ownTalk("emas lagi jatuh lumayan dalem", market)).toBe(false);
+    expect(ownTalk("aku", market)).toBe(false);
+  });
+
+  it("takes the stop word off what Scribe wrote of a cut-in, only at its start", () => {
+    expect(afterLeadingStop("Tunggu, aku mau tanya soal DXY")).toBe("aku mau tanya soal DXY");
+    expect(afterLeadingStop("eh tunggu what about gold")).toBe("what about gold");
+    expect(afterLeadingStop("apakah support ini cukup kuat")).toBe("apakah support ini cukup kuat");
   });
 });

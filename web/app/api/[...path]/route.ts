@@ -30,7 +30,8 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
     upstream = await fetch(url, {
       method: req.method,
       headers,
-      body: hasBody ? await req.text() : undefined,
+      // As bytes: a recording (the voice chat's audio) would be broken read as text.
+      body: hasBody ? await req.arrayBuffer() : undefined,
       cache: "no-store",
       signal: stream ? req.signal : req.method === "GET" ? AbortSignal.timeout(40_000) : undefined,
     });
