@@ -204,6 +204,15 @@ export const KEYTERMS = [
   "eclipse", "full moon", "new moon",
 ];
 
+/** The realtime Scribe takes at most 50: the ones most often misheard, and the assets asked about most. */
+export const LIVE_KEYTERMS = [
+  "outflow", "inflow", "DXY", "ETF", "FOMC", "CPI", "PCE", "NFP", "GDP", "rate cut", "yield", "Treasury", "support",
+  "resistance", "breakout", "breakdown", "pullback", "rebound", "bullish", "bearish", "sideways", "liquidity", "leverage",
+  "liquidation", "funding rate", "open interest", "whale", "on-chain", "halving", "Bitcoin", "BTC", "Ethereum", "ETH",
+  "Solana", "altcoin", "stablecoin", "gold", "XAUUSD", "oil", "WTI", "S&P 500", "Nasdaq", "Nvidia", "risk-off",
+  "safe haven", "hawkish", "dovish", "sell-off", "RSI", "MACD",
+];
+
 /** Checks a key and a voice together (the voice must be in that account), before they're kept. */
 export async function check(key: string, voiceId: string): Promise<{ name: string }> {
   const res = await fetch(`${API}/voices/${encodeURIComponent(voiceId)}`, { headers: { "xi-api-key": key }, signal: AbortSignal.timeout(20_000) });

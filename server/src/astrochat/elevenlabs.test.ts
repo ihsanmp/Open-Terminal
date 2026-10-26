@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "eleven-"));
-const { apiKey, config, DEFAULT_VOICE, explain, requestBody, saveConfig, saveKey, transcribe } = await import("./elevenlabs.js");
+const { apiKey, config, DEFAULT_VOICE, explain, KEYTERMS, LIVE_KEYTERMS, requestBody, saveConfig, saveKey, transcribe } = await import("./elevenlabs.js");
 
 describe("the ElevenLabs voice", () => {
   it("starts on the user's designed voice and v3, and keeps what's set", () => {
@@ -72,5 +72,17 @@ describe("what the user said, by Scribe", () => {
     saveKey("sk_test_0123456789abcdefghij");
     vi.stubGlobal("fetch", async () => new Response('{"detail":{"message":"The API key you used is missing the permission speech_to_text to execute this operation.","status":"missing_permissions"}}', { status: 401 }));
     await expect(transcribe(Buffer.alloc(2000), "audio/wav")).rejects.toThrow(/Speech to Text/);
+  });
+});
+
+describe("the key terms Scribe is biased to", () => {
+  it("stay within what each takes: under 100 for a recording (or it bills 20 s), 50 for the stream", () => {
+    expect(KEYTERMS.length).toBeLessThan(100);
+    expect(LIVE_KEYTERMS.length).toBeLessThanOrEqual(50);
+    for (const t of [...KEYTERMS, ...LIVE_KEYTERMS]) {
+      expect(t.length).toBeLessThan(50);
+      expect(t.split(/\s+/).length).toBeLessThanOrEqual(5);
+      expect(t).not.toMatch(/[<>{}[\]\\]/);
+    }
   });
 });
