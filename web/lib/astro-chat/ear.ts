@@ -12,7 +12,7 @@ import { useSyncExternalStore } from "react";
 /** How often the levels are looked at (ms). */
 const FRAME_MS = 40;
 /** The least level counted as a voice (RMS), whatever the room. */
-const MIN_VOICE = 0.004;
+const MIN_VOICE = 0.0015;
 /** A voice is this far above the room's own level (×, about +10 dB). */
 const OVER_ROOM = 3.2;
 /** Over the echo the speakers explain: this far is surely the user (×, about +10 dB) … */

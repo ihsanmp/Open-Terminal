@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { hear, resetEar, userSpoke } from "./ear";
-import { dropFillers, stillGoing, whose } from "./voice";
+import { dropFillers, stillGoing } from "./voice";
 
 const frames = (level: number, n: number, from: number, played = 0) => {
   for (let i = 0; i < n; i++) hear(level, played, from + i * 40);
@@ -60,31 +60,6 @@ describe("the second ear", () => {
     expect(userSpoke(2000, t)).toBe(false);
     t = speech(0.6, 0.3, 15, t);
     expect(userSpoke(200, t)).toBe(true);
-  });
-});
-
-const said = "Wah, ada beberapa yang seru nih. Emas lagi jatuh lumayan dalam, sekitar 4.015, turun ~6% sebulan.";
-
-describe("whose voice the recognizer heard", () => {
-  it("while the answer is read out, goes by the ear when it can tell", () => {
-    // No voice on the echo-cancelled microphone: its echo, even words that don't match.
-    expect(whose("emas lagi jatoh lumayan dalem", said, true, false)).toBe("echo");
-    expect(whose("tunggu aku mau tanya", said, true, false)).toBe("echo");
-    // The user's voice there: a word of their own is enough.
-    expect(whose("bitcoin", said, true, true)).toBe("user");
-    expect(whose("emas lagi jatuh", said, true, true)).toBe("echo");
-    // Can't tell: the words alone.
-    expect(whose("emas lagi jatoh lumayan dalem", said, true, null)).toBe("echo");
-    expect(whose("aku mau tanya soal bitcoin", said, true, null)).toBe("user");
-  });
-
-  it("just after, hears the user answering straight away", () => {
-    expect(whose("iya lanjut", said, false, null)).toBe("user");
-    expect(whose("turun enam persen sebulan", said, false, null)).toBe("echo");
-    // Their own "seru nih", with the ear hearing them.
-    expect(whose("seru nih", said, false, true)).toBe("user");
-    // Its last words coming in late, misheard, with no voice on the ear: still its echo.
-    expect(whose("sekitar empat ribu lima belas turun enam person", said, false, false)).toBe("echo");
   });
 });
 

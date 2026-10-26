@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { closeEar, earHearsPlayback, earOpen, earState, hearPlayback, openEar, sinceVoice, stopHearingPlayback, userSpoke } from "./ear";
+import { closeEar, earOpen, earState, hearPlayback, openEar, sinceVoice, stopHearingPlayback } from "./ear";
 
 // The Astro chat by voice, with the browser's own speech (no download, nothing installed): what's
 // said is written by its speech recognition (Edge: Microsoft's, Chrome: Google's; online, the
@@ -190,7 +190,10 @@ let wasSpeaking = false;
 const changed = () => {
   // Just stopped reading: what the microphone hears in the next moment may still be its voice.
   // (The recognizer is online, so its last words can come in a while after.)
-  if (wasSpeaking && speakingId === null) spokeUntil = Date.now() + 3000;
+  if (wasSpeaking && speakingId === null) {
+    endedAt = Date.now();
+    spokeUntil = endedAt + 3000;
+  }
   wasSpeaking = speakingId !== null;
   listeners.forEach((l) => l());
 };
@@ -211,6 +214,8 @@ let reading = 0;
  */
 let hearing = "";
 let spokeUntil = 0;
+/** When it last stopped reading. */
+let endedAt = 0;
 const nowSaying = (parts: string[], i: number) => {
   hearing = parts.slice(Math.max(0, i - 1), i + 1).join(" ");
 };
@@ -369,10 +374,26 @@ export function isEcho(heard: string, reading: string): boolean {
 }
 
 /**
- * Said over an answer, these stop it even alone (not "udah", "bentar": heard back, the answer's
- * "sudah", "sebentar" come out like that).
+ * Said over an answer, these stop it: while it reads, nothing else does (the microphone hears it as
+ * loud as the user, garbled, so no other words can be told from its echo). Not "bentar", "udah":
+ * heard back, the answer's own "sebentar", "sudah" come out like that.
  */
-const HOLD = new Set("stop tunggu sebentar berhenti diam cukup halo".split(" "));
+const STOP = new Set("stop setop tunggu berhenti diam cukup sebentar halo hei hey wait".split(" "));
+
+/** Where in what's heard a word that means stop is, one the answer isn't saying itself (-1: none). */
+export function stopWordAt(heard: string, reading: string): number {
+  const out = words(reading);
+  return heard
+    .trim()
+    .split(/\s+/)
+    .findIndex((t) => words(t).some((w) => STOP.has(w) && !out.some((o) => alike(w, o))));
+}
+
+/** What the user says after the word that stopped the answer (all of it, if there's none). */
+export function afterStopWord(heard: string, reading: string): string {
+  const at = stopWordAt(heard, reading);
+  return at < 0 ? heard.trim() : heard.trim().split(/\s+/).slice(at + 1).join(" ");
+}
 
 /** What the user said as they cut in: the answer's own words heard just before them taken off the front. */
 export function afterEcho(heard: string, reading: string): string {
@@ -383,22 +404,10 @@ export function afterEcho(heard: string, reading: string): string {
   return tokens.slice(i).join(" ");
 }
 
-/**
- * Whether what's heard while an answer is read out is the user cutting in. Judged on what follows
- * the answer's own words heard back: mostly words of their own, at least two (a word or two of the
- * answer misheard isn't enough), or one that means stop.
- */
-export function cutsIn(heard: string, reading: string): boolean {
-  const rest = afterEcho(heard, reading);
-  const own = ownWords(rest, reading);
-  if (own.some((w) => HOLD.has(w))) return true;
-  return own.length >= 2 && own.length / words(rest).length >= 0.6;
-}
-
 /** After the user's voice ends, this long a silence ends what they say (ms): a moment to finish the question. */
-const QUIET_TO_SEND = 1000;
+const QUIET_TO_SEND = 1500;
 /** Without the ear, silence is told only by the recognizer's words stopping, and they come in late: longer. */
-const QUIET_NO_EAR = 1800;
+const QUIET_NO_EAR = 2200;
 /** Ending on "ehmm" or a word that leads on ("dan", "terus", "yang"…): still going, this much longer. */
 const STILL_GOING = 2000;
 /** However the ear hears the room, sent once the recognizer has had nothing new for this long. */
@@ -428,40 +437,10 @@ export function dropFillers(text: string): string {
     .trim();
 }
 
-/** The recognizer's words come in this long after they were said (ms): the ear's word is looked at that far back. */
-const VOICE_LAG = 2000;
-/**
- * After the answer, and the moment after it (spokeUntil), its last words can still come in from the
- * recognizer for this long (ms): heard then, what's only its words is taken for its echo.
- */
-const LATE_MS = 5000;
-
-/**
- * Whether the ear's word on the user's voice counts: it's open, and hears what's read out as it's
- * played (the ElevenLabs voice, the page's own audio), so it knows its echo. The browser's own voice
- * (Gadis) can't be heard that way: then the words alone tell.
- */
-const earTrusted = () => earOpen() && earHearsPlayback();
-
-/**
- * Whom the recognizer heard while an answer is read out (`reading`), or just was: the answer's own
- * voice coming back from the speakers ("echo") or the user. `said` is what was coming out of them;
- * `voice` what the second ear says (ear.ts): the user's voice was there, wasn't, or it can't tell
- * (null), and then only the words tell.
- */
-export function whose(heard: string, said: string, reading: boolean, voice: boolean | null): "echo" | "user" {
-  // Nobody's voice but the answer's on the microphone: its echo, whatever the words.
-  if (voice === false) return "echo";
-  if (reading) {
-    // The user's voice was there: any word of their own is them cutting in.
-    if (voice === true) return ownWords(afterEcho(heard, said), said).length > 0 ? "user" : "echo";
-    return cutsIn(heard, said) ? "user" : "echo";
-  }
-  // Just finished: only its last words coming in late are ignored; the user answering straight away
-  // is heard as ever.
-  if (voice === true) return "user";
-  return isEcho(heard, said) ? "echo" : "user";
-}
+/** A result begun this soon after the answer ended is its last words (ms): the recognizer is a moment behind. */
+const ECHO_TAIL = 1200;
+/** For this long after it ended (ms), what's plainly its words is its echo. */
+const ECHO_GRACE = 3000;
 
 // ---------------------------------------------------------------- the conversation's trace
 
@@ -501,8 +480,14 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
   let lastHeard = 0;
   let pause: ReturnType<typeof setTimeout> | undefined;
   let restarts = 0;
-  // The user has cut in: what follows is theirs until they pause, not checked for echo.
+  // The user has cut in, or is talking: what follows is theirs until they pause, not checked for echo.
   let floor = false;
+  // The recognizer's results by their slot in its list: those begun as the answer's echo stay its
+  // echo however late their words settle; those the user's stay theirs; the one a stop word was
+  // heard in counts from after that word.
+  let echoSlots = new Set<number>();
+  let userSlots = new Set<number>();
+  let cutSlot = -1;
   tracing = true;
   note("on", { ear: earState() });
   const tracer = window.setInterval(() => {
@@ -543,44 +528,59 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
   const start = () => {
     if (!on) return;
     r = new R();
+    echoSlots = new Set();
+    userSlots = new Set();
+    cutSlot = -1;
     r.lang = LANG;
     r.interimResults = true;
     r.continuous = true;
     r.maxAlternatives = 1;
     r.onresult = (e) => {
+      const speaking = speakingId !== null;
+      const sinceEnd = Date.now() - endedAt;
       let interim = "";
       let finals = "";
+      const decided: string[] = [];
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const res = e.results[i];
-        if (res.isFinal) finals += res[0].transcript;
-        else interim += res[0].transcript;
+        let said = res[0].transcript;
+        if (echoSlots.has(i)) continue;
+        if (!floor && !userSlots.has(i)) {
+          if (speaking) {
+            // While it reads, all the microphone hears is taken for its echo (it's as loud there as
+            // the user, and comes out garbled), unless a word that means stop is heard.
+            const at = stopWordAt(said, hearing);
+            if (at < 0) {
+              echoSlots.add(i);
+              decided.push(`echo: ${said}`);
+              continue;
+            }
+            stopSpeaking();
+            cutSlot = i;
+            decided.push(`stop: ${said}`);
+          } else if (hearing && sinceEnd < ECHO_TAIL) {
+            // Begun just as it ended: its last words, the recognizer being a moment behind.
+            echoSlots.add(i);
+            decided.push(`tail: ${said}`);
+            continue;
+          } else if (hearing && sinceEnd < ECHO_GRACE && isEcho(said, hearing)) {
+            echoSlots.add(i);
+            decided.push(`late echo: ${said}`);
+            continue;
+          }
+          userSlots.add(i);
+          floor = true;
+        }
+        // What's said after the word that stopped it is the user's question.
+        if (i === cutSlot) said = afterStopWord(said, hearing);
+        if (res.isFinal) finals += `${said} `;
+        else interim += `${said} `;
       }
-      const heard = `${finals} ${interim}`.trim();
-      if (!heard) return;
-      const base = { text: heard, final: Boolean(finals), speaking: speakingId !== null, floor };
-      const late = !floor && hearing !== "" && !assistantSpeaking() && Date.now() < spokeUntil + LATE_MS;
-      if (!floor && hearing && (assistantSpeaking() || late)) {
-        const trusted = earTrusted();
-        const voice = trusted ? userSpoke(VOICE_LAG) : null;
-        // Late, only what's plainly its words (and the ear didn't hear the user) is its echo.
-        const who = late ? (voice !== true && isEcho(heard, hearing) ? "echo" : "user") : whose(heard, hearing, speakingId !== null, voice);
-        note("heard", { ...base, late, trusted, voice, who, hearing: hearing.slice(0, 200), ear: earState() });
-        if (who === "echo") return;
-        // The user talks over the answer: it stops, and listens.
-        if (speakingId !== null) stopSpeaking();
-        // What the user says, not the answer's echo heard just before it (unless that's all there
-        // is and the ear heard them: then it's what they said, the answer's words or not).
-        const f = afterEcho(finals, hearing);
-        const i = f ? interim : afterEcho(interim, hearing);
-        if (`${f}${i}`.trim()) {
-          finals = f;
-          interim = i;
-        } else if (voice !== true) return;
-        floor = true;
-      } else note("heard", { ...base, who: "user", ear: earState() });
+      note("heard", { text: `${finals}${interim}`.trim(), final: Boolean(finals), speaking, floor, decided, hearing: hearing.slice(0, 200), ear: earState() });
+      if (!`${finals}${interim}`.trim()) return;
       restarts = 0;
       lastHeard = Date.now();
-      if (finals) buffer = `${buffer} ${finals}`.trim();
+      if (finals.trim()) buffer = `${buffer} ${finals.trim()}`.trim();
       pending = interim.trim();
       h.onText(`${buffer} ${pending}`.trim());
       waitToSend();

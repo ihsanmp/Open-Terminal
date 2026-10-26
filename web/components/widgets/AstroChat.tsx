@@ -322,7 +322,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
               {(
                 [
                   ["🔊 Jawab dengan suara", "Setiap jawaban dibacakan (suara perempuan, layanan online Microsoft lewat Edge). Pertanyaan lewat 🎤 selalu dijawab dengan suara.", voiceReply, (on: boolean) => setVoiceReply(on), hasVoice.speak],
-                  ["🎤 Tanya dengan suara", "Tombol mikrofon di kotak pesan: mode percakapan. Mikrofon siaga terus (juga saat jawaban dibacakan); bicara kapan saja, terkirim saat Anda jeda, dan asisten berhenti bicara kalau Anda menyela. Klik 🎤 lagi untuk mematikan.", micOn, (on: boolean) => setPref("astroMic", on), hasVoice.listen],
+                  ["🎤 Tanya dengan suara", "Tombol mikrofon di kotak pesan: mode percakapan. Mikrofon siaga terus (juga saat jawaban dibacakan); bicara kapan saja, terkirim setelah Anda diam sejenak. Untuk menyela jawaban, bilang \"tunggu\" atau \"stop\". Klik 🎤 lagi untuk mematikan.", micOn, (on: boolean) => setPref("astroMic", on), hasVoice.listen],
                   ["👁 Lihat layar setiap bertanya", "Claude melihat tangkapan jendela aplikasi, teks yang tampil, dan keadaan chart di setiap pertanyaan. Tanpa ini: hanya saat pertanyaan menyebut layar/chart.", screenAlways, (on: boolean) => setPref("astroScreenAlways", on), true],
                 ] as const
               ).map(([label, help, on, set, available]) => (
@@ -457,7 +457,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
             }}
             placeholder={
               listening
-                ? "Mode percakapan: bicara kapan saja, juga untuk menyela jawaban (klik 🎤 untuk mematikan)"
+                ? "Mode percakapan: bicara kapan saja; untuk menyela jawaban, bilang \"tunggu\" atau \"stop\" (klik 🎤 untuk mematikan)"
                 : replying
                   ? "Lanjutkan topik ini… (Esc batal membalas)"
                   : "Tanya hal baru… (↩ Balas untuk melanjutkan)"
@@ -471,8 +471,8 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
               onClick={mic}
               title={
                 listening
-                  ? "Mode percakapan menyala: mikrofon siaga terus, asisten berhenti bicara kalau Anda menyela. Klik untuk mematikan."
-                  : "Mode percakapan (Bahasa Indonesia): mikrofon siaga terus, terkirim saat Anda jeda, dijawab dengan suara, dan bisa menyela jawaban. Klik untuk menyalakan."
+                  ? "Mode percakapan menyala: mikrofon siaga terus; bilang \"tunggu\" atau \"stop\" untuk menyela jawaban. Klik untuk mematikan."
+                  : "Mode percakapan (Bahasa Indonesia): mikrofon siaga terus, terkirim saat Anda jeda, dijawab dengan suara, dan bisa menyela dengan \"tunggu\" atau \"stop\". Klik untuk menyalakan."
               }
               aria-pressed={listening}
             >
@@ -493,7 +493,8 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
  * lib/astro-chat/ear.ts) or the assistant's (being read out). Each lights while it is.
  */
 function Voices({ assistant }: { assistant: boolean }) {
-  const user = useUserTalking();
+  // While it reads, its echo is on the microphone too: the user's voice can't be told from it then.
+  const user = useUserTalking() && !assistant;
   const pill = (on: boolean, color: string) => `px-1.5 rounded-full border text-fs-9 leading-4 transition-colors ${on ? color : "border-[var(--border)] dim"}`;
   return (
     <div className="shrink-0 flex flex-col gap-0.5 justify-center" aria-live="polite">

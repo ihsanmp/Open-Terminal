@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { afterEcho, cutsIn, isEcho } from "./voice";
+import { afterEcho, afterStopWord, isEcho, stopWordAt } from "./voice";
 
 const reading = "Tarik napas dulu ya, ngerti kok, rugi dua puluh persen itu bikin kepikiran. Yang pertama, jangan ambil keputusan apa pun dalam keadaan panik.";
 const market = "Wah, ada beberapa yang seru nih. Emas lagi jatuh lumayan dalam, sekitar 4.015, turun ~6% sebulan, kayaknya bukan dari dolar.";
@@ -27,19 +27,23 @@ describe("the assistant's own voice heard back", () => {
   });
 });
 
-describe("cutting in while an answer is read out", () => {
-  it("isn't the answer's echo, with a word or two of it misheard", () => {
-    expect(cutsIn("emas lagi jatuh", market)).toBe(false);
-    expect(cutsIn("emas lagi jatuh lumayan dalem", market)).toBe(false);
-    expect(cutsIn("ada beberapa yang seru nih emas lagi jatoh lumayan dalem sekitar", market)).toBe(false);
-    // One word of the user's own isn't enough to tell yet.
-    expect(cutsIn("aku", market)).toBe(false);
+describe("stopping the answer while it's read out", () => {
+  it("takes only a word that means stop, never its garbled echo", () => {
+    // From a real trace: "Dari layar kamu, memang kelihatan…" heard back.
+    const reading = "Dari layar kamu, memang kelihatan jual agresifnya sedikit lebih banyak.";
+    expect(stopWordAt("milenial lahir kamu memang kelihat", reading)).toBe(-1);
+    expect(stopWordAt("aku mau tanya soal bitcoin", market)).toBe(-1);
+    expect(stopWordAt("tunggu", market)).toBe(0);
+    expect(stopWordAt("lumayan dalam Stop, aku mau tanya", market)).toBe(2);
   });
 
-  it("is the user's own words, even after the answer's echo in the same breath", () => {
-    expect(cutsIn("tunggu", market)).toBe(true);
-    expect(cutsIn("aku mau tanya soal bitcoin", market)).toBe(true);
-    expect(cutsIn("turun sebulan kayaknya bukan aku mau tanya soal bitcoin", market)).toBe(true);
-    expect(afterEcho("turun sebulan kayaknya bukan aku mau tanya soal bitcoin", market)).toBe("aku mau tanya soal bitcoin");
+  it("not one the answer is saying itself", () => {
+    expect(stopWordAt("tunggu dulu sampai tutup", "Mending tunggu dulu sampai candle harian tutup.")).toBe(-1);
+  });
+
+  it("keeps what the user says after it", () => {
+    expect(afterStopWord("lumayan dalam stop aku mau tanya soal bitcoin", market)).toBe("aku mau tanya soal bitcoin");
+    expect(afterStopWord("tunggu", market)).toBe("");
+    expect(afterEcho("turun sebulan kayaknya bukan aku mau tanya", market)).toBe("aku mau tanya");
   });
 });
