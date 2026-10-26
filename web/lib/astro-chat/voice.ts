@@ -164,11 +164,19 @@ export const assistantSpeaking = () => speakingId !== null || Date.now() < spoke
 export function speak(text: string, id: string | null = null, mood: Mood = "santai"): void {
   stopAudio();
   spoken = toSpeech(text);
-  if (elevenOn()) {
-    speakEleven(text, id, mood);
-    return;
-  }
-  speakBrowser(text, id, mood);
+  const decide = () => (elevenOn() ? speakEleven(text, id, mood) : speakBrowser(text, id, mood));
+  if (eleven !== null) return decide();
+  // Whether ElevenLabs is set up isn't known yet (the chat opened before the app's server was up,
+  // or it couldn't be asked): asked now, rather than reading in Gadis without a word.
+  const run = ++reading;
+  void refreshEleven().then((state) => {
+    if (run !== reading) return;
+    if (!state) {
+      elevenIssue = "Status suara ElevenLabs belum bisa dicek (server aplikasi belum siap?). Dibacakan dengan suara cadangan (Gadis).";
+      changed();
+    }
+    decide();
+  });
 }
 
 /** The browser's own voice (Edge: Gadis): the one used without ElevenLabs, and when it fails. */
