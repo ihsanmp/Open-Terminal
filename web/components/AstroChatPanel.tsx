@@ -22,11 +22,5 @@ export default function AstroChatPanel() {
   // The same query (and cache) as the Live TV's and the calendar's.
   const forecast = useQuery({ queryKey: ["quant-forecast"], queryFn: () => apiGet<QuantForecast>("/api/quant/forecast"), staleTime: 300_000, retry: 1 });
   const history = useChatHistory();
-  const [, , clear] = history;
-  useEffect(() => {
-    const onClear = () => clear();
-    window.addEventListener("astro-chat-clear", onClear);
-    return () => window.removeEventListener("astro-chat-clear", onClear);
-  });
   return <AstroChat events={events} forecast={forecast.data} history={history} />;
 }

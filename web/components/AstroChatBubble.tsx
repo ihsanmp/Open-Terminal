@@ -204,7 +204,6 @@ export default function AstroChatBubble() {
             </span>
             <span className="font-bold text-[#c9b8ff]">Asisten Astro</span>
             <span className="ml-auto" />
-            <ClearButton />
             <button className="dim hover:text-[var(--text)] px-1 text-[16px] leading-none" onPointerDown={(e) => e.stopPropagation()} onClick={() => setOpen(false)} title="Tutup (percakapan tetap tersimpan)" aria-label="Tutup">
               —
             </button>
@@ -245,20 +244,5 @@ export default function AstroChatBubble() {
         <Face />
       </button>
     </>
-  );
-}
-
-/** Starts a new conversation (the panel listens for it). */
-function ClearButton() {
-  return (
-    <button
-      className="dim hover:text-[var(--text)] px-1 text-fs-11"
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={() => window.dispatchEvent(new Event("astro-chat-clear"))}
-      title="Percakapan baru (hapus riwayat)"
-      aria-label="Percakapan baru"
-    >
-      ⟲ Baru
-    </button>
   );
 }
