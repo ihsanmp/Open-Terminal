@@ -140,7 +140,7 @@ let wasSpeaking = false;
 const changed = () => {
   // Just stopped reading: what the microphone hears in the next moment may still be its voice.
   // (The recognizer is online, so its last words can come in a while after.)
-  if (wasSpeaking && speakingId === null) spokeUntil = Date.now() + 2500;
+  if (wasSpeaking && speakingId === null) spokeUntil = Date.now() + 2000;
   wasSpeaking = speakingId !== null;
   listeners.forEach((l) => l());
 };
@@ -154,17 +154,23 @@ export const useSpeakingId = () => useSyncExternalStore(subscribe, () => speakin
 let reading = 0;
 
 /**
- * What's being read out, and when it last was: the microphone hears it back from the speakers, and
- * that mustn't count as the user talking (isEcho).
+ * What's coming out of the speakers about now, and when it last was: the microphone hears it back,
+ * and that mustn't count as the user talking (isEcho). Only the piece being read and the one before
+ * it (the recognizer is a moment behind), not the whole answer: a long answer has most everyday
+ * words in it, and the user's would pass for its echo.
  */
-let spoken = "";
+let hearing = "";
 let spokeUntil = 0;
+const nowSaying = (parts: string[], i: number) => {
+  hearing = parts.slice(Math.max(0, i - 1), i + 1).join(" ");
+};
 export const assistantSpeaking = () => speakingId !== null || Date.now() < spokeUntil;
 
 /** Reads a message out in its mood (stopping whatever was being read); `id` marks it as the one playing. */
 export function speak(text: string, id: string | null = null, mood: Mood = "santai"): void {
   stopAudio();
-  spoken = toSpeech(text);
+  // Nothing out of the speakers until its first piece plays: anything heard till then is the user.
+  hearing = "";
   const decide = () => (elevenOn() ? speakEleven(text, id, mood) : speakBrowser(text, id, mood));
   if (eleven !== null) return decide();
   // Whether ElevenLabs is set up isn't known yet (the chat opened before the app's server was up,
@@ -210,6 +216,7 @@ function speakBrowser(text: string, id: string | null, mood: Mood, keepRun = fal
     u.volume = tone.volume;
     u.onend = () => window.setTimeout(() => say(i + 1), MOODS[mood]?.pause ?? 140);
     u.onerror = done;
+    nowSaying(parts, i);
     synth.speak(u);
   };
   say(0);
@@ -373,14 +380,22 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
       }
       const heard = `${finals} ${interim}`.trim();
       if (!heard) return;
-      if (!floor && assistantSpeaking()) {
-        // The assistant's own voice heard back, or too little yet to tell it from the user: ignored.
-        if (!cutsIn(heard, spoken)) return;
-        // The user talks over the answer: it stops, and listens to what they say (not its echo before it).
+      if (!floor && hearing && assistantSpeaking()) {
+        if (speakingId !== null) {
+          // Still reading: its own voice heard back, or too little yet to tell it from the user, is ignored.
+          if (!cutsIn(heard, hearing)) return;
+          // The user talks over the answer: it stops, and listens.
+          stopSpeaking();
+        } else if (isEcho(heard, hearing)) {
+          // Just finished: only its last words coming in late are ignored; the user answering
+          // straight away is heard as ever.
+          return;
+        }
+        // What the user says, not the answer's echo heard just before it.
+        finals = afterEcho(finals, hearing);
+        if (!finals) interim = afterEcho(interim, hearing);
+        if (!`${finals}${interim}`.trim()) return;
         floor = true;
-        stopSpeaking();
-        finals = afterEcho(finals, spoken);
-        if (!finals) interim = afterEcho(interim, spoken);
       }
       restarts = 0;
       if (finals) buffer = `${buffer} ${finals}`.trim();
@@ -546,6 +561,7 @@ function speakEleven(text: string, id: string | null, mood: Mood): void {
     audio = a;
     a.onended = () => play(i + 1);
     a.onerror = () => play(i + 1);
+    nowSaying(parts, i);
     a.play().catch(() => play(i + 1));
   };
   void play(0);
