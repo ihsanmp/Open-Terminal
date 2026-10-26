@@ -13,6 +13,7 @@ import {
   LineStyle,
   LineType,
   PriceScaleMode,
+  type AutoscaleInfo,
   type IChartApi,
   type ISeriesApi,
   type LogicalRange,
@@ -85,6 +86,8 @@ const AXIS_FONT_SIZE = fontPx(10);
  *  years of daily bars, or 140 days of 1-minute ones). */
 const FUTURE_BARS = 500;
 const MAX_FUTURE_BARS = 200_000;
+/** Scrolled right, the chart stops with this many of its last bars still on screen. */
+const KEEP_BARS = 5;
 
 type PreparedPlot = { values: number[]; colors?: Color[] };
 
@@ -755,6 +758,16 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     axis.push(...futureTimes(candleTimes, Math.max(0, wantFuture - (axis.length - candles.length)), axis[axis.length - 1]));
     let mainData: Array<{ time: UTCTimestamp }>;
     let main: ISeriesApi<SeriesType>;
+    // With none of its bars in view the price scale would have nothing to fit and vanish: it keeps
+    // the last range it had instead.
+    let lastRange: AutoscaleInfo | null = null;
+    const keepScale = {
+      autoscaleInfoProvider: (fit: () => AutoscaleInfo | null) => {
+        const r = fit();
+        if (r?.priceRange) lastRange = r;
+        return r?.priceRange ? r : lastRange;
+      },
+    };
     if (chartType === "candles" || chartType === "bars") {
       // An indicator's barcolor wins; otherwise "Color bars based on previous close" when it's on.
       const byPrevClose = prevCloseColors(candles, chartStyle);
@@ -767,14 +780,14 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       });
       main =
         chartType === "candles"
-          ? chart.addSeries(CandlestickSeries, { ...candleOptions(chartStyle), priceFormat: mainFormat })
-          : chart.addSeries(BarSeries, { upColor: chartStyle.borders.up, downColor: chartStyle.borders.down, priceFormat: mainFormat });
+          ? chart.addSeries(CandlestickSeries, { ...candleOptions(chartStyle), priceFormat: mainFormat, ...keepScale })
+          : chart.addSeries(BarSeries, { upColor: chartStyle.borders.up, downColor: chartStyle.borders.down, priceFormat: mainFormat, ...keepScale });
       mainData = data;
     } else {
       main =
         chartType === "line"
-          ? chart.addSeries(LineSeries, { color: "#ff9900", lineWidth: 1, priceFormat: mainFormat, crosshairMarkerVisible: false })
-          : chart.addSeries(AreaSeries, { lineColor: "#ff9900", topColor: "rgba(255,153,0,0.25)", bottomColor: "rgba(255,153,0,0)", priceFormat: mainFormat, crosshairMarkerVisible: false });
+          ? chart.addSeries(LineSeries, { color: "#ff9900", lineWidth: 1, priceFormat: mainFormat, crosshairMarkerVisible: false, ...keepScale })
+          : chart.addSeries(AreaSeries, { lineColor: "#ff9900", topColor: "rgba(255,153,0,0.25)", bottomColor: "rgba(255,153,0,0)", priceFormat: mainFormat, crosshairMarkerVisible: false, ...keepScale });
       mainData = candles.map((c) => ({ time: c.time as UTCTimestamp, value: c.close }));
     }
     // The chart scrolls no further right than a screen past its last bar with a value, blank ones
@@ -1097,6 +1110,14 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
       });
     };
     const onRange = (r: LogicalRange | null) => {
+      // Never so far right that no bar is left on screen: with only the blank bars ahead in view the
+      // price scale has nothing to fit and the chart goes blank. It stops with the last few bars
+      // at the left edge, as TradingView's does; the space ahead is still there to the right.
+      const stop = Math.max(0, candles.length - KEEP_BARS);
+      if (r && r.from > stop) {
+        ts.setVisibleLogicalRange({ from: stop, to: stop + (r.to - r.from) });
+        return;
+      }
       setAwayFromLatest(Boolean(r && r.to < candles.length - 2));
       if (r) growAxis(r);
     };
