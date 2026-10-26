@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { hear, resetEar, userSpoke } from "./ear";
-import { whose } from "./voice";
+import { dropFillers, stillGoing, whose } from "./voice";
 
 const frames = (level: number, n: number, from: number, played = 0) => {
   for (let i = 0; i < n; i++) hear(level, played, from + i * 40);
@@ -83,5 +83,24 @@ describe("whose voice the recognizer heard", () => {
     expect(whose("turun enam persen sebulan", said, false, null)).toBe("echo");
     // Their own "seru nih", with the ear hearing them.
     expect(whose("seru nih", said, false, true)).toBe("user");
+    // Its last words coming in late, misheard, with no voice on the ear: still its echo.
+    expect(whose("sekitar empat ribu lima belas turun enam person", said, false, false)).toBe("echo");
+  });
+});
+
+describe("when the user has finished", () => {
+  it("waits on after 'ehmm' or a word that leads on", () => {
+    expect(stillGoing("harga emas sekarang berapa ehmm")).toBe(true);
+    expect(stillGoing("harga emas sekarang berapa, hmm…")).toBe(true);
+    expect(stillGoing("bandingkan emas dan")).toBe(true);
+    expect(stillGoing("kalau bitcoin turun terus")).toBe(true);
+    expect(stillGoing("harga emas sekarang berapa")).toBe(false);
+    expect(stillGoing("")).toBe(false);
+  });
+
+  it("sends the question without the fillers", () => {
+    expect(dropFillers("ehmm harga emas ehm sekarang berapa")).toBe("harga emas sekarang berapa");
+    expect(dropFillers("Emm, gimana kalau bitcoin, hmm")).toBe("gimana kalau bitcoin");
+    expect(dropFillers("emas naik")).toBe("emas naik");
   });
 });

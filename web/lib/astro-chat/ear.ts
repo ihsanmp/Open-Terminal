@@ -36,6 +36,7 @@ let micAnalyser: AnalyserNode | null = null;
 let playback: { node: MediaStreamAudioSourceNode; analyser: AnalyserNode; frame: Float32Array<ArrayBuffer> } | null = null;
 
 let room = 0.002;
+let lastMic = 0;
 /** The speakers' sound, held a moment for the way to the microphone and the room's ring. */
 let speakers = 0;
 /** How much of the speakers' sound comes back into the microphone (log of the ratio), learned while they play. */
@@ -59,6 +60,7 @@ const set = (on: boolean) => {
 
 /** One frame's levels, the microphone's and the player's, and from them whether the user is talking. */
 export function hear(mic: number, played: number, now: number): void {
+  lastMic = +mic.toFixed(4);
   speakers = Math.max(played, speakers * 0.8);
   const playing = speakers > PLAYING;
   const echo = playing ? Math.exp(coupling) * speakers : 0;
@@ -187,6 +189,19 @@ export function userSpoke(ms: number, now = Date.now()): boolean | null {
   if (now - lastUnsure < ms) return null;
   return false;
 }
+
+/** How long since the user's voice was last on the microphone, even only somewhat over the echo (ms). */
+export const sinceVoice = (now = Date.now()) => now - Math.max(lastVoice, lastUnsure);
+
+/** The ear's levels now, for the conversation's trace. */
+export const earState = () => ({
+  open: stream !== null,
+  playback: playback !== null,
+  mic: lastMic,
+  speakers: +speakers.toFixed(4),
+  share: +Math.exp(coupling).toFixed(3),
+  room: +room.toFixed(4),
+});
 
 /** Whether the user is talking right now, for the chat to show. */
 export const useUserTalking = () => useSyncExternalStore(subscribe, () => talking, () => false);

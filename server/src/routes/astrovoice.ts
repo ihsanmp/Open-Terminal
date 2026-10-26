@@ -1,5 +1,8 @@
 import { Router } from "express";
 import { apiKey, check, config, saveConfig, saveKey, speech, VOICE_ID_RE, VoiceError, type Mood } from "../astrochat/elevenlabs.js";
+import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { dataDir } from "../db.js";
 
 // The assistant's ElevenLabs voice (astrochat/elevenlabs.ts): whether it's set up, the key and voice
 // set from the ✦ Claude menu (the key is checked, kept on the server and never sent back), and an
@@ -34,6 +37,24 @@ astroVoiceRouter.post("/", async (req, res) => {
 astroVoiceRouter.delete("/key", (_req, res) => {
   saveKey(null);
   res.json({ configured: Boolean(apiKey()) });
+});
+
+// What conversation mode heard and decided (lib/astro-chat/voice.ts trace), kept on this machine
+// only (data/astro-chat/voice-log.jsonl, the last ~2 MB), to see why it took the assistant's own
+// voice for the user's, or sent before the user finished.
+const LOG = join(dataDir, "astro-chat", "voice-log.jsonl");
+const LOG_MAX = 2 * 1024 * 1024;
+astroVoiceRouter.post("/log", (req, res) => {
+  const entries = Array.isArray(req.body?.entries) ? req.body.entries.slice(0, 500) : [];
+  if (!entries.length) return res.json({ ok: true });
+  try {
+    mkdirSync(dirname(LOG), { recursive: true });
+    if (existsSync(LOG) && statSync(LOG).size > LOG_MAX) renameSync(LOG, `${LOG}.old`);
+    appendFileSync(LOG, entries.map((e: unknown) => JSON.stringify(e).slice(0, 4000)).join("\n") + "\n");
+  } catch {
+    // not kept
+  }
+  res.json({ ok: true });
 });
 
 astroVoiceRouter.post("/speech", async (req, res) => {
