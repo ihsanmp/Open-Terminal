@@ -60,7 +60,8 @@ const STORE = "ot-astro-chat";
 function readSaved(): Msg[] {
   try {
     const v = JSON.parse(window.localStorage.getItem(STORE) ?? "[]");
-    return Array.isArray(v) ? v : [];
+    // The welcome as it reads now, not as it was kept.
+    return Array.isArray(v) ? v.map((m: Msg) => (m.id === "welcome" ? WELCOME : m)) : [];
   } catch {
     return [];
   }
