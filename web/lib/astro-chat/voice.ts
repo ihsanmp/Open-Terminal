@@ -139,7 +139,8 @@ const listeners = new Set<() => void>();
 let wasSpeaking = false;
 const changed = () => {
   // Just stopped reading: what the microphone hears in the next moment may still be its voice.
-  if (wasSpeaking && speakingId === null) spokeUntil = Date.now() + 1500;
+  // (The recognizer is online, so its last words can come in a while after.)
+  if (wasSpeaking && speakingId === null) spokeUntil = Date.now() + 2500;
   wasSpeaking = speakingId !== null;
   listeners.forEach((l) => l());
 };
@@ -272,15 +273,58 @@ const words = (t: string) =>
     .filter((w) => w.length >= 2);
 
 /**
+ * Numbers as they're said: the answer writes "4.015", the recognizer hears "4015" or "empat ribu
+ * lima belas", so heard back they can't be matched; they count as the answer's.
+ */
+const NUMBERS = new Set(
+  "nol satu dua tiga empat lima enam tujuh delapan sembilan sepuluh sebelas belas puluh ratus seratus ribu seribu juta miliar triliun koma persen minus".split(" "),
+);
+const numberish = (w: string) => /^\d+$/.test(w) || NUMBERS.has(w);
+
+/** The same word, give or take how the recognizer spells it or a suffix ("kayaknya"/"kayanya", "turun"/"turunnya"). */
+const alike = (a: string, b: string) => a === b || (a.length >= 4 && b.length >= 4 && a.slice(0, 4) === b.slice(0, 4));
+
+/** The words heard that aren't in what's being read out. */
+export function ownWords(heard: string, reading: string): string[] {
+  const out = words(reading);
+  return words(heard).filter((w) => !numberish(w) && !out.some((o) => alike(w, o)));
+}
+
+/**
  * Whether what the microphone heard is the assistant's own voice coming back from the speakers:
  * most of its words are in what's being read out. The user's own words, even mid-answer, aren't.
  */
 export function isEcho(heard: string, reading: string): boolean {
   const said = words(heard);
   if (!said.length || !reading) return false;
-  const out = new Set(words(reading));
-  const shared = said.filter((w) => out.has(w)).length;
-  return shared / said.length >= 0.6;
+  return ownWords(heard, reading).length / said.length < 0.4;
+}
+
+/**
+ * Said over an answer, these stop it even alone (not "udah", "bentar": heard back, the answer's
+ * "sudah", "sebentar" come out like that).
+ */
+const HOLD = new Set("stop tunggu sebentar berhenti diam cukup halo".split(" "));
+
+/** What the user said as they cut in: the answer's own words heard just before them taken off the front. */
+export function afterEcho(heard: string, reading: string): string {
+  const out = words(reading);
+  const tokens = heard.trim().split(/\s+/);
+  let i = 0;
+  while (i < tokens.length && words(tokens[i]).every((w) => numberish(w) || out.some((o) => alike(w, o)))) i++;
+  return tokens.slice(i).join(" ");
+}
+
+/**
+ * Whether what's heard while an answer is read out is the user cutting in. Judged on what follows
+ * the answer's own words heard back: mostly words of their own, at least two (a word or two of the
+ * answer misheard isn't enough), or one that means stop.
+ */
+export function cutsIn(heard: string, reading: string): boolean {
+  const rest = afterEcho(heard, reading);
+  const own = ownWords(rest, reading);
+  if (own.some((w) => HOLD.has(w))) return true;
+  return own.length >= 2 && own.length / words(rest).length >= 0.6;
 }
 
 /** After the last word heard, this long a pause ends what the user says (ms). */
@@ -304,9 +348,12 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
   let buffer = "";
   let pause: ReturnType<typeof setTimeout> | undefined;
   let restarts = 0;
+  // The user has cut in: what follows is theirs until they pause, not checked for echo.
+  let floor = false;
   const commit = () => {
     const text = buffer.trim();
     buffer = "";
+    floor = false;
     if (text) h.onUtterance(text);
   };
   const start = () => {
@@ -325,12 +372,17 @@ export function converse(h: { onText: (text: string) => void; onUtterance: (text
         else interim += res[0].transcript;
       }
       const heard = `${finals} ${interim}`.trim();
-      // The assistant's own voice heard back: not the user.
-      if (assistantSpeaking() && isEcho(heard, spoken)) return;
       if (!heard) return;
+      if (!floor && assistantSpeaking()) {
+        // The assistant's own voice heard back, or too little yet to tell it from the user: ignored.
+        if (!cutsIn(heard, spoken)) return;
+        // The user talks over the answer: it stops, and listens to what they say (not its echo before it).
+        floor = true;
+        stopSpeaking();
+        finals = afterEcho(finals, spoken);
+        if (!finals) interim = afterEcho(interim, spoken);
+      }
       restarts = 0;
-      // The user talks over the answer: it stops, and listens.
-      if (speakingId !== null) stopSpeaking();
       if (finals) buffer = `${buffer} ${finals}`.trim();
       h.onText(`${buffer} ${interim}`.trim());
       clearTimeout(pause);
