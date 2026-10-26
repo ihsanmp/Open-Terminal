@@ -1,7 +1,9 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet, fmt } from "../../lib/api";
+import { Icon } from "../Icon";
 
 // The next inflation and GDP prints, nowcast against the consensus (server: providers/nowcast.ts):
 // the Cleveland Fed's inflation nowcast and the Atlanta Fed's GDPNow, each beside TradingView's
@@ -28,10 +30,10 @@ type Nowcast = { asOf: string | null; inflation: Row[]; gdp: Gdp | null; source:
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 const periodLabel = (p: string) => `${MONTHS[Number(p.slice(5, 7)) - 1]} ${p.slice(0, 4)}`;
 
-const BIAS: Record<Bias, { label: string; cls: string; markets: string }> = {
-  hawkish: { label: "🦅 HAWKISH", cls: "bg-[#ef5350] text-black", markets: "lebih panas dari perkiraan → USD & yield ↑, emas · saham · crypto ↓" },
-  dovish: { label: "🕊 DOVISH", cls: "bg-[#26a69a] text-black", markets: "lebih dingin dari perkiraan → USD & yield ↓, emas · saham · crypto ↑" },
-  neutral: { label: "⚖ NETRAL", cls: "border border-[#555] dim", markets: "sesuai perkiraan" },
+const BIAS: Record<Bias, { label: ReactNode; cls: string; markets: string }> = {
+  hawkish: { label: <><Icon name="hot" /> HAWKISH</>, cls: "bg-[#ef5350] text-black", markets: "lebih panas dari perkiraan → USD & yield ↑, emas · saham · crypto ↓" },
+  dovish: { label: <><Icon name="cool" /> DOVISH</>, cls: "bg-[#26a69a] text-black", markets: "lebih dingin dari perkiraan → USD & yield ↓, emas · saham · crypto ↑" },
+  neutral: { label: <><Icon name="neutral" /> NETRAL</>, cls: "border border-[#555] dim", markets: "sesuai perkiraan" },
 };
 
 function when(iso: string | null): string {

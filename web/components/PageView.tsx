@@ -5,6 +5,7 @@ import { useTerminal, WidgetIdContext, type WidgetInstance, type WidgetType } fr
 import { SYMBOL_AWARE, SymbolTag, TITLES, WidgetBody } from "./Workspace";
 import WatchlistPanel from "./chart/WatchlistPanel";
 import { usePortrait } from "../lib/use-portrait";
+import { Icon } from "./Icon";
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 640;
@@ -148,7 +149,7 @@ export default function PageView({ type }: { type: WidgetType }) {
             onClick={() => toggleLinked(page.id)}
             className={page.linked ? "text-[var(--amber)]" : "dim"}
           >
-            ⛓
+            <Icon name="link" />
           </button>
         )}
       </div>

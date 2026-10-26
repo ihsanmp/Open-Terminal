@@ -6,6 +6,7 @@ import { mentions, usePairContext } from "../../lib/pair";
 import { apiGet } from "../../lib/api";
 import { usePoll } from "../../lib/refresh";
 import { useWidgetSetting } from "../../store/terminal";
+import { Icon } from "../Icon";
 
 // Watcher Guru: its Telegram channel's breaking lines (t.me/WatcherGuru, every "JUST IN", by
 // default), or the site's articles (watcher.guru/news) by section or search with the chosen one to
@@ -252,7 +253,7 @@ export default function WatcherWidget() {
     <div className="flex flex-col h-full min-h-0 text-fs-11">
       <div className="flex flex-wrap gap-1 p-1 items-center border-b border-[var(--border)]">
         <button className={`term-btn ${mode === "telegram" ? "active" : ""}`} onClick={() => setMode("telegram")} title="Semua berita kilat kanal Telegram @WatcherGuru">
-          ✈ TELEGRAM
+          <Icon name="send" /> TELEGRAM
         </button>
         <button className={`term-btn ${mode === "articles" ? "active" : ""}`} onClick={() => setMode("articles")} title="Artikel lengkap di watcher.guru">
           ARTIKEL

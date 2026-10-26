@@ -14,6 +14,7 @@ import QuantPanel from "./QuantPanel";
 import { SentimentBar, TranscriptPanel, useFedTranscript } from "./FedTranscript";
 import { FedWatchCard, FedWatchStrip } from "./FedWatchCard";
 import { youtubeId } from "../../lib/youtube";
+import { Icon } from "../Icon";
 
 // Live business-news channels as HLS straight from each broadcaster's own CDN (no YouTube, so
 // no embed or consent walls). Each was checked live — the playlist advancing and its segment
@@ -158,7 +159,7 @@ function NextReleases({ now, limit = 8 }: { now: number; limit?: number }) {
   }
   return (
     <div className="w-full max-w-[620px] border border-[var(--border)] rounded-sm text-left text-fs-11">
-      <div className="px-2 py-1 bg-[#141414] font-bold text-[var(--text)]">📊 Rilis data AS berdampak besar (CPI, PPI, NFP, …)</div>
+      <div className="px-2 py-1 bg-[#141414] font-bold text-[var(--text)]"><Icon name="chart" /> Rilis data AS berdampak besar (CPI, PPI, NFP, …)</div>
       {groups.map((g) => {
         const t = Date.parse(g.date);
         const out = g.rows.some((e) => e.actual !== null);
@@ -265,7 +266,7 @@ function FedPanel() {
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gap-2 p-4 text-center">
-            <div className="text-fs-15 text-[var(--text)]">🏛 Tidak ada siaran The Fed saat ini</div>
+            <div className="text-fs-15 text-[var(--text)]"><Icon name="bank" /> Tidak ada siaran The Fed saat ini</div>
             {isLoading && <div className="dim">Memeriksa channel The Fed…</div>}
             {error && <div className="down">Gagal memeriksa: {(error as Error).message}</div>}
             {next && (
@@ -330,7 +331,7 @@ function FedPanel() {
             Prakiraan
           </button>
           <button className={side === "notify" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("notify")} title="Notifikasi Windows: siaran The Fed live, H-30, hasil rilis, reaksi 5 menit" aria-label="Notifikasi">
-            🔔
+            <Icon name="bell" />
           </button>
           {side === "schedule" && (
             <label className="ml-auto flex items-center gap-1 dim cursor-pointer">
@@ -430,7 +431,7 @@ export default function TvWidget() {
           onClick={() => setChannelId("fed")}
           title="Siaran The Fed (Board dan Fed regional) dan jadwalnya"
         >
-          🏛 THE FED {fedLiveNow && <span className="down font-bold">● LIVE</span>}
+          <Icon name="bank" /> THE FED {fedLiveNow && <span className="down font-bold">● LIVE</span>}
         </button>
         {CHANNELS.map((c) => (
           <button key={c.id} className={`term-btn ${channelId === c.id ? "active" : ""}`} onClick={() => setChannelId(c.id)}>

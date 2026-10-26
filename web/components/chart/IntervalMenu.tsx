@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { INTERVAL_GROUPS, INTERVAL_NAME, type ChartInterval } from "../../lib/chart-intervals";
+import { Icon } from "../Icon";
 
 type Props = {
   interval: ChartInterval;
@@ -75,7 +76,7 @@ export function IntervalMenu({ interval, favorites, onSelect, onToggleFavorite }
                           onToggleFavorite(i);
                         }}
                       >
-                        {starred ? "★" : "☆"}
+                        <Icon name="star" filled={starred} />
                       </button>
                     </div>
                   );

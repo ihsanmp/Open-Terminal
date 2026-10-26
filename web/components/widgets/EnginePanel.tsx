@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet, fmt } from "../../lib/api";
+import { Icon } from "../Icon";
 
 // The macro engine (server: providers/macroengine.ts): our own P10/P50/P90 for the next CPI, core
 // CPI, PPI and payrolls, by quantile gradient boosting on point-in-time data, with the latest Fed
@@ -49,9 +50,9 @@ const signed = (v: number, unit: Unit) => `${v > 0 ? "+" : ""}${unit === "K" ? M
 const miss = (v: number, unit: Unit) => (unit === "K" ? `${Math.round(v)}K` : fmt(v, unit === "pt" ? 2 : 3));
 
 const BIAS = {
-  hawkish: { label: "🦅 HAWKISH", cls: "bg-[#ef5350] text-black", reading: "lebih panas dari konsensus → USD & yield ↑, emas · saham · crypto ↓" },
-  dovish: { label: "🕊 DOVISH", cls: "bg-[#26a69a] text-black", reading: "lebih dingin dari konsensus → USD & yield ↓, emas · saham · crypto ↑" },
-  neutral: { label: "⚖ NETRAL", cls: "border border-[#555] dim", reading: "tidak jelas berbeda dari konsensus" },
+  hawkish: { label: <><Icon name="hot" /> HAWKISH</>, cls: "bg-[#ef5350] text-black", reading: "lebih panas dari konsensus → USD & yield ↑, emas · saham · crypto ↓" },
+  dovish: { label: <><Icon name="cool" /> DOVISH</>, cls: "bg-[#26a69a] text-black", reading: "lebih dingin dari konsensus → USD & yield ↓, emas · saham · crypto ↑" },
+  neutral: { label: <><Icon name="neutral" /> NETRAL</>, cls: "border border-[#555] dim", reading: "tidak jelas berbeda dari konsensus" },
 };
 
 function useNow(step = 1000) {
@@ -124,7 +125,9 @@ export default function EnginePanel() {
   return (
     <div className="flex flex-col gap-2 p-2 text-fs-11">
       <div className="flex items-baseline gap-2">
-        <span className="font-bold text-[var(--text)]">⚙ ENGINE KUANTIL (P10 / P50 / P90)</span>
+        <span className="font-bold text-[var(--text)]">
+          <Icon name="settings" /> ENGINE KUANTIL (P10 / P50 / P90)
+        </span>
         <span className="dim text-fs-10">model sendiri · data point-in-time · diperbarui {new Date(data.asOf).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
       </div>
       {[...data.rows].sort((a, b) => a.release.localeCompare(b.release)).map((r, k, all) => {

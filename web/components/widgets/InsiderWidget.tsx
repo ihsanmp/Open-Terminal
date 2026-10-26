@@ -8,6 +8,7 @@ import { BROAD_KEYWORDS, mentions, usePairContext } from "../../lib/pair";
 import { setPopupsOn, usePopupsOn } from "../../lib/whale-popups";
 import { usePoll } from "../../lib/refresh";
 import { useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
+import { Icon } from "../Icon";
 
 // The insiders: what the accounts that move markets post first (server: providers/socialfeed.ts),
 // each post with how its author's identity is known and whether a news outlet has reported the
@@ -91,7 +92,7 @@ function Confirm({ post }: { post: Post }) {
   if (post.onChain)
     return (
       <span className="up" title="Transfer ini tercatat di blockchain: buka tautannya untuk memeriksa transaksinya">
-        ⛓ data on-chain
+        <Icon name="link" /> data on-chain
       </span>
     );
   if (post.confirmedBy.length)
@@ -121,11 +122,11 @@ function Confirm({ post }: { post: Post }) {
   if (post.status === "article")
     return /omny\.fm|podcast/i.test(post.url) ? (
       <span className="dim" title="Episode podcast resmi pemilik akun (dari feed label/penerbitnya sendiri)">
-        🎙 episode podcast
+        <Icon name="podcast" /> episode podcast
       </span>
     ) : (
       <span className="dim" title="Artikel yang diterbitkan media itu sendiri di situs resminya: laporan media tersebut, bukan kabar berantai. Cek sumber yang dikutipnya.">
-        📰 artikel di situsnya
+        <Icon name="news" /> artikel di situsnya
       </span>
     );
   // Someone's own view or statement: no outlet is expected to report it, so it isn't flagged.
@@ -141,7 +142,7 @@ function Confirm({ post }: { post: Post }) {
     </span>
   ) : (
     <span className="amber" title="Kabar tentang suatu peristiwa yang tidak diberitakan media resmi mana pun. Belum tentu hoaks, tapi perlakukan sebagai kabar yang belum terbukti.">
-      ⚠ belum dikonfirmasi media resmi
+      <Icon name="alert" /> belum dikonfirmasi media resmi
     </span>
   );
 }
@@ -209,7 +210,11 @@ function PostCard({ post, onRemove }: { post: Post; onRemove?: () => void }) {
           <a href={post.url} target="_blank" rel="noreferrer" className="amber hover:underline">
             Buka di {PLATFORM[post.platform]} ↗
           </a>
-          {post.likes != null && <span className="dim">♥ {fmtBig(post.likes)}</span>}
+          {post.likes != null && (
+            <span className="dim">
+              <Icon name="heart" /> {fmtBig(post.likes)}
+            </span>
+          )}
           {onRemove && (
             <button className="dim hover:text-[var(--down)]" onClick={onRemove} title="Hapus postingan yang ditempel ini">
               hapus
@@ -376,14 +381,14 @@ function Posts() {
                 : `Membaca pair ${symbol}…`
             }
           >
-            🎯 Hanya {name} {data && keywords.length ? <span className="dim">({pairCount})</span> : null}
+            <Icon name="target" /> Hanya {name} {data && keywords.length ? <span className="dim">({pairCount})</span> : null}
           </button>
           <button
             className={`term-btn ${popups ? "active" : ""}`}
             onClick={() => setPopupsOn(!popups)}
             title={`Pop-up di bagian atas layar saat whale atau institusi membeli/menjual ${name}: arus ETF spot, pembelian perusahaan treasury, transaksi orang dalam (Form 4), whale on-chain, order besar di bursa. ${popups ? "Klik untuk mematikan." : "Klik untuk menyalakan."}`}
           >
-            {popups ? "🔔" : "🔕"} Pop-up whale
+            <Icon name={popups ? "bell" : "bellOff"} /> Pop-up whale
           </button>
           <label className="flex items-center gap-1 cursor-pointer" title="Hanya postingan yang terbukti: dikonfirmasi media resmi, dari sumber resminya sendiri, atau transfer on-chain">
             <input type="checkbox" checked={onlyConfirmed} onChange={(e) => setOnlyConfirmed(e.target.checked)} /> Hanya terkonfirmasi
@@ -428,7 +433,7 @@ function Posts() {
         <div className="p-2 dim text-fs-10 border-t border-[var(--border)]">
           Postingan langsung dari akunnya, bukan dari media berita (itu ada di tab News). ✓ dikonfirmasi = media resmi memberitakan hal yang sama sejak itu;
           ✓ sumber resmi = akun lembaga/perusahaan itu sendiri; pernyataan langsung = opini atau pernyataan pemilik akun, tidak dicocokkan dengan media;
-          ⚠ belum dikonfirmasi = kabar tentang suatu peristiwa yang belum diberitakan media resmi: belum tentu hoaks, tapi belum terbukti. Tidak ada
+          <Icon name="alert" /> belum dikonfirmasi = kabar tentang suatu peristiwa yang belum diberitakan media resmi: belum tentu hoaks, tapi belum terbukti. Tidak ada
           saringan yang bisa menjamin 100% bebas hoaks.
         </div>
       </div>
@@ -496,7 +501,7 @@ function KolList({ sources }: { sources: Source[] | null }) {
                 {a.handleCheck !== "ok" && a.handle && (
                   <span className="down" title="Handle ini belum dipastikan di daftar Anda: periksa profilnya sebelum mempercayai postingannya">
                     {" "}
-                    ⚠
+                    <Icon name="alert" />
                   </span>
                 )}
               </td>

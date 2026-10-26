@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ColorPicker } from "./ColorPicker";
 import { gannLabel, optionsOf, withAlpha } from "../../lib/drawings/geometry";
+import { Icon } from "../Icon";
 import {
   TOOL_BY_ID,
   TOOL_FEATURES,
@@ -610,7 +611,7 @@ export function DrawingSettings({ drawing, template, onApply, onSaveTemplate, on
             <span className="flex items-center gap-2 min-w-0">
               <span className="font-bold text-fs-14 text-white truncate">{d.name?.trim() || def.label}</span>
               <button className="dim hover:text-[var(--text)]" title="Rename" aria-label="Rename" onClick={() => setRenaming(true)}>
-                ✎
+                <Icon name="pencil" />
               </button>
             </span>
           )}

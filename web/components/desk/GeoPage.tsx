@@ -7,6 +7,7 @@ import { useWidgetSetting } from "../../store/terminal";
 import { usePairContext } from "../../lib/pair";
 import PairBanner from "./PairBanner";
 import { ago, Failed, Loading, Pct, Section, wib } from "./ui";
+import { Icon } from "../Icon";
 
 // Geopolitics: which geopolitical themes are loud in the news now against their own usual week,
 // whether the tone is escalation or easing, the safe-haven gauges (gold, oil, the dollar, yields,
@@ -101,7 +102,8 @@ export default function GeoPage() {
             </div>
           ))}
         </div>
-        {data.havenBid && <div className="mt-2 down font-bold">⚠ Pola safe haven hari ini: emas dan VIX naik sementara saham turun — pasar sedang mencari perlindungan.</div>}
+        {data.havenBid && <div className="mt-2 down font-bold">
+            <Icon name="alert" /> Pola safe haven hari ini: emas dan VIX naik sementara saham turun — pasar sedang mencari perlindungan.</div>}
       </Section>
 
       <Section title="Tema geopolitik" note={`dari ${data.headlines.toLocaleString("id-ID")} judul berita (arsip ${Math.min(35, data.archiveDays)} hari)`} className="xl:col-span-5">

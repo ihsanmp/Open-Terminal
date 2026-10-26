@@ -22,6 +22,7 @@ import MacroWidget from "./widgets/MacroWidget";
 import InsiderWidget from "./widgets/InsiderWidget";
 import TvWidget from "./widgets/TvWidget";
 import ResearchWidget from "./widgets/ResearchWidget";
+import { Icon } from "./Icon";
 // Loaded when first shown: it carries 35 years of gold and bitcoin closes for its offline statistics.
 const AstroCalendarWidget = dynamic(() => import("./widgets/AstroCalendarWidget"), { ssr: false, loading: () => <div className="p-2 dim">Memuat kalender astrologi…</div> });
 
@@ -183,7 +184,7 @@ export default function Workspace() {
               onClick={() => toggleLinked(w.id)}
               className={w.linked ? "text-[var(--amber)]" : "dim"}
             >
-              ⛓
+              <Icon name="link" />
             </button>
           )}
           <button

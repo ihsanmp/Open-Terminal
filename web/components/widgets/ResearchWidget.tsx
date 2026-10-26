@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiGet, fmt, fmtBig, fmtPrice, pctClass } from "../../lib/api";
 import { discountedCashFlow } from "../../lib/dcf";
 import { useTerminal, useWidgetSetting, useWidgetSymbol, type WidgetInstance } from "../../store/terminal";
+import { Icon } from "../Icon";
 
 type N = number | null;
 type Check = { name: string; passed: boolean | null; detail: string };
@@ -174,7 +175,9 @@ function Overview({ r }: { r: Research }) {
         </div>
       )}
       {r.warnings.map((w) => (
-        <div key={w} className="amber text-fs-11 mt-1">⚠ {w}</div>
+        <div key={w} className="amber text-fs-11 mt-1">
+          <Icon name="alert" /> {w}
+        </div>
       ))}
     </div>
   );

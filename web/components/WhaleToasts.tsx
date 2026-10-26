@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiGet, fmt, fmtBig } from "../lib/api";
 import { useChartSymbol } from "../lib/pair";
 import { markPair, markSeen, pairKnown, seenAlerts, setPopupsOn, usePopupsOn } from "../lib/whale-popups";
+import { Icon, type IconName } from "./Icon";
 
 // Pop-ups at the top of the screen when a whale or an institution buys or sells the pair open on
 // the chart (server: providers/whalealerts.ts): a spot ETF's day of inflow or outflow, a treasury
@@ -38,18 +39,18 @@ const MAX_SHOWN = 4;
 const keyOf = (a: WhaleAlert) => `${a.asset}:${a.id}`;
 
 /** Who did it, as a pop-up names them. */
-function kindOf(a: WhaleAlert): { icon: string; label: string } {
+function kindOf(a: WhaleAlert): { icon: IconName; label: string } {
   const tag = (a.side === "sell" ? a.from : a.to).tag ?? a.from.tag ?? a.to.tag;
   if (a.category === "institution") {
-    if (tag === "etf") return { icon: "🏦", label: "ETF spot" };
-    if (tag === "treasury") return { icon: "🏢", label: "Perusahaan treasury" };
-    if (tag === "holder") return { icon: "🏛", label: "Pemegang besar (13G/13D)" };
-    if (tag === "cot") return { icon: "📊", label: "Posisi institusi (COT)" };
-    return { icon: "🏦", label: "Institusi" };
+    if (tag === "etf") return { icon: "bank", label: "ETF spot" };
+    if (tag === "treasury") return { icon: "building", label: "Perusahaan treasury" };
+    if (tag === "holder") return { icon: "bank", label: "Pemegang besar (13G/13D)" };
+    if (tag === "cot") return { icon: "chart", label: "Posisi institusi (COT)" };
+    return { icon: "bank", label: "Institusi" };
   }
-  if (a.category === "insider") return { icon: "👔", label: "Orang dalam (Form 4)" };
-  if (a.category === "exchange") return { icon: "🐋", label: "Transaksi besar di bursa" };
-  return { icon: "🐋", label: "Whale on-chain" };
+  if (a.category === "insider") return { icon: "insider", label: "Orang dalam (Form 4)" };
+  if (a.category === "exchange") return { icon: "whale", label: "Transaksi besar di bursa" };
+  return { icon: "whale", label: "Whale on-chain" };
 }
 
 /** The buyer or the seller by name, where the transaction gives one. */
@@ -104,7 +105,7 @@ function Toast({ a, onClose }: { a: WhaleAlert; onClose: () => void }) {
       className={`pointer-events-auto bg-[#141414] border border-[var(--border)] border-l-4 ${buy ? "border-l-[var(--up)]" : "border-l-[var(--down)]"} shadow-2xl px-3 py-2 text-fs-11`}
     >
       <div className="flex items-center gap-2">
-        <span>{kind.icon}</span>
+        <Icon name={kind.icon} />
         <span className="dim uppercase tracking-wider text-fs-9">{kind.label}</span>
         <span className="amber font-bold text-fs-10">{a.asset}</span>
         <span className={`px-1.5 rounded-[3px] text-fs-9 font-bold ${buy ? "bg-[#12301f] up" : "bg-[#3a1414] down"}`}>{buy ? "BELI" : "JUAL"}</span>
@@ -180,7 +181,7 @@ export default function WhaleToasts() {
             setShown([]);
           }}
         >
-          🔕 Matikan pop-up
+          <Icon name="bellOff" /> Matikan pop-up
         </button>
       </div>
     </div>

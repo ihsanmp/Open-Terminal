@@ -11,6 +11,7 @@ import RetrogradePanel from "./RetrogradePanel";
 import SunSignsPanel from "./SunSignsPanel";
 import { catalogueIfReady, getCatalogue } from "../../lib/astro-calendar/catalogue";
 import { forecastFor, horizonFor, pct, useQuantForecast, useQuantHistory, verdictOf, type AssetForecast, type HorizonForecast, type QuantForecast, type QuantHistory, type QuantHorizon } from "../../lib/quant";
+import { Glyph } from "../Icon";
 
 // The astrology calendar: the month's sky events, each with the quant forecast for GOLD, BTC and DXY
 // over its span (the server's forecaster, shared with the Live TV, which reads the sky among its
@@ -301,7 +302,9 @@ function EventDialog({ event, events, byKey, version, onClose }: { event: AstroE
         </div>
         <div className="rounded-xl border border-[#2a2a2a] border-l-[3px] border-l-[#7c6cf0] bg-[#141414] px-4 py-3 mb-3">
           <div className="flex items-center gap-3">
-            <span className="w-11 h-11 rounded-full bg-[#3b2a7a] border-2 border-white/70 flex items-center justify-center text-white text-fs-15 shrink-0">{event.glyph}</span>
+            <span className="w-11 h-11 rounded-full bg-[#3b2a7a] border-2 border-white/70 flex items-center justify-center text-white text-fs-15 shrink-0">
+              <Glyph glyph={event.glyph} />
+            </span>
             <div>
               <div className="text-fs-17 font-bold text-white">{event.title}</div>
               <div className="dim text-fs-11">
@@ -526,7 +529,9 @@ export default function AstroCalendarWidget() {
                     title={`${e.title} — klik untuk dampak`}
                     onClick={() => setSelected(e)}
                   >
-                    <span className="shrink-0">{e.glyph}</span>
+                    <span className="shrink-0">
+                      <Glyph glyph={e.glyph} />
+                    </span>
                     <span className="truncate flex-1">{e.title}</span>
                     {data && <Dots event={e} />}
                   </button>
@@ -544,7 +549,9 @@ export default function AstroCalendarWidget() {
         {upcoming.map((e) => (
           <button key={e.id} className="w-full flex items-center gap-2 px-2 py-1.5 border-b border-[var(--border)] hover:bg-[#1a1a1a] text-left" onClick={() => setSelected(e)}>
             <span className="w-14 dim shrink-0">{localDay(e.time).toLocaleDateString("id-ID", { day: "2-digit", month: "short" })}</span>
-            <span className="shrink-0">{e.glyph}</span>
+            <span className="shrink-0">
+                      <Glyph glyph={e.glyph} />
+                    </span>
             <span className="truncate flex-1">{e.title}</span>
             {data && <Dots event={e} />}
           </button>

@@ -9,6 +9,7 @@ import { CATEGORY_COLOR, NEWS_CATEGORIES } from "../../lib/news-categories";
 import { MARKET_LABEL, newsImpact, type Market, type NewsImpact } from "../../lib/news-impact";
 import MarketRecap from "./MarketRecap";
 import NewsRecap from "./NewsRecap";
+import { Icon } from "../Icon";
 
 type NewsItem = { title: string; link: string; publisher: string; publishedAt: string | null };
 
@@ -45,7 +46,13 @@ function ImpactMark({ impact }: { impact: NewsImpact }) {
   const high = impact.level === "high";
   return (
     <span className="inline-flex items-center gap-1 mr-1.5 align-middle" title={`${high ? "Dampak besar" : "Dampak sedang"}: ${impact.reasons.join(", ")}`}>
-      <span className={`text-fs-9 font-bold px-1 rounded-sm ${high ? "bg-[#ef5350] text-black" : "border border-[var(--amber)] amber"}`}>{high ? "⚡ DAMPAK BESAR" : "DAMPAK"}</span>
+      <span className={`text-fs-9 font-bold px-1 rounded-sm ${high ? "bg-[#ef5350] text-black" : "border border-[var(--amber)] amber"}`}>{high ? (
+          <>
+            <Icon name="zap" /> DAMPAK BESAR
+          </>
+        ) : (
+          "DAMPAK"
+        )}</span>
       {impact.markets.map((m) => (
         <span key={m} className={`text-fs-9 px-1 rounded-sm border ${high ? "border-[#ef5350] text-[#ef9a9a]" : "border-[#444] dim"}`}>
           {MARKET_LABEL[m]}
@@ -118,7 +125,7 @@ function LiveWire() {
           title="Hanya berita yang diperkirakan berdampak besar ke pasar crypto, saham atau forex"
           onClick={() => setImpactOnly(impactOnly === "high" ? "all" : "high")}
         >
-          ⚡ DAMPAK BESAR <span className="dim">{counts.high}</span>
+          <Icon name="zap" /> DAMPAK BESAR <span className="dim">{counts.high}</span>
         </button>
         <button
           className={`term-btn ${impactOnly === "notable" ? "active" : ""}`}

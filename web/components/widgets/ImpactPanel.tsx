@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet, fmt } from "../../lib/api";
 import { useWidgetSetting } from "../../store/terminal";
+import { Icon } from "../Icon";
+import type { ReactNode } from "react";
 
 // What a big US release does to crypto, forex, stocks, the dollar, oil, gold and yields (server:
 // providers/newsimpact.ts), as a reaction framework: scenarios before the release (how each asset
@@ -70,7 +72,9 @@ function H30Card({ h, now }: { h: H30; now: number }) {
   return (
     <div className={`border rounded-sm ${c.final || inWindow ? "border-[#f5a623]" : "border-[var(--border)]"}`}>
       <div className="px-2 py-1 bg-[#141414] flex items-center gap-2 flex-wrap">
-        <span className="font-bold text-[var(--text)]">🧭 KESIMPULAN H-30 · {c.driver.label}</span>
+        <span className="font-bold text-[var(--text)]">
+          <Icon name="compass" /> KESIMPULAN H-30 · {c.driver.label}
+        </span>
         {c.others.length > 0 && <span className="dim">(bersama {c.others.join(", ")})</span>}
         <span className={`text-fs-9 px-1 rounded-sm font-bold ${c.final ? "bg-[#f5a623] text-black" : "border border-[#555] dim"}`}>{c.final ? "FINAL H-30" : "pratinjau"}</span>
         <span className="ml-auto amber tabular-nums">
@@ -144,12 +148,12 @@ function H30Card({ h, now }: { h: H30; now: number }) {
   );
 }
 
-const SCEN: Record<string, { label: string; cls: string }> = {
-  "dingin kuat": { label: "🕊🕊 dingin kuat", cls: "up" },
-  dingin: { label: "🕊 dingin", cls: "up" },
-  sesuai: { label: "⚖ sesuai", cls: "dim" },
-  panas: { label: "🦅 panas", cls: "down" },
-  "panas kuat": { label: "🦅🦅 panas kuat", cls: "down" },
+const SCEN: Record<string, { label: ReactNode; cls: string }> = {
+  "dingin kuat": { label: <><Icon name="cool" /><Icon name="cool" /> dingin kuat</>, cls: "up" },
+  dingin: { label: <><Icon name="cool" /> dingin</>, cls: "up" },
+  sesuai: { label: <><Icon name="neutral" /> sesuai</>, cls: "dim" },
+  panas: { label: <><Icon name="hot" /> panas</>, cls: "down" },
+  "panas kuat": { label: <><Icon name="hot" /><Icon name="hot" /> panas kuat</>, cls: "down" },
 };
 const STATUS: Record<Live["status"], { cls: string; text: string }> = {
   CONFIRMED: { cls: "bg-[#ef5350] text-black", text: "Yield 10Y dan DXY bergerak bersama searah kejutan: reaksi terkonfirmasi." },
@@ -194,7 +198,9 @@ export default function ImpactPanel() {
   return (
     <div className="flex flex-col gap-2 p-2 text-fs-11">
       <div className="flex items-center gap-2">
-        <span className="font-bold text-[var(--text)]">💥 DAMPAK BERITA KE PASAR</span>
+        <span className="font-bold text-[var(--text)]">
+            <Icon name="impact" /> DAMPAK BERITA KE PASAR
+          </span>
         <span className="ml-auto flex gap-1">
           <button className={`term-btn ${span === "first" ? "active" : ""}`} onClick={() => setSpan("first")} title="0–30 menit setelah rilis">
             30 menit
@@ -305,7 +311,7 @@ export default function ImpactPanel() {
       })}
 
       <div className="border border-[var(--border)] rounded-sm">
-        <div className="px-2 py-1 bg-[#141414] font-bold text-[var(--text)]">📋 Kerangka reaksi (cara dari video)</div>
+        <div className="px-2 py-1 bg-[#141414] font-bold text-[var(--text)]"><Icon name="list" /> Kerangka reaksi (cara dari video)</div>
         <div className="px-2 py-1 text-fs-10 leading-relaxed">
           <div>
             <b>1 · Trigger</b>: rilis jauh dari konsensus (≥ 0,5 simpangan kejutan biasanya). Panas = hawkish, dingin = dovish.
@@ -348,7 +354,7 @@ export default function ImpactPanel() {
       </div>
 
       <div className="border border-[var(--border)] rounded-sm overflow-auto">
-        <div className="px-2 py-1 bg-[#141414] font-bold text-[var(--text)]">🎯 Akurasi arah (uji walk-forward)</div>
+        <div className="px-2 py-1 bg-[#141414] font-bold text-[var(--text)]"><Icon name="target" /> Akurasi arah (uji walk-forward)</div>
         <table className="data-table">
           <thead>
             <tr>

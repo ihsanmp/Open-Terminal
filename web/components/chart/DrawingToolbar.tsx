@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { CURSORS, ERASER, type CursorMode } from "../../lib/chart-cursor";
 import { TOOLS, TOOL_BY_ID, type ToolGroup, type ToolId } from "../../lib/drawings/tools";
+import { Icon } from "../Icon";
 
 // TradingView's drawing toolbar, down the left of the chart: the cursor (with its menu: Cross,
 // Dot, Arrow, Demonstration, Magic, the Eraser and the values tooltip), each group of tools (a
@@ -247,7 +248,7 @@ function Star({ on, onToggle, label }: { on: boolean; onToggle: () => void; labe
       style={{ fontSize: textPx(13) }}
       className={`shrink-0 px-1 ${on ? "text-[#f5c518]" : "dim opacity-0 group-hover/item:opacity-100 hover:text-[var(--text)]"}`}
     >
-      {on ? "★" : "☆"}
+      <Icon name="star" filled={on} />
     </span>
   );
 }

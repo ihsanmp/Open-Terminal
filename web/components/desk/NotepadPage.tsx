@@ -5,6 +5,7 @@ import { newId, useJournal } from "../../lib/journal";
 import type { Plan } from "../../lib/plan";
 import { useChartSymbol } from "../../lib/pair";
 import { wib } from "./ui";
+import { Icon } from "../Icon";
 
 // Notepad: the research journal — notes with a symbol, tags and a link to a trade plan (the
 // decision trail: why a trade was taken, what was learned), searched and filtered by tag, started
@@ -106,7 +107,7 @@ export default function NotepadPage() {
           {shown.map((n) => (
             <button key={n.id} onClick={() => setOpenId(n.id)} className={`w-full text-left px-2 py-1.5 border-b border-[#161616] ${n.id === openId ? "bg-[#1a1a1a]" : "hover:bg-[#121212]"}`}>
               <div className="flex gap-1.5 items-baseline">
-                {n.pinned && <span className="amber">★</span>}
+                {n.pinned && <Icon name="star" filled className="amber" />}
                 <b className="truncate flex-1">{n.title || "(tanpa judul)"}</b>
                 <span className="text-fs-9 dim">{n.symbol}</span>
               </div>
@@ -128,7 +129,7 @@ export default function NotepadPage() {
               <input className="flex-1 min-w-[200px] font-bold" placeholder="Judul" value={note.title} onChange={(e) => set({ title: e.target.value })} />
               <input className="w-[110px] uppercase" placeholder="Simbol" value={note.symbol} onChange={(e) => set({ symbol: e.target.value.toUpperCase() })} />
               <button className={`term-btn ${note.pinned ? "active" : ""}`} onClick={() => set({ pinned: !note.pinned })} title="Sematkan di atas">
-                ★
+                <Icon name="star" filled={note.pinned} />
               </button>
               <button
                 className="term-btn hover:!text-[var(--down)]"

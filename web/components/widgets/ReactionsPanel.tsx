@@ -1,9 +1,10 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet, fmt } from "../../lib/api";
 import { useWidgetSetting } from "../../store/terminal";
+import { Icon } from "../Icon";
 
 // How markets actually moved on each release and Fed broadcast (server: providers/reactions.ts):
 // gold, bitcoin, S&P futures, the dollar and the 2-year yield, ~30 minutes after the release and
@@ -42,7 +43,8 @@ function DeliveryTest({ d }: { d: Delivery }) {
   return (
     <div className="border border-[var(--border)] rounded-sm">
       <div className="px-2 py-1 bg-[#141414] text-[var(--text)] font-bold flex items-center gap-2">
-        🎙🙂 Uji suara &amp; wajah vs pasar
+        <Icon name="podcast" />
+            <Icon name="face" /> Uji suara &amp; wajah vs pasar
         <span className={`ml-auto text-fs-10 font-normal ${enough ? "up" : "amber"}`}>
           {enough ? `${d.n} siaran` : `mengumpulkan data: ${d.n}/${d.needed} siaran`}
         </span>
@@ -116,10 +118,10 @@ function DeliveryTest({ d }: { d: Delivery }) {
 const agrees = (side: Bias | null, hawk: number, v: number | null | undefined) =>
   !side || side === "neutral" || v === null || v === undefined || v === 0 ? null : Math.sign(v) === (side === "hawkish" ? hawk : -hawk);
 
-const SIDE: Record<Bias, { label: string; cls: string }> = {
-  hawkish: { label: "🦅", cls: "down" },
-  dovish: { label: "🕊", cls: "up" },
-  neutral: { label: "⚖", cls: "dim" },
+const SIDE: Record<Bias, { label: ReactNode; cls: string }> = {
+  hawkish: { label: <Icon name="hot" />, cls: "down" },
+  dovish: { label: <Icon name="cool" />, cls: "up" },
+  neutral: { label: <Icon name="neutral" />, cls: "dim" },
 };
 
 function Rate({ t }: { t: { n: number; agree: number } }) {
@@ -153,7 +155,7 @@ export default function ReactionsPanel() {
   return (
     <div className="flex flex-col gap-2 p-2 text-fs-11">
       <div className="flex items-center gap-2">
-        <span className="font-bold text-[var(--text)]">📈 UJI REAKSI PASAR</span>
+        <span className="font-bold text-[var(--text)]"><Icon name="trend" /> UJI REAKSI PASAR</span>
         <span className="ml-auto flex gap-1">
           <button className={`term-btn ${span === "m30" ? "active" : ""}`} onClick={() => setSpan("m30")} title="Dari saat rilis sampai ±30 menit sesudahnya">
             30 menit
@@ -207,7 +209,7 @@ export default function ReactionsPanel() {
       </div>
 
       <div className="border border-[var(--border)] rounded-sm">
-        <div className="px-2 py-1 bg-[#141414] text-[var(--text)] font-bold">🏛 Siaran The Fed vs pasar</div>
+        <div className="px-2 py-1 bg-[#141414] text-[var(--text)] font-bold"><Icon name="bank" /> Siaran The Fed vs pasar</div>
         {data.broadcasts.length === 0 ? (
           <div className="px-2 py-1 dim text-fs-10">Belum ada. Tiap siaran The Fed yang diikuti (dengan ≥3 frasa kebijakan) dicatat di sini: indeks sentimennya vs gerak pasar selama siaran.</div>
         ) : (

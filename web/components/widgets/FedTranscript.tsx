@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet, fmt } from "../../lib/api";
+import { Icon } from "../Icon";
 
 // A Fed broadcast's live transcript and the Fed Sentiment Index (server: providers/fedtranscript.ts,
 // fedsentiment.ts, fedmedia.ts), in three layers:
@@ -148,10 +149,10 @@ export function useFedTranscript(videoId: string | null, faces = true, fed = tru
   return state;
 }
 
-const STANCE: Record<Stance, { label: string; color: string; cls: string }> = {
-  hawkish: { label: "🦅 HAWKISH", color: "#ef5350", cls: "bg-[#ef5350] text-black" },
-  dovish: { label: "🕊 DOVISH", color: "#26a69a", cls: "bg-[#26a69a] text-black" },
-  neutral: { label: "⚖ NETRAL", color: "#9e9e9e", cls: "border border-[#555] dim" },
+const STANCE: Record<Stance, { label: ReactNode; color: string; cls: string }> = {
+  hawkish: { label: <><Icon name="hot" /> HAWKISH</>, color: "#ef5350", cls: "bg-[#ef5350] text-black" },
+  dovish: { label: <><Icon name="cool" /> DOVISH</>, color: "#26a69a", cls: "bg-[#26a69a] text-black" },
+  neutral: { label: <><Icon name="neutral" /> NETRAL</>, color: "#9e9e9e", cls: "border border-[#555] dim" },
 };
 
 const signed = (n: number) => `${n > 0 ? "+" : ""}${fmt(n, 2)}`;
@@ -233,7 +234,7 @@ function Delivery({ media, c }: { media: Media; c: Controls }) {
     <div className="shrink-0 border-t border-[#1c1c1c] bg-[#0b0b0b] px-2 py-1 flex items-center gap-x-3 gap-y-0.5 flex-wrap text-fs-10">
       <ModeSwitch c={c} />
       <span className="dim" title="Layer 2: suara pembicara utama dibanding dirinya sendiri sepanjang siaran">
-        🎙 SUARA
+        <Icon name="podcast" /> SUARA
       </span>
       {media.audio === "off" || media.audio === "error" ? (
         <span className="dim">{media.message ?? "tidak tersedia"}</span>
@@ -256,7 +257,7 @@ function Delivery({ media, c }: { media: Media; c: Controls }) {
         </>
       )}
       <span className="dim" title="Layer 3: ekspresi wajah pembicara utama, dikunci lewat gerak bibir saat suaranya terdengar">
-        🙂 WAJAH
+        <Icon name="face" /> WAJAH
       </span>
       {!faces ? (
         <span className="dim">dimatikan</span>
@@ -329,7 +330,9 @@ export function SentimentBar({ state, controls }: { state: FedTranscriptState; c
               −1<span className="hidden sm:inline"> dovish</span>
             </span>
             <span className="min-w-0 truncate" title={`${s.hawkish} frasa hawkish · ${s.dovish} dovish`}>
-              {s.hawkish}🦅 · {s.dovish}🕊{combined ? ` · teks ${signed(s.index)}` : ""}
+              {s.hawkish}
+            <Icon name="hot" /> · {s.dovish}
+            <Icon name="cool" />{combined ? ` · teks ${signed(s.index)}` : ""}
             </span>
             <span className="shrink-0">
               <span className="hidden sm:inline">hawkish </span>+1
@@ -452,7 +455,7 @@ function EvidenceBadge({ e }: { e: EvidenceItem }) {
   const title = `Ada pemberitaan:\n${e.sources.map((x) => `${x.publisher}: ${x.title}`).join("\n")}\n\n“${e.text}”`;
   return (
     <a href={e.sources[0]?.link} target="_blank" rel="noreferrer" className="text-fs-9 px-1 mx-0.5 rounded-sm border not-italic whitespace-nowrap hover:underline" style={{ borderColor: "#5c9ded", color: "#5c9ded" }} title={title}>
-      📰 {e.sources[0]?.publisher}
+      <Icon name="news" /> {e.sources[0]?.publisher}
       {e.sources.length > 1 && ` +${e.sources.length - 1}`}
     </a>
   );
@@ -478,7 +481,7 @@ function EvidenceList({ evidence }: { evidence: { checked: number; items: Eviden
               </div>
               {e.sources.map((x) => (
                 <div key={x.link + x.publisher}>
-                  📰{" "}
+                  <Icon name="news" />{" "}
                   <a href={x.link} target="_blank" rel="noreferrer" className="amber hover:underline">
                     {x.publisher}
                   </a>
@@ -602,7 +605,10 @@ export function TranscriptPanel({ state, live }: { state: FedTranscriptState; li
             <div key={`${b.lines[0].seq}-${b.lines[0].at}`} className={`py-1 border-l-2 pl-2 mb-0.5 ${off ? "opacity-60 italic" : ""}`} style={{ borderColor: off ? "#555" : score > 0 ? "#ef5350" : score < 0 ? "#26a69a" : "transparent" }}>
               <div className="dim text-fs-9 tabular-nums">
                 {clock(b.at)}
-                {b.speaker !== null && (main ? <span className="amber"> · 🎙 pembicara utama</span> : <span> · suara {String.fromCharCode(65 + b.speaker)}</span>)}
+                {b.speaker !== null && (main ? <span className="amber">
+              {" "}
+              · <Icon name="podcast" /> pembicara utama
+            </span> : <span> · suara {String.fromCharCode(65 + b.speaker)}</span>)}
                 {q && " · pertanyaan (tidak dihitung)"}
                 {other && " · suara lain (tidak dihitung)"}
                 {!q && score !== 0 && <span style={{ color: score > 0 ? "#ef5350" : "#26a69a" }}> · {score > 0 ? `+${score}` : score}</span>}

@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_PANEL, fitSize, resized, type Edges, type Size } from "../lib/astro-chat/panel-size";
+import { Icon } from "./Icon";
 
 // The Astro chat as a small floating bubble over every page: dragged anywhere (kept where it's
 // left), clicked open into a compact portrait panel beside it, on the side with room, so the data
@@ -198,8 +199,8 @@ export default function AstroChatBubble() {
             onPointerUp={up}
             title="Seret untuk memindah"
           >
-            <span className="text-[16px]" aria-hidden>
-              ✦
+            <span className="text-[16px] text-[#c9b8ff]" aria-hidden>
+              <Icon name="assistant" />
             </span>
             <span className="font-bold text-[#c9b8ff]">Asisten Astro</span>
             <span className="ml-auto" />

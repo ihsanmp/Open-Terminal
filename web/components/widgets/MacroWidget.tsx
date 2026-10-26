@@ -10,6 +10,7 @@ import { usePoll } from "../../lib/refresh";
 import { useWidgetSetting } from "../../store/terminal";
 import CalendarWidget from "./CalendarWidget";
 import { useFollowPair, usePairContext } from "../../lib/pair";
+import { Icon } from "../Icon";
 
 // The Macro page, after SoSoValue's: the economic calendar by day with each release's history
 // (its actual, forecast and previous, a line through two years of them and the table), the
@@ -314,7 +315,9 @@ function Flash() {
           return (
             <a key={n.id} href={n.link} target="_blank" rel="noreferrer" className="block px-3 py-2 border-b border-[#1c1c1c] hover:bg-[#161616]">
               <div className={`text-fs-12 leading-snug ${impact?.level === "high" ? "font-bold text-[var(--text)]" : "text-[var(--text)]"}`}>
-                {impact?.level === "high" && <span className="text-fs-9 font-bold px-1 rounded-sm bg-[#ef5350] text-black mr-1.5 align-middle">⚡</span>}
+                {impact?.level === "high" && <span className="text-fs-9 font-bold px-1 rounded-sm bg-[#ef5350] text-black mr-1.5 align-middle">
+                    <Icon name="zap" />
+                  </span>}
                 {n.title}
               </div>
               <div className="flex justify-between dim text-fs-10 mt-1">

@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { apiGet, fmtBig, fmtPrice } from "../../lib/api";
 import { usePoll } from "../../lib/refresh";
 import { useTerminal } from "../../store/terminal";
+import { Icon } from "../Icon";
 
 // New altcoins (Watchlist → Crypto · altcoin baru): the coins CoinMarketCap, OKX and Gate have
 // listed in the last weeks, newest first, each with its best TradingView pair — a click opens its
@@ -87,7 +88,7 @@ export default function NewCoinsList() {
         <input className="flex-1 min-w-[120px]" placeholder="cari koin…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       <div className="px-2 py-1 text-fs-9 amber border-b border-[#161616]">
-        ⚠ Koin yang baru listing sangat berisiko: likuiditas tipis, harga liar, dan banyak penipuan (rug pull). Cek kontrak, bursa, dan volumenya sebelum membeli.
+        <Icon name="alert" /> Koin yang baru listing sangat berisiko: likuiditas tipis, harga liar, dan banyak penipuan (rug pull). Cek kontrak, bursa, dan volumenya sebelum membeli.
       </div>
       <div className="flex-1 min-h-0 overflow-auto">
         {isLoading && <div className="p-2 dim">Mengumpulkan listing baru dari CoinMarketCap, OKX dan Gate…</div>}
@@ -114,7 +115,8 @@ export default function NewCoinsList() {
                   <td className="!text-left !whitespace-normal">
                     <b>{c.symbol}</b> <span className="dim">{c.name}</span>
                     {c.chain && <span className="dim text-fs-9"> · {c.chain}</span>}
-                    {c.sameName === false && <div className="text-fs-9 amber">⚠ nama di TradingView berbeda — bisa token lain dengan ticker sama</div>}
+                    {c.sameName === false && <div className="text-fs-9 amber">
+                        <Icon name="alert" /> nama di TradingView berbeda — bisa token lain dengan ticker sama</div>}
                   </td>
                   <td className="whitespace-nowrap">
                     {new Date(c.listedAt).toLocaleDateString("id-ID", { day: "numeric", month: "short", timeZone: "Asia/Jakarta" })}

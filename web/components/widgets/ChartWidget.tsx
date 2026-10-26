@@ -71,6 +71,7 @@ import { DrawingToolbar, FavoritesBar } from "../chart/DrawingToolbar";
 import { CursorEffects } from "../chart/CursorEffects";
 import { crosshairFor, cssCursor, type CursorMode } from "../../lib/chart-cursor";
 import { ColorPicker } from "../chart/ColorPicker";
+import { Icon } from "../Icon";
 
 
 const CHART_TYPES = ["candles", "bars", "line", "area"] as const;
@@ -1315,7 +1316,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           {it.inst.hidden ? "◌" : "◉"}
         </button>
         <button title="Settings" className="dim hover:text-[var(--amber)]" onClick={() => setEditing(it.inst.uid)}>
-          ⚙
+          <Icon name="settings" />
         </button>
         <button title="Remove" className="dim hover:text-[var(--down)]" onClick={() => remove(it.inst.uid)}>
           ✕
@@ -1446,7 +1447,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
           ƒx INDICATORS
         </button>
         <button className="term-btn" onClick={() => setSettingsOpen(true)} title="Chart settings">
-          ⚙
+          <Icon name="settings" />
         </button>
         <span className="w-2" />
         <button
@@ -1726,7 +1727,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
               onDash={(dash) => restyle(selected, { dash })}
             />
             <button className="px-1.5 h-6 border border-[var(--border)] dim hover:text-[var(--text)]" title="Settings (double-click the drawing)" onClick={() => setDrawingSettings(selected.id)}>
-              ⚙ Settings
+              <Icon name="settings" /> Settings
             </button>
             <button
               className={`px-1.5 h-6 border border-[var(--border)] ${selected.locked ? "amber" : "dim hover:text-[var(--text)]"}`}

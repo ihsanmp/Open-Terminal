@@ -9,6 +9,7 @@ import { apiGet, apiPost } from "../../lib/api";
 import { lookAtScreen, NO_PICTURE, readyScreen, wantsScreen } from "../../lib/astro-chat/screen";
 import { canListen, canSpeak, converse, refreshEleven, resume, setPref, setVoiceReply, speak, stopSpeaking, useEleven, useElevenIssue, usePref, usePausedId, useSpeakingId, useVoiceReply, type Mood } from "../../lib/astro-chat/voice";
 import { useUserTalking } from "../../lib/astro-chat/ear";
+import { Icon } from "../Icon";
 
 // The Astro Calendar's chat (offline: lib/astro-chat), in the floating bubble's panel
 // (AstroChatBubble). A reply to one of its messages carries on from that message's thread (its asset,
@@ -51,7 +52,7 @@ const newId = () => Math.random().toString(36).slice(2, 10);
 const WELCOME: Msg = {
   id: "welcome",
   role: "bot",
-  text: "Halo! Saya Asisten Astro. Tanyakan jadwal langit, pengaruhnya ke harga emas/BTC/DXY, data historis, price action, atau ajak saya berdiskusi.\n• **✦ Claude**: jawaban disusun Claude (akun Claude Anda) dari data yang dikumpulkan aplikasi dan riset Crypto-Analis.\n• **Offline**: langsung dari hitungan aplikasi, tanpa internet.\n**Balas** sebuah pesan saya untuk melanjutkan topiknya; pesan tanpa membalas dianggap topik baru.",
+  text: "Halo! Saya Asisten Astro. Tanyakan jadwal langit, pengaruhnya ke harga emas/BTC/DXY, data historis, price action, atau ajak saya berdiskusi.\n• **Claude**: jawaban disusun Claude (akun Claude Anda) dari data yang dikumpulkan aplikasi dan riset Crypto-Analis.\n• **Offline**: langsung dari hitungan aplikasi, tanpa internet.\n**Balas** sebuah pesan saya untuk melanjutkan topiknya; pesan tanpa membalas dianggap topik baru.",
   suggestions: ["Kapan Merkurius retrograde berikutnya?", "Bagaimana emas selama Merkurius retrograde?", "Saya rasa gerhana bikin bitcoin turun", "Menurutmu astrologi berpengaruh ke harga?", "Pola musiman emas", "Apa itu support dan resistance?"],
 };
 
@@ -301,12 +302,12 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
             aria-expanded={menuOpen}
             title={claude?.ok === false ? "Claude Code CLI tidak ditemukan di komputer ini" : "Jawaban disusun Claude (akun Claude Anda, lewat Claude Code), dengan data dan hitungan aplikasi. Klik untuk fitur online: suara dan layar."}
           >
-            ✦ Claude{claude?.ok === false ? " (tidak tersedia)" : ""}
+            <Icon name="assistant" /> Claude{claude?.ok === false ? " (tidak tersedia)" : ""}
             {online && (
-              <span className="ml-1">
-                {voiceReply && hasVoice.speak ? "🔊" : ""}
-                {micOn && hasVoice.listen ? "🎤" : ""}
-                {screenAlways ? "👁" : ""}
+              <span className="ml-1 inline-flex gap-0.5">
+                {voiceReply && hasVoice.speak && <Icon name="speaker" />}
+                {micOn && hasVoice.listen && <Icon name="mic" />}
+                {screenAlways && <Icon name="eye" />}
               </span>
             )}
             <span className="ml-1 dim">▾</span>
@@ -323,15 +324,17 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
               <div className="dim text-fs-9 uppercase tracking-wider px-1.5 pb-0.5">Fitur online</div>
               {(
                 [
-                  ["🔊 Jawab dengan suara", "Setiap jawaban dibacakan (suara perempuan, layanan online Microsoft lewat Edge). Pertanyaan lewat 🎤 selalu dijawab dengan suara.", voiceReply, (on: boolean) => setVoiceReply(on), hasVoice.speak],
-                  ["🎤 Tanya dengan suara", "Tombol mikrofon di kotak pesan: mode percakapan. Mikrofon siaga terus (juga saat jawaban dibacakan); bicara kapan saja, terkirim setelah Anda diam sejenak. Untuk menyela jawaban, bilang \"tunggu\" atau \"stop\". Klik 🎤 lagi untuk mematikan.", micOn, (on: boolean) => setPref("astroMic", on), hasVoice.listen],
-                  ["👁 Lihat layar setiap bertanya", "Claude melihat tangkapan jendela aplikasi, teks yang tampil, dan keadaan chart di setiap pertanyaan. Tanpa ini: hanya saat pertanyaan menyebut layar/chart.", screenAlways, (on: boolean) => setPref("astroScreenAlways", on), true],
+                  ["speaker", "Jawab dengan suara", "Setiap jawaban dibacakan (suara perempuan, layanan online Microsoft lewat Edge). Pertanyaan lewat mikrofon selalu dijawab dengan suara.", voiceReply, (on: boolean) => setVoiceReply(on), hasVoice.speak],
+                  ["mic", "Tanya dengan suara", "Tombol mikrofon di kotak pesan: mode percakapan. Mikrofon siaga terus (juga saat jawaban dibacakan); bicara kapan saja, terkirim setelah Anda diam sejenak. Untuk menyela jawaban, bilang \"tunggu\" atau \"stop\". Klik tombol mikrofon lagi untuk mematikan.", micOn, (on: boolean) => setPref("astroMic", on), hasVoice.listen],
+                  ["eye", "Lihat layar setiap bertanya", "Claude melihat tangkapan jendela aplikasi, teks yang tampil, dan keadaan chart di setiap pertanyaan. Tanpa ini: hanya saat pertanyaan menyebut layar/chart.", screenAlways, (on: boolean) => setPref("astroScreenAlways", on), true],
                 ] as const
-              ).map(([label, help, on, set, available]) => (
+              ).map(([icon, label, help, on, set, available]) => (
                 <label key={label} className={`flex items-start gap-2 px-1.5 py-1 rounded ${available ? "cursor-pointer hover:bg-[#262626]" : "opacity-40"}`} title={help}>
                   <input type="checkbox" className="mt-0.5" checked={available && on} disabled={!available} onChange={(e) => set(e.target.checked)} />
                   <span>
-                    <span className="text-[var(--text)]">{label}</span>
+                    <span className="text-[var(--text)]">
+                      <Icon name={icon} /> {label}
+                    </span>
                     <span className="block dim text-fs-9 leading-snug">{available ? help : "Tidak didukung browser ini (buka lewat Edge atau Chrome)."}</span>
                   </span>
                 </label>
@@ -363,11 +366,27 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
               <div className={`rounded-xl px-3 py-2 leading-relaxed text-fs-11 ${isUser ? "bg-[#3b2a14] text-[#f6ead6]" : "bg-[#1a1a1a] border border-[var(--border)] text-[#d8d8d8]"}`}>
                 <Rich text={m.text} />
               </div>
-              {isUser && m.screen && <div className="text-fs-9 dim mt-0.5">👁 dengan layar</div>}
+              {isUser && m.screen && (
+                <div className="text-fs-9 dim mt-0.5">
+                  <Icon name="eye" /> dengan layar
+                </div>
+              )}
               {!isUser && m.id !== "welcome" && (m.engine || m.note) && (
                 <div className="text-fs-9 dim mt-0.5">
-                  {m.engine === "claude" ? `✦ Claude ${modelName(m.model)}${m.ms ? ` · ${Math.round(m.ms / 1000)} dtk` : ""}` : "offline"}
-                  {m.screen === "picture" && <span title="Jawaban ini melihat tangkapan jendela aplikasi, teks yang tampil, dan keadaan chart"> · 👁 melihat layar</span>}
+                  {m.engine === "claude" ? (
+                    <>
+                      <Icon name="assistant" /> Claude {modelName(m.model)}
+                      {m.ms ? ` · ${Math.round(m.ms / 1000)} dtk` : ""}
+                    </>
+                  ) : (
+                    "offline"
+                  )}
+                  {m.screen === "picture" && (
+                    <span title="Jawaban ini melihat tangkapan jendela aplikasi, teks yang tampil, dan keadaan chart">
+                      {" "}
+                      · <Icon name="eye" /> melihat layar
+                    </span>
+                  )}
                   {m.note && <span className="text-[#e0a050]"> · {m.note}</span>}
                 </div>
               )}
@@ -380,7 +399,19 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
                       onClick={() => (speakingId === m.id ? stopSpeaking() : pausedId === m.id ? resume(m.id) : speak(m.text, m.id, m.tone))}
                       title={speakingId === m.id ? "Hentikan" : pausedId === m.id ? "Lanjutkan dari tempat berhenti" : "Dengarkan jawaban ini"}
                     >
-                      {speakingId === m.id ? "■ Berhenti" : pausedId === m.id ? "▶ Lanjut" : "🔊 Dengar"}
+                      {speakingId === m.id ? (
+                        <>
+                          <Icon name="stop" /> Berhenti
+                        </>
+                      ) : pausedId === m.id ? (
+                        <>
+                          <Icon name="play" /> Lanjut
+                        </>
+                      ) : (
+                        <>
+                          <Icon name="speaker" /> Dengar
+                        </>
+                      )}
                     </button>
                   )}
                   {m.id !== "welcome" && (
@@ -415,7 +446,17 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
         })}
         {busy && (
           <div className="self-start dim text-fs-10">
-            {looking ? "👁 Melihat layar…" : online ? "✦ Claude sedang menyusun jawaban… (biasanya 10–40 detik)" : "Menghitung…"}
+            {looking ? (
+              <>
+                <Icon name="eye" /> Melihat layar…
+              </>
+            ) : online ? (
+              <>
+                <Icon name="assistant" /> Claude sedang menyusun jawaban… (biasanya 10–40 detik)
+              </>
+            ) : (
+              "Menghitung…"
+            )}
           </div>
         )}
       </div>
@@ -457,7 +498,7 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
             }}
             placeholder={
               listening
-                ? "Mode percakapan: bicara kapan saja; untuk menyela jawaban, bilang \"tunggu\" atau \"stop\" (klik 🎤 untuk mematikan)"
+                ? "Mode percakapan: bicara kapan saja; untuk menyela jawaban, bilang \"tunggu\" atau \"stop\" (klik tombol mikrofon untuk mematikan)"
                 : replying
                   ? "Lanjutkan topik ini… (Esc batal membalas)"
                   : "Tanya hal baru… (↩ Balas untuk melanjutkan)"
@@ -476,7 +517,13 @@ export default function AstroChat({ events, forecast, history }: { events: Astro
               }
               aria-pressed={listening}
             >
-              {listening ? "■ 🎤" : "🎤"}
+              {listening ? (
+                <>
+                  <Icon name="stop" /> <Icon name="mic" />
+                </>
+              ) : (
+                <Icon name="mic" />
+              )}
             </button>
           )}
           <button className="term-btn active shrink-0" onClick={() => send(input, replyTo)} disabled={busy || !input.trim()}>
@@ -499,7 +546,7 @@ function Voices({ assistant }: { assistant: boolean }) {
   return (
     <div className="shrink-0 flex flex-col gap-0.5 justify-center" aria-live="polite">
       <span className={pill(user, "border-[var(--up)] text-[var(--up)]")} title="Suara Anda terdengar (mikrofon, suara asisten sudah dipisahkan)">
-        🗣 kamu
+        <Icon name="speech" /> kamu
       </span>
       <button
         type="button"
@@ -507,7 +554,7 @@ function Voices({ assistant }: { assistant: boolean }) {
         title={assistant ? "Asisten sedang bicara. Klik untuk menghentikannya (atau bilang \"tunggu\" / \"stop\")." : "Asisten diam"}
         onClick={() => assistant && stopSpeaking()}
       >
-        🔊 asisten
+        <Icon name="speaker" /> asisten
       </button>
     </div>
   );
@@ -548,7 +595,9 @@ function ElevenSettings() {
       <label className={`flex items-start gap-2 py-0.5 ${el?.configured ? "cursor-pointer" : "opacity-60"}`}>
         <input type="checkbox" className="mt-0.5" checked={Boolean(el?.configured) && on} disabled={!el?.configured} onChange={(e) => setPref("astroEleven", e.target.checked)} />
         <span>
-          <span className="text-[var(--text)]">🎙 Suara sendiri (ElevenLabs)</span>
+          <span className="text-[var(--text)]">
+            <Icon name="podcast" /> Suara sendiri (ElevenLabs)
+          </span>
           <span className="block dim text-fs-9 leading-snug">
             {el?.configured ? `Aktif · voice ${el.voiceId} · ${el.model}. Kalau gagal (kuota habis, offline), dibacakan Gadis.` : "Belum terpasang: tempel API key ElevenLabs di bawah."}
           </span>

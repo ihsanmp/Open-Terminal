@@ -864,7 +864,7 @@ function converseBrowser(h: {
       // The browser ends it on silence and after a while: again, unless it keeps failing at once.
       if (++restarts > 20) {
         stop();
-        h.onError("Mikrofon berhenti berulang kali; klik 🎤 untuk mencoba lagi.");
+        h.onError("Mikrofon berhenti berulang kali; klik tombol mikrofon untuk mencoba lagi.");
         return;
       }
       setTimeout(start, 250);
