@@ -229,7 +229,7 @@ export const GUIDE: GuideEntry[] = [
     title: "Live TV & Fed",
     where: "Market Intelligence → Live TV & Fed",
     names: ["live tv", "tv", "siaran", "the fed live", "siaran fed", "konferensi pers fed"],
-    what: "Kanal berita bisnis live, siaran The Fed saat ada (dengan transkrip dan penilaian nada hawkish/dovish), panel quant di sampingnya, rilis data AS berdampak besar, dan tab notifikasi Windows (siaran Fed live, pengingat ±3 jam sebelum rilis besar dengan skenario 30 menit pertama, H-30, hasil rilis, reaksi 5 menit).",
+    what: "Kanal berita bisnis live, siaran The Fed saat ada (dengan transkrip dan penilaian nada hawkish/dovish), panel quant di sampingnya, rilis data AS berdampak besar, dan tab notifikasi Windows (siaran Fed live, pengingat ±3 jam sebelum rilis besar dengan skenario 30 menit pertama (untuk keputusan The Fed: skenario hawkish kuat/dovish kuat hari itu), H-30, hasil rilis, reaksi 5 menit).",
     read: [
       "Saat siaran Fed, ikon api = hawkish (lebih ketat dari perkiraan), kepingan salju = dovish, timbangan = netral; hitungan keduanya menunjukkan arah nada sejauh ini.",
       "Nada hawkish cenderung menaikkan USD dan yield, menekan emas, saham, dan kripto; dovish sebaliknya.",
@@ -331,7 +331,7 @@ export const GUIDE: GuideEntry[] = [
       "Ikon matahari-bulan = gerhana matahari, bulan = gerhana bulan, lingkaran penuh = bulan baru, lingkaran kosong = purnama.",
       "Diuji, pola astrologi benar kira-kira sesering lempar koin; perlakukan sebagai konteks, bukan sinyal.",
       "Prakiraan arah GOLD/BTC/DXY tampil Netral selama belum ada model yang terbukti mengalahkan tebakan dasar di uji walk-forward (saat ini 0 dari 30 aset × horizon).",
-      "Tab Skenario rilis (dan tanda rilis di tanggalnya): untuk tiap rilis besar AS 7 hari ke depan, median gerak tiap aset, di 30 menit pertama setelah rilis atau sepanjang hari rilis (tombolnya bisa dipilih), setelah rilis-rilis sebelumnya dengan kejutan dingin kuat sampai panas kuat, rentang P10–P90 di tooltip, dan seberapa sering arahnya benar. Itu skenario, bukan ramalan: kejutannya baru diketahui saat rilis.",
+      "Tab Skenario rilis (dan tanda rilis di tanggalnya): untuk tiap rilis besar AS 7 hari ke depan, median gerak tiap aset, di 30 menit pertama setelah rilis atau sepanjang hari rilis (tombolnya bisa dipilih), setelah rilis-rilis sebelumnya dengan kejutan dingin kuat sampai panas kuat, rentang P10–P90 di tooltip, dan seberapa sering arahnya benar. Di tab yang sama ada kartu keputusan suku bunga The Fed (FOMC): jadwal rapat berikutnya, peluang FedWatch, dan gerak tiap aset setelah rapat-rapat sejak 2016 yang dibaca pasar dovish kuat, dovish, netral, hawkish atau hawkish kuat (dari gerak yield 2 tahun, karena keputusan suku bunganya hampir selalu sesuai konsensus), plus seberapa sering tiap aset ikut arah 2Y. Itu skenario, bukan ramalan: kejutannya baru diketahui saat rilis.",
     ],
   },
   {

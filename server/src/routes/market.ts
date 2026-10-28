@@ -41,6 +41,7 @@ import * as fedmedia from "../providers/fedmedia.js";
 import * as macroengine from "../providers/macroengine.js";
 import * as reactions from "../providers/reactions.js";
 import * as newsimpact from "../providers/newsimpact.js";
+import * as fomcscenarios from "../providers/fomcscenarios.js";
 import * as nowcast from "../providers/nowcast.js";
 import * as fundingrates from "../providers/fundingrates.js";
 import { asPairBars, asPairTrade, fxFutureOf } from "../providers/fxfutures.js";
@@ -725,6 +726,16 @@ marketRouter.get("/macro/impact", async (req, res) => {
         cached("macro:engine", 2 * 60_000, () => macroengine.engine(fedtranscript.latestFedSentiment())).then((engine) => newsimpact.impact(inputs, engine, now)),
       ),
     );
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// The Fed's decision as scenarios: past meetings sorted by how the market read them (the 2-year
+// yield after the statement), and what the other markets did then (providers/fomcscenarios.ts).
+marketRouter.get("/macro/fomc-scenarios", async (req, res) => {
+  try {
+    res.json(await cached("macro:fomc-scenarios", 30 * 60_000, () => fomcscenarios.fomcScenarios()));
   } catch (err) {
     fail(req, res, err);
   }

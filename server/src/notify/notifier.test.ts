@@ -110,7 +110,24 @@ describe("the reminder before a big release", () => {
     expect(m.lines[3]).toMatch(/arahnya benar Emas 71% · BTC 65%/);
   });
 
-  it("points to the calendar when there are no scenarios (the Fed's decision)", () => {
+  it("reads the Fed's decision as the market read it: hawkish or dovish, from the 2-year", () => {
+    const fomc: ReleaseScenarios = {
+      scenarios: [
+        { name: "dovish kuat", first: { xau: { p50: 1.14 }, btc: { p50: 2.07 }, es: { p50: 0.86 } } },
+        { name: "netral", first: {} },
+        { name: "hawkish kuat", first: { xau: { p50: -1.15 }, btc: { p50: -1.78 }, es: { p50: -0.96 } } },
+      ],
+      hit: { xau: 0.86, btc: 0.71, es: 0.72 },
+      fomc: { meetings: 86 },
+    };
+    expect(scenarioLines(fomc)).toEqual([
+      "Kalau dibaca hawkish kuat: Emas −1,15% · BTC −1,78% · S&P −0,96%",
+      "Kalau dibaca dovish kuat: Emas +1,14% · BTC +2,07% · S&P +0,86%",
+      "Gerak hari itu, median 86 rapat sejak 2016, dibaca dari yield 2Y; ikut arah Emas 86% · BTC 71% · S&P 72%",
+    ]);
+  });
+
+  it("points to the calendar when there are no scenarios", () => {
     const g = groupReleases([core(null)])[0];
     expect(earlyMessage(g, null).lines[1]).toMatch(/Skenario rilis/);
     expect(scenarioLines(null)).toEqual([]);

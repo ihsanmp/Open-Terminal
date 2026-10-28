@@ -71,11 +71,17 @@ export function sideOf(r: Release): -1 | 0 | 1 | null {
 }
 const SIDE_TEXT = { 1: "lebih panas/kuat dari perkiraan → hawkish", "-1": "lebih lemah/dingin dari perkiraan → dovish", 0: "sesuai konsensus" } as const;
 
-/** A release's scenarios as the notifications quote them (newsimpact's, for the first 30 minutes). */
+/**
+ * A release's scenarios as the notifications quote them: newsimpact's for a data release (the first
+ * 30 minutes), fomcscenarios' for the Fed's decision (the day: its 30-minute history is thin).
+ */
 export type ReleaseScenarios = {
+  /** `first` holds the quoted span's moves (the day's, for the Fed). */
   scenarios: Array<{ name: string; first: Partial<Record<string, { p50: number }>> }>;
-  /** How often the history's median had the first 30 minutes' direction, by market. */
+  /** How often the history's median had the first 30 minutes' direction, by market; for the Fed, how often it went the 2-year's usual way. */
   hit: Partial<Record<string, number>>;
+  /** Set for the Fed's decision: the meetings the scenarios come from. */
+  fomc?: { meetings: number };
 };
 
 /** The markets a reminder quotes, by the news impact's keys. */
@@ -99,10 +105,18 @@ export function scenarioLines(sc: ReleaseScenarios | null): string[] {
     const parts = SCENARIO_KEYS.filter(([k]) => s.first[k]).map(([k, label]) => `${label} ${fmt(s.first[k]!.p50)}`);
     return parts.length ? `${say}: ${parts.join(" · ")}` : null;
   };
-  const out = [line("panas kuat", "Kalau jauh lebih panas"), line("dingin kuat", "Kalau jauh lebih dingin")].filter((l): l is string => l !== null);
+  const out = (
+    sc.fomc
+      ? [line("hawkish kuat", "Kalau dibaca hawkish kuat"), line("dovish kuat", "Kalau dibaca dovish kuat")]
+      : [line("panas kuat", "Kalau jauh lebih panas"), line("dingin kuat", "Kalau jauh lebih dingin")]
+  ).filter((l): l is string => l !== null);
   if (!out.length) return [];
   const hits = SCENARIO_KEYS.filter(([k]) => sc.hit[k] != null).map(([k, label]) => `${label} ${Math.round(sc.hit[k]! * 100)}%`);
-  out.push(`30 menit pertama, median riwayat${hits.length ? `; arahnya benar ${hits.join(" · ")}` : ""}`);
+  out.push(
+    sc.fomc
+      ? `Gerak hari itu, median ${sc.fomc.meetings} rapat sejak 2016, dibaca dari yield 2Y${hits.length ? `; ikut arah ${hits.join(" · ")}` : ""}`
+      : `30 menit pertama, median riwayat${hits.length ? `; arahnya benar ${hits.join(" · ")}` : ""}`,
+  );
   return out;
 }
 
@@ -253,6 +267,7 @@ function conclusionAt(iso: string): H30Conclusion | null {
 
 /** The news impact's scenarios for a group's lead release (null when it has none: the Fed's decision, a release it doesn't follow). */
 export async function scenariosFor(g: Group): Promise<ReleaseScenarios | null> {
+  if (g.releases.some((r) => r.title === "Fed Interest Rate Decision")) return fomcFor();
   const lead = TARGETS.find((t) => t.title === g.releases[0].title) ?? TARGETS.find((t) => g.releases.some((r) => r.title === t.title));
   if (!lead) return null;
   try {
@@ -267,6 +282,18 @@ export async function scenariosFor(g: Group): Promise<ReleaseScenarios | null> {
     if (!u) return null;
     const hit = Object.fromEntries(imp.skill.filter((x) => x.first.calls > 0).map((x) => [x.key, x.first.hits / x.first.calls]));
     return { scenarios: u.scenarios, hit };
+  } catch {
+    return null;
+  }
+}
+
+/** The Fed decision's scenarios: the day's moves after meetings read clearly hawkish or dovish (the route's cache). */
+async function fomcFor(): Promise<ReleaseScenarios | null> {
+  try {
+    const { fomcScenarios } = await import("../providers/fomcscenarios.js");
+    const f = await cached("macro:fomc-scenarios", 30 * 60_000, () => fomcScenarios());
+    const hit = Object.fromEntries(Object.entries(f.day.follow).filter(([, x]) => x && x.n > 0).map(([k, x]) => [k, x!.agree / x!.n]));
+    return { scenarios: f.day.buckets.map((b) => ({ name: b.name, first: b.cells })), hit, fomc: { meetings: f.day.meetings } };
   } catch {
     return null;
   }
