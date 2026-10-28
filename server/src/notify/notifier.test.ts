@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { H30Conclusion } from "../providers/h30.js";
-import { fiveMinuteMoves, groupReleases, h30Message, reactionMessage, resultMessage, sideOf, type Release } from "./notifier.js";
+import { earlyMessage, fiveMinuteMoves, groupReleases, h30Message, reactionMessage, resultMessage, scenarioLines, sideOf, type Release, type ReleaseScenarios } from "./notifier.js";
 import { toastScript, toastXml } from "./toast.js";
 
 const at = "2026-11-10T13:30:00.000Z";
@@ -87,5 +87,38 @@ describe("the toast", () => {
     expect(script).toContain(Buffer.from(xml, "utf8").toString("base64"));
     expect(script).toContain("CreateToastNotifier('IhsanMP.OpenTerminal')");
     expect(script).not.toContain("<toast>");
+  });
+});
+
+describe("the reminder before a big release", () => {
+  const sc: ReleaseScenarios = {
+    scenarios: [
+      { name: "dingin kuat", first: { xau: { p50: 0.1 }, btc: { p50: 0.19 }, es: { p50: 0.07 } } },
+      { name: "sesuai", first: { xau: { p50: 0.01 } } },
+      { name: "panas kuat", first: { xau: { p50: -0.13 }, btc: { p50: -0.3 }, es: { p50: -0.07 } } },
+    ],
+    hit: { xau: 0.71, btc: 0.65 },
+  };
+
+  it("says what's due, its consensus, and the first 30 minutes after a hot and a cold surprise", () => {
+    const g = groupReleases([core(null), cpi(null)])[0];
+    const m = earlyMessage(g, sc);
+    expect(m.title).toMatch(/^Rilis besar \d{2}[.:]\d{2}: /);
+    expect(m.lines[0]).toMatch(/^Konsensus /);
+    expect(m.lines[1]).toBe("Kalau jauh lebih panas: Emas −0,13% · BTC −0,3% · S&P −0,07%");
+    expect(m.lines[2]).toBe("Kalau jauh lebih dingin: Emas +0,1% · BTC +0,19% · S&P +0,07%");
+    expect(m.lines[3]).toMatch(/arahnya benar Emas 71% · BTC 65%/);
+  });
+
+  it("points to the calendar when there are no scenarios (the Fed's decision)", () => {
+    const g = groupReleases([core(null)])[0];
+    expect(earlyMessage(g, null).lines[1]).toMatch(/Skenario rilis/);
+    expect(scenarioLines(null)).toEqual([]);
+  });
+
+  it("adds the scenarios to H-30 in a line", () => {
+    const g = groupReleases([core(null)])[0];
+    const m = h30Message(g, null, T - 30 * 60_000, sc);
+    expect(m.lines.at(-1)).toMatch(/^Kalau jauh lebih panas: .* \| Kalau jauh lebih dingin: /);
   });
 });

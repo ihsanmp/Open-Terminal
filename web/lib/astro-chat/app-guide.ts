@@ -229,7 +229,7 @@ export const GUIDE: GuideEntry[] = [
     title: "Live TV & Fed",
     where: "Market Intelligence → Live TV & Fed",
     names: ["live tv", "tv", "siaran", "the fed live", "siaran fed", "konferensi pers fed"],
-    what: "Kanal berita bisnis live, siaran The Fed saat ada (dengan transkrip dan penilaian nada hawkish/dovish), panel quant di sampingnya, rilis data AS berdampak besar, dan tab notifikasi Windows (siaran Fed live, H-30, hasil rilis, reaksi 5 menit).",
+    what: "Kanal berita bisnis live, siaran The Fed saat ada (dengan transkrip dan penilaian nada hawkish/dovish), panel quant di sampingnya, rilis data AS berdampak besar, dan tab notifikasi Windows (siaran Fed live, pengingat ±3 jam sebelum rilis besar dengan skenario 30 menit pertama, H-30, hasil rilis, reaksi 5 menit).",
     read: [
       "Saat siaran Fed, ikon api = hawkish (lebih ketat dari perkiraan), kepingan salju = dovish, timbangan = netral; hitungan keduanya menunjukkan arah nada sejauh ini.",
       "Nada hawkish cenderung menaikkan USD dan yield, menekan emas, saham, dan kripto; dovish sebaliknya.",

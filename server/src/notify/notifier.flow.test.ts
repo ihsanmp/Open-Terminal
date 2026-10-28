@@ -41,30 +41,34 @@ describe("the notification watch", () => {
     h.shown.length = 0;
   });
 
-  it("notifies H-30, the result and the first five minutes, each once", async () => {
+  it("notifies the reminder, H-30, the result and the first five minutes, each once", async () => {
     h.calendar = [release(null)];
+    // Three hours ahead and more than the half hour: the reminder (no scenarios here: it points to the calendar).
     await check(T - 40 * MIN);
-    expect(h.shown).toEqual([]);
+    expect(h.shown.map((s) => s.title)).toEqual([expect.stringMatching(/^Rilis besar .*: CPI MoM$/)]);
+    expect(h.shown[0].lines).toEqual(["Konsensus CPI MoM: 0,3%", "Skenario: Astro Calendar → Skenario rilis"]);
+    await check(T - 35 * MIN);
+    expect(h.shown).toHaveLength(1);
     // Inside the half hour, without the engine's conclusion: waits for H-25.
     await check(T - 29 * MIN);
-    expect(h.shown).toEqual([]);
-    await check(T - 24 * MIN);
-    expect(h.shown.map((s) => s.title)).toEqual([expect.stringMatching(/^24 menit lagi .*CPI MoM$/)]);
-    await check(T - 23 * MIN);
     expect(h.shown).toHaveLength(1);
+    await check(T - 24 * MIN);
+    expect(h.shown[1].title).toMatch(/^24 menit lagi .*CPI MoM$/);
+    await check(T - 23 * MIN);
+    expect(h.shown).toHaveLength(2);
 
     // Out, but the calendar doesn't have the actual yet: nothing.
     await check(T + 0.5 * MIN);
-    expect(h.shown).toHaveLength(1);
+    expect(h.shown).toHaveLength(2);
     h.calendar = [release(0.4)];
     await check(T + 1.5 * MIN);
-    expect(h.shown[1]).toEqual({ title: "CPI MoM: 0,4% (konsensus 0,3%)", lines: ["lebih panas/kuat dari perkiraan → hawkish"] });
+    expect(h.shown[2]).toEqual({ title: "CPI MoM: 0,4% (konsensus 0,3%)", lines: ["lebih panas/kuat dari perkiraan → hawkish"] });
 
     await check(T + 6 * MIN);
-    expect(h.shown[2]).toEqual({ title: "Reaksi 5 menit · CPI MoM", lines: ["XAU/USD −0,5% · Yield 2Y +5 bp", "Searah kejutan hawkish: 2 dari 2"] });
+    expect(h.shown[3]).toEqual({ title: "Reaksi 5 menit · CPI MoM", lines: ["XAU/USD −0,5% · Yield 2Y +5 bp", "Searah kejutan hawkish: 2 dari 2"] });
     await check(T + 7 * MIN);
-    expect(h.shown).toHaveLength(3);
-    expect(recent().slice(0, 3).map((r) => r.kind)).toEqual(["reaction", "result", "h30"]);
+    expect(h.shown).toHaveLength(4);
+    expect(recent().slice(0, 4).map((r) => r.kind)).toEqual(["reaction", "result", "h30", "early"]);
   });
 
   it("notifies a Fed broadcast going live once, and not a kind turned off", async () => {

@@ -6,18 +6,19 @@ import { apiGet, apiPost } from "../../lib/api";
 // THE FED's 🔔 tab: the Windows notifications the server raises (server/src/notify/notifier.ts),
 // each kind turned on or off, a test, and the last ones sent.
 
-type Kind = "fed" | "h30" | "result" | "reaction";
+type Kind = "fed" | "early" | "h30" | "result" | "reaction";
 type Sent = { at: number; kind: Kind | "test"; title: string; lines: string[]; shown: boolean };
 type Reply = { supported: boolean; settings: Record<Kind, boolean>; recent: Sent[] };
 
 const KINDS: Array<{ kind: Kind; label: string; hint: string }> = [
   { kind: "fed", label: "Siaran The Fed live", hint: "Saat channel The Fed (Board dan Fed regional) mulai siaran live" },
+  { kind: "early", label: "Pengingat rilis besar (±3 jam sebelum)", hint: "Sekitar tiga jam sebelum rilis besar AS: apa yang rilis, konsensusnya, dan skenario 30 menit pertama (emas, BTC, S&P) kalau datanya jauh lebih panas atau dingin, dengan seberapa sering arahnya benar" },
   { kind: "h30", label: "H-30 rilis data", hint: "30 menit sebelum CPI, PPI, NFP, PCE, retail sales, GDP, klaim, ISM dan keputusan suku bunga: konsensus, pita model dan bias H-30" },
   { kind: "result", label: "Hasil rilis", hint: "Begitu angka aktual keluar: dibanding konsensus, hawkish atau dovish" },
   { kind: "reaction", label: "Reaksi 5 menit", hint: "Gerak emas, BTC, S&P futures, DXY dan yield 2Y lima menit setelah rilis, dan berapa yang searah kejutannya" },
 ];
 
-const KIND_LABEL: Record<Sent["kind"], string> = { fed: "FED", h30: "H-30", result: "HASIL", reaction: "REAKSI", test: "TES" };
+const KIND_LABEL: Record<Sent["kind"], string> = { fed: "FED", early: "PENGINGAT", h30: "H-30", result: "HASIL", reaction: "REAKSI", test: "TES" };
 
 export default function NotifyPanel() {
   const qc = useQueryClient();

@@ -2,6 +2,9 @@
 // or not anyone has the tab open:
 //
 //   - a Fed broadcast going live (the Board's and the regional banks' channels, US events only);
+//   - a reminder about three hours before a big US release: what's due, and what the markets did
+//     in the first 30 minutes after past releases with a hot or a cold surprise (the news impact's
+//     scenarios, as the Astro Calendar shows them);
 //   - H-30: half an hour before a big US release, its consensus, the engine's band and the H-30
 //     bias the macro engine keeps then (h30-conclusions.json);
 //   - the result: the print against the consensus, and the side it falls on (hawkish or dovish);
@@ -23,11 +26,11 @@ import { INSTRUMENTS } from "../providers/reactions.js";
 import { bars, type TvBar } from "../providers/tvchart.js";
 import { showToast, toastsSupported } from "./toast.js";
 
-export type Kind = "fed" | "h30" | "result" | "reaction";
+export type Kind = "fed" | "early" | "h30" | "result" | "reaction";
 export type Settings = Record<Kind, boolean>;
 export type Sent = { at: number; kind: Kind | "test"; title: string; lines: string[]; shown: boolean };
 
-const DEFAULTS: Settings = { fed: true, h30: true, result: true, reaction: true };
+const DEFAULTS: Settings = { fed: true, early: true, h30: true, result: true, reaction: true };
 
 /** The releases notified: the engine's targets, the Fed's decision and the ISM services survey. */
 type Followed = { label: string; unit: string; hawk: 1 | -1; hot: number; rank: number };
@@ -68,7 +71,51 @@ export function sideOf(r: Release): -1 | 0 | 1 | null {
 }
 const SIDE_TEXT = { 1: "lebih panas/kuat dari perkiraan → hawkish", "-1": "lebih lemah/dingin dari perkiraan → dovish", 0: "sesuai konsensus" } as const;
 
-export function h30Message(g: Group, conclusion: H30Conclusion | null, now = g.time - 30 * 60_000): { title: string; lines: string[] } {
+/** A release's scenarios as the notifications quote them (newsimpact's, for the first 30 minutes). */
+export type ReleaseScenarios = {
+  scenarios: Array<{ name: string; first: Partial<Record<string, { p50: number }>> }>;
+  /** How often the history's median had the first 30 minutes' direction, by market. */
+  hit: Partial<Record<string, number>>;
+};
+
+/** The markets a reminder quotes, by the news impact's keys. */
+const SCENARIO_KEYS: Array<[string, string]> = [
+  ["xau", "Emas"],
+  ["btc", "BTC"],
+  ["es", "S&P"],
+];
+
+/**
+ * Two lines: what gold, bitcoin and the S&P did in the first 30 minutes after past releases with a
+ * clearly hot and a clearly cold surprise (medians), and how often that side was right.
+ */
+export function scenarioLines(sc: ReleaseScenarios | null): string[] {
+  if (!sc) return [];
+  const pick = (name: string) => sc.scenarios.find((s) => s.name === name);
+  const fmt = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${num(Math.abs(v))}%`;
+  const line = (name: string, say: string) => {
+    const s = pick(name);
+    if (!s) return null;
+    const parts = SCENARIO_KEYS.filter(([k]) => s.first[k]).map(([k, label]) => `${label} ${fmt(s.first[k]!.p50)}`);
+    return parts.length ? `${say}: ${parts.join(" · ")}` : null;
+  };
+  const out = [line("panas kuat", "Kalau jauh lebih panas"), line("dingin kuat", "Kalau jauh lebih dingin")].filter((l): l is string => l !== null);
+  if (!out.length) return [];
+  const hits = SCENARIO_KEYS.filter(([k]) => sc.hit[k] != null).map(([k, label]) => `${label} ${Math.round(sc.hit[k]! * 100)}%`);
+  out.push(`30 menit pertama, median riwayat${hits.length ? `; arahnya benar ${hits.join(" · ")}` : ""}`);
+  return out;
+}
+
+/** The reminder a few hours ahead: what's due, its consensus, and the scenarios. */
+export function earlyMessage(g: Group, sc: ReleaseScenarios | null): { title: string; lines: string[] } {
+  const lead = g.releases[0];
+  const title = `Rilis besar ${clock(g.time)}: ${g.releases.map((r) => FOLLOWED[r.title].label).join(", ")}`;
+  const lines = [`Konsensus ${FOLLOWED[lead.title].label}: ${reading(lead, lead.forecast)}`, ...scenarioLines(sc)];
+  if (lines.length === 1) lines.push("Skenario: Astro Calendar → Skenario rilis");
+  return { title, lines };
+}
+
+export function h30Message(g: Group, conclusion: H30Conclusion | null, now = g.time - 30 * 60_000, sc: ReleaseScenarios | null = null): { title: string; lines: string[] } {
   const lead = g.releases[0];
   // Thirty minutes ahead as a rule; less when the app was opened inside the half hour.
   const minutes = Math.max(1, Math.round((g.time - now) / 60_000));
@@ -85,6 +132,9 @@ export function h30Message(g: Group, conclusion: H30Conclusion | null, now = g.t
       .map((a) => `${a.label} ${a.dir} ${Math.round(a.chance * 100)}%`);
     if (leans.length) lines.push(`Bias H-30 (bukan sinyal): ${leans.join(" · ")}`);
   }
+  // The first 30 minutes' scenarios, the clearer read (one line, the toast is short).
+  const scen = scenarioLines(sc);
+  if (scen.length) lines.push(scen.slice(0, 2).join(" | "));
   return { title, lines };
 }
 
@@ -176,7 +226,7 @@ async function send(kind: Kind | "test", key: string | null, title: string, line
   return entry;
 }
 
-export const sendTest = () => send("test", null, "Notifikasi OpenTerminal aktif", ["Siaran The Fed, H-30, hasil rilis dan reaksi 5 menit akan muncul seperti ini."]);
+export const sendTest = () => send("test", null, "Notifikasi OpenTerminal aktif", ["Siaran The Fed, pengingat rilis, H-30, hasil rilis dan reaksi 5 menit akan muncul seperti ini."]);
 
 // ---------------------------------------------------------------- the watch
 
@@ -201,6 +251,30 @@ function conclusionAt(iso: string): H30Conclusion | null {
   }
 }
 
+/** The news impact's scenarios for a group's lead release (null when it has none: the Fed's decision, a release it doesn't follow). */
+export async function scenariosFor(g: Group): Promise<ReleaseScenarios | null> {
+  const lead = TARGETS.find((t) => t.title === g.releases[0].title) ?? TARGETS.find((t) => g.releases.some((r) => r.title === t.title));
+  if (!lead) return null;
+  try {
+    // Loaded when a reminder needs them: the news impact pulls in the whole macro engine.
+    const [macroengine, fedtranscript, newsimpact] = await Promise.all([import("../providers/macroengine.js"), import("../providers/fedtranscript.js"), import("../providers/newsimpact.js")]);
+    const imp = await cached("macro:impact", 10 * 60_000, async () => {
+      const inputs = await macroengine.engineInputs();
+      const engine = await cached("macro:engine", 2 * 60_000, () => macroengine.engine(fedtranscript.latestFedSentiment()));
+      return newsimpact.impact(inputs, engine);
+    });
+    const u = imp.upcoming.find((x) => x.key === lead.key && Math.abs(Date.parse(x.release) - g.time) < 60_000);
+    if (!u) return null;
+    const hit = Object.fromEntries(imp.skill.filter((x) => x.first.calls > 0).map((x) => [x.key, x.first.hits / x.first.calls]));
+    return { scenarios: u.scenarios, hit };
+  } catch {
+    return null;
+  }
+}
+
+/** How long before a big release the reminder comes. */
+export const EARLY_MS = 3 * 3_600_000;
+
 let calendar: { at: number; groups: Group[] } = { at: 0, groups: [] };
 let lastFed = 0;
 
@@ -211,18 +285,24 @@ export async function check(now = Date.now()): Promise<void> {
 
   // The calendar every ten minutes, every half minute around a release (for its actual).
   const hot = calendar.groups.some((g) => now >= g.time - 31 * 60_000 && now <= g.time + 20 * 60_000 && (now < g.time || g.releases.some((r) => r.actual === null)));
-  if ((on.h30 || on.result || on.reaction) && now - calendar.at >= (hot ? 30_000 : 10 * 60_000)) {
+  if ((on.early || on.h30 || on.result || on.reaction) && now - calendar.at >= (hot ? 30_000 : 10 * 60_000)) {
     const fresh = await usReleases(now - 6 * 3_600_000, now + 36 * 3_600_000).catch(() => null);
     if (fresh) calendar = { at: now, groups: groupReleases(fresh) };
   }
 
   for (const g of calendar.groups) {
     const left = g.time - now;
+    // About three hours ahead (or as soon as the app is up inside them, while there's more than the
+    // half hour H-30 covers): a reminder with the scenarios.
+    if (on.early && left > 31 * 60_000 && left <= EARLY_MS && !sent[`early:${g.iso}`]) {
+      const m = earlyMessage(g, await scenariosFor(g));
+      await send("early", `early:${g.iso}`, m.title, m.lines);
+    }
     // H-30: once the engine has kept its conclusion (it runs every five minutes), or at H-25 without it.
     if (on.h30 && left > 0 && left <= 30 * 60_000 && !sent[`h30:${g.iso}`]) {
       const c = conclusionAt(g.iso);
       if (c || left <= 25 * 60_000) {
-        const m = h30Message(g, c, now);
+        const m = h30Message(g, c, now, await scenariosFor(g));
         await send("h30", `h30:${g.iso}`, m.title, m.lines);
       }
     }
