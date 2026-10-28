@@ -52,6 +52,10 @@ const LEXICON: Array<[string, Side]> = [
   ["(?:strong|solid|robust|tight|resilient|healthy) labor market", 1],
   ["labor market (?:remains|is|has been|has remained) (?:strong|solid|robust|tight|resilient|healthy)", 1],
   ["(?:strong|solid|robust|resilient) (?:economy|growth|demand|consumer spending|spending|activity)", 1],
+  // The same said the other way round ("spending has been resilient", "growth is strong", 2026).
+  ["(?:economy|growth|demand|spending|activity|investment) (?:has been|is|remains|has remained|was|continues to be|looks) (?:quite |very |remarkably )?(?:strong|solid|robust|resilient)", 1],
+  ["expanding at a (?:strong|solid|robust|brisk) pace", 1],
+  ["inflation (?:that )?(?:has been |is |remains |continues |keeps )?running (?:well |persistently )?above", 1],
   ["wage (?:growth|pressures?|inflation)", 1],
   ["(?:shrink|shrinking|reduce|reducing) (?:the |our )?balance sheet", 1],
   ["quantitative tightening", 1],
@@ -65,7 +69,8 @@ const LEXICON: Array<[string, Side]> = [
   ["easing (?:cycle|policy|monetary policy|of (?:monetary )?policy|rates|interest rates)", -1],
   ["(?:move|moving|moved) (?:policy |rates )?(?:toward|towards|closer to) (?:a )?neutral", -1],
   ["recalibrat\\w*", -1],
-  ["(?:remove|removing|removal of|withdraw|withdrawing|withdrawal of|reduce|reducing|reduction of|scale back|scaling back|dial back|dialing back|pull back|pulling back) (?:\\w+ )?(?:(?:policy|monetary policy|the|some|that|this) )?accommodation", 1],
+  // "We removed a dose of accommodation" (2026): the past tense too, and a few words between.
+  ["(?:remove|removed|removing|removal of|withdraw|withdrew|withdrawn|withdrawing|withdrawal of|reduce|reduced|reducing|reduction of|scale back|scaled back|scaling back|dial back|dialed back|dialing back|pull back|pulled back|pulling back) (?:\\w+ ){0,3}?(?:(?:policy|monetary policy|the|some|that|this) )?accommodation", 1],
   ["(?:less|reducing the degree of) (?:policy )?accommodat(?:ive|ion)", 1],
   ["accommodat(?:ive|ion)", -1],
   ["(?:soft|softening|softer|cooling|weaker|weakening|slowing|deteriorating|loosening) labor market", -1],
@@ -97,9 +102,17 @@ const NEGATION = /\b(?:not|no|never|without|nor|fewer|less|unlikely to|don't|doe
  */
 const CONDITION = /\b(?:need|needs|needed|want|wants|wanted|have|has|had|would like|hope|hoping|waiting) to see\b|\buntil\b|\b(?:before|unless) (?:we|they|the committee)\b/;
 
-/** Lower case, curly quotes straight, "2%" as "2 percent", one space between words. */
+/**
+ * Lower case, curly quotes straight, "2%" as "2 percent", one space between words, and a word said
+ * twice in a row once (live captions stutter: "a dose of of accommodation", "raise raise rates").
+ */
 export function normalize(text: string): string {
-  return text.toLowerCase().replace(/[’‘]/g, "'").replace(/(\d)\s*%/g, "$1 percent").replace(/\s+/g, " ");
+  return text
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/(\d)\s*%/g, "$1 percent")
+    .replace(/\s+/g, " ")
+    .replace(/\b([a-z']+)(?: \1\b)+/g, "$1");
 }
 
 /**

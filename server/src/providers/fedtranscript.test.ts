@@ -41,6 +41,17 @@ describe("hawkish or dovish", () => {
     ]);
   });
 
+  it("reads live captions as said (FOMC, 28 Oct 2026): stutters, the past tense, the other word order", () => {
+    expect(sides("We removed a dose of of accommodation")).toEqual([["removed a dose of accommodation", 1]]);
+    expect(sides("domestic spending has been resilient productivity growth is strong")).toEqual([
+      ["spending has been resilient", 1],
+      ["growth is strong", 1],
+    ]);
+    expect(sides("economic activity is expanding at a strong pace")).toEqual([["expanding at a strong pace", 1]]);
+    const lines = ["by looking at the economy", "economy we removed some", "accommodation today"].map((text, i) => ({ seq: i, at: i * 3000, text, turn: 0 }));
+    expect(scoreTranscript(lines).sentiment.hawkish).toBe(1);
+  });
+
   it("turns a phrase round after a negation, and keeps one phrase where two overlap", () => {
     expect(sides("we are not going to raise rates")).toEqual([["raise rates", -1]]);
     expect(sides("policy is less restrictive now")).toEqual([["less restrictive", -1]]);

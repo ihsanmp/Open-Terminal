@@ -130,7 +130,11 @@ export function scoreTranscript(lines: Line[], voices?: Voices): { lines: Scored
   let text = "";
   for (const l of lines) {
     offsets.push(text.length);
-    text += `${normalize(l.text)} `;
+    // A stutter across two caption lines ("… the economy" / "economy by …") said once.
+    let t = normalize(l.text);
+    const last = /([a-z']+) $/.exec(text)?.[1];
+    if (last && t.startsWith(`${last} `)) t = t.slice(last.length + 1);
+    text += `${t} `;
   }
   const scored: ScoredLine[] = lines.map((l) => {
     const who = voices?.speakerAt(l.at) ?? null;

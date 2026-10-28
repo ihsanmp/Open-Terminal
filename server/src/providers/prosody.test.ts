@@ -50,6 +50,17 @@ describe("speakers", () => {
     expect(sp.main()).toBe([...lowIds][0]);
   });
 
+  it("follows the voice heard lately, not a presenter's long opening", () => {
+    const sp = new Speakers();
+    const low = analyzeSegment(tone(105, 1)).seconds[0].print!;
+    const high = analyzeSegment(tone(230, 1, 0.2)).seconds[0].print!;
+    // Twenty minutes of the opening, then twelve of the chair: the chair's, though heard less.
+    const opening = [...Array(1200)].map(() => sp.assign(high))[0];
+    const chair = [...Array(720)].map(() => sp.assign(low))[0];
+    expect(sp.voices.find((v) => v.id === opening)!.seconds).toBeGreaterThan(sp.voices.find((v) => v.id === chair)!.seconds);
+    expect(sp.main()).toBe(chair);
+  });
+
   it("puts a one-off second back with the run around it", () => {
     expect(smooth([0, 0, 1, 0, 0, null, 2, 2])).toEqual([0, 0, 0, 0, 0, null, 2, 2]);
   });
