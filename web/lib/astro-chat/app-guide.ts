@@ -258,6 +258,8 @@ export const GUIDE: GuideEntry[] = [
       "Rekam jejak walk-forward: model hanya layak dipercaya bila akurasinya mengalahkan tebakan dasar; sejauh ini belum ada yang terbukti.",
       "Engine rilis: bila P50 jauh dari konsensus, ada peluang kejutan; panas = hawkish, dingin = dovish.",
       "Regresi: beta menunjukkan seberapa besar pair ikut bergerak bila faktornya bergerak 1%; R² rendah berarti faktor itu menjelaskan sedikit.",
+      "Transformasi data (di tab Regresi): OLS dibandingkan dengan winsorize 1%/99%, robust Huber, dan WLS bobot volatilitas pada uji walk-forward yang sama; sebuah metode dinyatakan lebih baik hanya bila R² luar sampelnya ≥ 1 poin di atas OLS dan menang di sebagian besar lipatan. Bila lebih baik, betanya lebih mewakili hari biasa (hari ekstrem tidak menarik beta).",
+      "Beta bergulir: beta tiap faktor pada jendela 120 hari (atau 52 minggu) yang bergeser; beta yang berubah jauh atau berbalik tanda berarti beta seluruh periode kurang mewakili keadaan sekarang.",
     ],
   },
   {
