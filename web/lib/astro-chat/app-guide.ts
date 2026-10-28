@@ -330,6 +330,8 @@ export const GUIDE: GuideEntry[] = [
     read: [
       "Ikon matahari-bulan = gerhana matahari, bulan = gerhana bulan, lingkaran penuh = bulan baru, lingkaran kosong = purnama.",
       "Diuji, pola astrologi benar kira-kira sesering lempar koin; perlakukan sebagai konteks, bukan sinyal.",
+      "Prakiraan arah GOLD/BTC/DXY tampil Netral selama belum ada model yang terbukti mengalahkan tebakan dasar di uji walk-forward (saat ini 0 dari 30 aset × horizon).",
+      "Tab Skenario rilis (dan tanda rilis di tanggalnya): untuk tiap rilis besar AS 7 hari ke depan, median gerak hari rilis tiap aset setelah rilis-rilis sebelumnya dengan kejutan dingin kuat sampai panas kuat, rentang P10–P90 di tooltip, dan seberapa sering arahnya benar. Itu skenario, bukan ramalan: kejutannya baru diketahui saat rilis.",
     ],
   },
   {

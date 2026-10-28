@@ -9,9 +9,10 @@ import { ASSETS, describeKey, describeState, extendSeries, impactOf, MIN_SAMPLES
 import { useWidgetSetting } from "../../store/terminal";
 import RetrogradePanel from "./RetrogradePanel";
 import SunSignsPanel from "./SunSignsPanel";
+import ReleaseScenarios, { useImpact } from "./ReleaseScenarios";
 import { catalogueIfReady, getCatalogue } from "../../lib/astro-calendar/catalogue";
 import { forecastFor, horizonFor, pct, useQuantForecast, useQuantHistory, verdictOf, type AssetForecast, type HorizonForecast, type QuantForecast, type QuantHistory, type QuantHorizon } from "../../lib/quant";
-import { Glyph } from "../Icon";
+import { Glyph, Icon } from "../Icon";
 
 // The astrology calendar: the month's sky events, each with the quant forecast for GOLD, BTC and DXY
 // over its span (the server's forecaster, shared with the Live TV, which reads the sky among its
@@ -397,7 +398,7 @@ export default function AstroCalendarWidget() {
   const [month, setMonth] = useState({ y: now.getFullYear(), m: now.getMonth() });
   const [shown, setShown] = useWidgetSetting<EventKind[]>("kinds", ["station", "eclipse", "lunation", "ingress"]);
   const [selected, setSelected] = useState<AstroEvent | null>(null);
-  const [view, setView] = useWidgetSetting<"calendar" | "retro" | "sun" | "chat">("view", "calendar");
+  const [view, setView] = useWidgetSetting<"calendar" | "retro" | "sun" | "scen" | "chat">("view", "calendar");
   // The chat moved to the floating bubble (AstroChatBubble): a view left on it shows the calendar.
   const shownView = view === "chat" ? "calendar" : view;
   const [data, setData] = useState<ReturnType<typeof getCatalogue> | null>(catalogueIfReady);
@@ -450,6 +451,11 @@ export default function AstroCalendarWidget() {
     return data.events.filter((e) => e.time >= from && shown.includes(e.kind)).slice(0, 25);
   }, [data, shown]);
 
+  // The big US releases of the next week (the Live TV's news impact): marked on their days.
+  const impact = useImpact();
+  const releases = impact.data?.upcoming ?? [];
+  const releasesOn = (date: Date) => releases.filter((r) => sameDay(new Date(r.release), date));
+
   const step = (k: number) => setMonth(({ y, m }) => ({ y: y + Math.floor((m + k) / 12), m: (((m + k) % 12) + 12) % 12 }));
   const toggle = (kind: EventKind) => setShown(shown.includes(kind) ? shown.filter((k) => k !== kind) : [...shown, kind]);
 
@@ -467,11 +473,16 @@ export default function AstroCalendarWidget() {
           <button className={`term-btn ${view === "sun" ? "active" : ""}`} onClick={() => setView("sun")} title="Tanggal masuk Matahari ke tiap zodiak, ekuinoks dan solstis">
             ☉ Zodiak Matahari
           </button>
+          <button className={`term-btn ${view === "scen" ? "active" : ""}`} onClick={() => setView("scen")} title="Rilis data AS 7 hari ke depan: apa yang terjadi setelah rilis-rilis sebelumnya dengan kejutan seukuran itu">
+            <Icon name="chart" /> Skenario rilis
+          </button>
         </div>
         {shownView === "retro" ? (
           <RetrogradePanel />
         ) : shownView === "sun" ? (
           <SunSignsPanel />
+        ) : shownView === "scen" ? (
+          <ReleaseScenarios />
         ) : (
         <>
         <div className="flex items-center gap-2 flex-wrap">
@@ -522,6 +533,17 @@ export default function AstroCalendarWidget() {
             return (
               <div key={i} className={`bg-[var(--bg)] p-1 min-h-[70px] overflow-hidden flex flex-col gap-[2px] ${inMonth ? "" : "opacity-30"}`}>
                 <span className={`text-fs-10 ${today ? "amber font-bold" : "dim"}`}>{inMonth ? d : ""}</span>
+                {inMonth &&
+                  releasesOn(date).map((r) => (
+                    <button
+                      key={`${r.key}-${r.release}`}
+                      className="text-left rounded px-1 py-[1px] text-fs-9 border border-[#5aa9ff66] text-[#8fc4ff] hover:bg-[#1f1f1f] truncate"
+                      title={`${r.label}: klik untuk skenario`}
+                      onClick={() => setView("scen")}
+                    >
+                      <Icon name="chart" /> {r.label}
+                    </button>
+                  ))}
                 {events.slice(0, 5).map((e) => (
                   <button
                     key={e.id}
@@ -545,6 +567,21 @@ export default function AstroCalendarWidget() {
         )}
       </div>
       <aside className="w-[290px] shrink-0 border-l border-[var(--border)] overflow-auto">
+        {releases.length > 0 && (
+          <>
+            <div className="panel-title px-2 py-1.5">Rilis data 7 hari</div>
+            {releases.map((r) => (
+              <button key={`${r.key}-${r.release}`} className="w-full flex items-center gap-2 px-2 py-1.5 border-b border-[var(--border)] hover:bg-[#1a1a1a] text-left" onClick={() => setView("scen")}>
+                <span className="w-14 dim shrink-0">{new Date(r.release).toLocaleDateString("id-ID", { day: "2-digit", month: "short" })}</span>
+                <span className="text-[#8fc4ff] shrink-0">
+                  <Icon name="chart" />
+                </span>
+                <span className="truncate flex-1">{r.label}</span>
+                <span className="dim text-fs-9">skenario</span>
+              </button>
+            ))}
+          </>
+        )}
         <div className="panel-title px-2 py-1.5">Kejadian mendatang</div>
         {upcoming.map((e) => (
           <button key={e.id} className="w-full flex items-center gap-2 px-2 py-1.5 border-b border-[var(--border)] hover:bg-[#1a1a1a] text-left" onClick={() => setSelected(e)}>
