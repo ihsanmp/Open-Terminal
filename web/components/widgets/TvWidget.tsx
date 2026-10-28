@@ -212,6 +212,18 @@ function FedPanel() {
   const [custom, setCustom] = useWidgetSetting<string | null>("fedCustomVideo", null);
   const fedPlaying = live.find((l) => l.videoId === picked) ?? (picked ? data?.upcoming.find((u) => u.videoId === picked) : undefined) ?? live[0];
   const next = data?.upcoming[0];
+  // A broadcast on the Fed's calendar that YouTube doesn't have yet (the Board puts the FOMC press
+  // conference's stream up only shortly before): it's counted down when it comes before the next
+  // scheduled stream, and plays here once the stream is up.
+  const nextStart = next ? Date.parse(next.events?.[0]?.start ?? next.start ?? "") : Infinity;
+  const onCalendar = (data?.schedule ?? []).find(
+    (e) =>
+      !e.allDay &&
+      Date.parse(e.start) > now - 2 * 3_600_000 &&
+      Date.parse(e.start) < (Number.isNaN(nextStart) ? Infinity : nextStart) &&
+      (e.videoId || /live-broadcast/.test(e.link ?? "")) &&
+      !live.some((l) => l.videoId === e.videoId),
+  );
   const schedule = (data?.schedule ?? []).filter((e) => showStats || e.type !== "Stat");
   const [faces, setFaces] = useWidgetSetting("fedFaces", true);
   // A pasted link's reading isn't the Fed's: it's kept out of the macro engine.
@@ -269,7 +281,25 @@ function FedPanel() {
             <div className="text-fs-15 text-[var(--text)]"><Icon name="bank" /> Tidak ada siaran The Fed saat ini</div>
             {isLoading && <div className="dim">Memeriksa channel The Fed…</div>}
             {error && <div className="down">Gagal memeriksa: {(error as Error).message}</div>}
-            {next && (
+            {onCalendar && (
+              <>
+                <div className="dim">Siaran The Fed berikutnya</div>
+                <div className="text-[var(--text)] max-w-[520px]">{onCalendar.title}</div>
+                {onCalendar.description && <div className="dim text-fs-11 max-w-[520px]">{onCalendar.description}</div>}
+                <div className="amber text-fs-18 font-bold tabular-nums">
+                  {Date.parse(onCalendar.start) > now ? countdown(Date.parse(onCalendar.start), now) : "segera"} <span className="dim text-fs-11 font-normal">· {when(onCalendar.start)}</span>
+                </div>
+                <div className="dim text-fs-10 max-w-[520px]">
+                  Dari kalender resmi federalreserve.gov. Link siaran YouTube-nya biasanya baru dipasang The Fed menjelang acara; begitu ada, siarannya langsung diputar di sini.
+                </div>
+                {onCalendar.videoId && (
+                  <button className="term-btn" onClick={() => setPicked(onCalendar.videoId)}>
+                    Buka ruang tunggu siaran
+                  </button>
+                )}
+              </>
+            )}
+            {next && !onCalendar && (
               <>
                 <div className="dim">Siaran The Fed berikutnya</div>
                 {next.events?.[0] ? (
