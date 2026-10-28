@@ -77,6 +77,26 @@ export const MODULES: Module[] = [
         ],
       },
       {
+        id: "surprise",
+        title: "Rilis data: kejutan panas dan dingin",
+        minutes: 5,
+        body: [
+          "Sebelum rilis data besar (CPI, PCE, NFP, ISM, GDP, klaim pengangguran), para analis membuat perkiraan yang disebut konsensus. Pasar sudah memperhitungkan konsensus itu, jadi yang menggerakkan harga saat rilis adalah selisih angka aktual terhadap konsensus: kejutannya.",
+          "Panas berarti datanya lebih kuat dari perkiraan: inflasi lebih tinggi, lapangan kerja lebih banyak, ekonomi lebih kencang. Itu dibaca hawkish, karena The Fed jadi cenderung menahan atau menaikkan suku bunga. Dingin berarti datanya lebih lemah dari perkiraan, dibaca dovish: peluang suku bunga turun lebih besar. Sesuai berarti kurang lebih sama dengan konsensus.",
+          "Arah panas mengikuti maknanya, bukan besar angkanya. Untuk klaim pengangguran (Jobless Claims), panas justru berarti klaim lebih rendah dari perkiraan, karena itu tanda pasar kerja kuat.",
+          "Kuat menunjukkan besar kejutannya. Selisih aktual dan konsensus dibandingkan dengan kejutan-kejutan rilis yang sama sebelumnya (dalam simpangan baku): meleset 1 simpangan baku atau lebih disebut panas kuat atau dingin kuat dan jarang terjadi; 0,5 sampai 1 disebut panas atau dingin; kurang dari 0,5 disebut sesuai. Dengan cara ini kejutan CPI dan NFP bisa dibandingkan meski satuannya berbeda.",
+          "Reaksi yang biasa: data panas → dolar dan yield naik, emas, BTC dan saham turun; data dingin kebalikannya. Minyak sering tidak ikut, karena data panas juga dibaca sebagai permintaan yang kuat. Bahkan hubungan terkuat hanya searah sekitar 2 dari 3 kali, jadi tetap pakai manajemen risiko.",
+          "Keputusan suku bunga The Fed berbeda: angkanya hampir selalu sesuai konsensus, jadi kejutannya ada di pernyataan, dot plot dan konferensi pers. Karena itu rapat FOMC dibaca hawkish atau dovish dari gerak yield 2 tahun setelah pernyataan keluar, bukan panas atau dingin.",
+          "Di Astro Calendar → Skenario rilis, tiap rilis besar 7 hari ke depan punya lima kolom (dingin kuat sampai panas kuat) dengan angka rilis kira-kira untuk tiap kolom dan gerak median tiap aset setelah rilis-rilis sebelumnya dalam kelompok yang sama, di 30 menit pertama atau sepanjang hari. Itu skenario, bukan ramalan: kejutannya baru diketahui saat rilis.",
+        ],
+        practice: { view: "astrocal", label: "Buka Skenario rilis di Astro Calendar" },
+        quiz: [
+          { q: "Konsensus Core CPI 0,3%, rilis aktual 0,5%. Kejutan apa?", options: ["Dingin (dovish)", "Sesuai", "Panas (hawkish)", "Tidak bisa ditentukan"], answer: 2, why: "Inflasi lebih tinggi dari perkiraan = panas, The Fed cenderung lebih ketat." },
+          { q: "Klaim pengangguran jauh lebih rendah dari konsensus. Dibaca…", options: ["Panas (hawkish)", "Dingin (dovish)", "Sesuai", "Tidak berpengaruh"], answer: 0, why: "Klaim rendah = pasar kerja kuat; arah panas mengikuti makna datanya, bukan besar angkanya." },
+          { q: "Reaksi yang paling umum setelah data panas kuat?", options: ["Emas dan BTC naik, dolar turun", "Dolar dan yield naik, emas dan saham turun", "Semua aset naik", "Hanya minyak yang bergerak"], answer: 1, why: "Data panas mendorong ekspektasi suku bunga lebih tinggi: dolar dan yield menguat, aset tanpa imbal hasil dan aset berisiko tertekan." },
+        ],
+      },
+      {
         id: "fiscal",
         title: "Tekanan fiskal: defisit, bunga, dan TGA",
         minutes: 4,
