@@ -37,7 +37,7 @@ export const useImpact = () => useQuery({ queryKey: ["macro-impact"], queryFn: (
 const when = (iso: string) =>
   new Date(iso).toLocaleString("id-ID", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jakarta" }) + " WIB";
 const fmtMove = (v: number, unit: string) => `${v > 0 ? "+" : ""}${unit === "bp" ? v.toFixed(1) : v.toFixed(2)}${unit === "bp" ? " bp" : "%"}`;
-const fmtPrint = (v: number, unit: string) => (unit === "K" ? `${v.toLocaleString("id-ID")} rb` : `${v}${unit === "%" ? "%" : unit ? ` ${unit}` : ""}`);
+const fmtPrint = (v: number, unit: string) => (unit === "K" ? `${Math.round(v).toLocaleString("id-ID")} rb` : `${Number(v.toFixed(2))}${unit === "%" ? "%" : unit ? ` ${unit}` : ""}`);
 
 export default function ReleaseScenarios() {
   const { data, isLoading, error } = useImpact();
