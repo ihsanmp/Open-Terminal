@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { apiGet } from "../../lib/api";
 import { Icon } from "../Icon";
 
@@ -39,16 +40,38 @@ const when = (iso: string) =>
 const fmtMove = (v: number, unit: string) => `${v > 0 ? "+" : ""}${unit === "bp" ? v.toFixed(1) : v.toFixed(2)}${unit === "bp" ? " bp" : "%"}`;
 const fmtPrint = (v: number, unit: string) => (unit === "K" ? `${Math.round(v).toLocaleString("id-ID")} rb` : `${Number(v.toFixed(2))}${unit === "%" ? "%" : unit ? ` ${unit}` : ""}`);
 
+/** The two spans measured: the first 30 minutes after the release, and the day. */
+const SPANS = {
+  first: { label: "30 menit pertama", head: "Gerak 30 menit", what: "30 menit pertama setelah rilis" },
+  day: { label: "Hari itu", head: "Gerak hari itu", what: "hari rilis" },
+} as const;
+type Span = keyof typeof SPANS;
+
 export default function ReleaseScenarios() {
   const { data, isLoading, error } = useImpact();
+  // The first 30 minutes first: there the surprise's side shows most (the report's 2 in 3).
+  const [span, setSpan] = useState<Span>("first");
   if (isLoading) return <div className="p-3 dim">Mengambil rilis 7 hari ke depan dan riwayat reaksinya…</div>;
   if (error || !data) return <div className="p-3 down">Skenario rilis belum bisa dihitung: {error instanceof Error ? error.message : "data tidak tersedia"}.</div>;
   const insts = SHOWN.map((k) => data.instruments.find((i) => i.key === k)).filter((i): i is Inst => Boolean(i));
-  const skill = new Map(data.skill.map((s) => [s.key, s.day]));
+  const skill = new Map(data.skill.map((s) => [s.key, s[span]]));
+  const sp = SPANS[span];
   return (
     <div className="flex-1 min-h-0 overflow-auto flex flex-col gap-3 text-fs-11">
       <div className="text-fs-10 dim leading-relaxed">
         Prakiraan arah di kalender tetap <b className="text-[var(--text)]">Netral</b>: belum ada model yang terbukti menebak arah 5–20 hari. Yang terbukti dari laporan &quot;Astronomi, Makro, dan Pergerakan Market&quot;: kejutan data (aktual dibanding konsensus) menggerakkan pasar di hari rilis. Di bawah, untuk tiap rilis besar 7 hari ke depan, apa yang terjadi setelah rilis-rilis sebelumnya dengan kejutan seukuran itu ({data.events} rilis di riwayat aplikasi). Ini skenario, bukan ramalan: angkanya baru diketahui saat rilis.
+      </div>
+      <div className="flex items-center gap-1">
+        {(Object.keys(SPANS) as Span[]).map((k) => (
+          <button key={k} className={`term-btn ${span === k ? "active" : ""}`} onClick={() => setSpan(k)}>
+            {SPANS[k].label}
+          </button>
+        ))}
+        <span className="dim text-fs-9 ml-2">
+          {span === "first"
+            ? "Dari harga 30 menit sebelum dan sesudah jam rilis (riwayat intraday lebih pendek dari riwayat harian)."
+            : "Dari penutupan sehari sebelum ke penutupan hari rilis: termasuk semua berita lain hari itu."}
+        </span>
       </div>
       {!data.upcoming.length && (
         <div className="border border-[var(--border)] p-3 dim">Tidak ada rilis besar AS (CPI, NFP, ISM, GDP, PCE, FOMC, …) dalam 7 hari ke depan.</div>
@@ -70,7 +93,7 @@ export default function ReleaseScenarios() {
               <table className="data-table w-full text-fs-10">
                 <thead>
                   <tr>
-                    <th className="!text-left">Gerak hari itu</th>
+                    <th className="!text-left">{sp.head}</th>
                     {u.scenarios.map((s) => (
                       <th key={s.name} title={`Kejutan ${s.z > 0 ? "+" : ""}${s.z} simpangan baku (+ = lebih panas/kuat dari konsensus)`}>
                         <div className={s.z > 0 ? "down" : s.z < 0 ? "up" : ""}>
@@ -79,7 +102,7 @@ export default function ReleaseScenarios() {
                         <div className="dim font-normal">rilis {fmtPrint(s.print, u.unit)}</div>
                       </th>
                     ))}
-                    <th title="Sesudah kejutan yang jelas, seberapa sering arah median riwayat sama dengan arah gerak hari itu (uji walk-forward)">Arah benar</th>
+                    <th title={`Sesudah kejutan yang jelas, seberapa sering arah median riwayat sama dengan arah gerak ${sp.what} (uji walk-forward)`}>Arah benar</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -90,7 +113,7 @@ export default function ReleaseScenarios() {
                       <tr key={inst.key}>
                         <td className="!text-left whitespace-nowrap">{inst.label}</td>
                         {u.scenarios.map((s) => {
-                          const b = s.day[inst.key];
+                          const b = s[span][inst.key];
                           return (
                             <td
                               key={s.name}
@@ -115,7 +138,7 @@ export default function ReleaseScenarios() {
         );
       })}
       <div className="text-fs-9 dim leading-relaxed">
-        Angka di sel = median gerak hari rilis setelah rilis-rilis sebelumnya dalam kelompok kejutan yang sama (arahkan kursor untuk rentang P10–P90). &quot;Arah benar&quot; = seberapa sering median itu searah dengan gerak sebenarnya, diuji walk-forward; laporan menemukan bahkan hubungan terkuat searah hanya sekitar 2 dari 3 kali, jadi tetap pakai manajemen risiko. Minyak sering bergerak berlawanan: data panas dibaca sebagai permintaan kuat.
+        Angka di sel = median gerak {sp.what} setelah rilis-rilis sebelumnya dalam kelompok kejutan yang sama (arahkan kursor untuk rentang P10–P90). &quot;Arah benar&quot; = seberapa sering median itu searah dengan gerak sebenarnya, diuji walk-forward; laporan menemukan bahkan hubungan terkuat searah hanya sekitar 2 dari 3 kali, jadi tetap pakai manajemen risiko. Minyak sering bergerak berlawanan: data panas dibaca sebagai permintaan kuat.
       </div>
     </div>
   );
