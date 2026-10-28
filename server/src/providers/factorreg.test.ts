@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alignedReturns, analyse, dayOf, invert, normalCdf, ols, vifs, weekOf, type Series } from "./factorreg.js";
+import { alignedReturns, analyse, dayOf, fitTransform, invert, normalCdf, ols, rollingBetas, transformChecks, vifs, weekOf, type Series } from "./factorreg.js";
 
 // A small deterministic generator, so the tests don't depend on chance.
 const rng = (seed: number) => () => {
@@ -229,5 +229,61 @@ describe("overfitting checks", () => {
     expect(o.testR2).toBeLessThan(0);
     // Pure noise: no simpler model holds up either, so it reads as no stable relationship.
     expect(["overfit", "shift"]).toContain(o.verdict);
+  });
+});
+
+describe("transformations against plain least squares", () => {
+  const make = (seed: number, n: number, outliers: boolean) => {
+    const r = rng(seed);
+    const X: number[][] = [];
+    const Y: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const a = gauss(r);
+      const b = gauss(r);
+      // Fat tails: one day in twenty an error ten times the usual.
+      const e = gauss(r) * (outliers && r() < 0.05 ? 10 : 1);
+      X.push([a, b]);
+      Y.push(0.8 * a - 0.5 * b + e);
+    }
+    return { X, Y };
+  };
+
+  it("lets the robust fit find the betas more surely than plain OLS when the tails are fat", () => {
+    // Over many samples: OLS isn't off on average, but a few huge days throw each estimate around.
+    const err = (k: "ols" | "huber", seed: number) => {
+      const { X, Y } = make(seed, 400, true);
+      const c = fitTransform(k, X, Y)!.coef;
+      return Math.abs(c[1] - 0.8) + Math.abs(c[2] + 0.5);
+    };
+    const seeds = Array.from({ length: 30 }, (_, i) => 100 + i);
+    const avg = (k: "ols" | "huber") => seeds.reduce((s, sd) => s + err(k, sd), 0) / seeds.length;
+    expect(avg("huber")).toBeLessThan(avg("ols") * 0.8);
+  });
+
+  it("doesn't call a transformation better on clean data, where plain OLS is the right fit", () => {
+    const { X, Y } = make(43, 800, false);
+    const t = transformChecks(X, Y, ["a", "b"])!;
+    expect(t.rows.map((r) => r.key)).toEqual(["ols", "winsor", "huber", "wls"]);
+    expect(t.better).toBe(false);
+    expect(t.best).toBe("ols");
+    for (const r of t.rows) expect(r.betas.a).toBeCloseTo(0.8, 1);
+  });
+
+  it("shows a beta that changed over time", () => {
+    const r = rng(47);
+    const X: number[][] = [];
+    const Y: number[] = [];
+    const dates: string[] = [];
+    for (let i = 0; i < 600; i++) {
+      const a = gauss(r);
+      X.push([a]);
+      // The sensitivity flips halfway.
+      Y.push((i < 300 ? 1 : -1) * a + gauss(r) * 0.3);
+      dates.push(new Date(Date.UTC(2024, 0, 1) + i * 86_400_000).toISOString().slice(0, 10));
+    }
+    const roll = rollingBetas(X, Y, dates, ["a"], 120, 5)!;
+    expect(roll.betas.a[0]).toBeGreaterThan(0.8);
+    expect(roll.betas.a[roll.betas.a.length - 1]).toBeLessThan(-0.8);
+    expect(roll.dates[roll.dates.length - 1]).toBe(dates[599]);
   });
 });

@@ -256,6 +256,10 @@ export type Regression = {
   latest: { date: string; actual: number; fitted: number; parts: Array<{ key: string; label: string; move: number; contribution: number }> } | null;
   /** Is the fit overfitted? Training against testing R², walk-forward cross-validation, and the full model against a simpler one. */
   overfit: Overfit | null;
+  /** Plain OLS against winsorizing, Huber's robust fit and volatility-weighted WLS, walk-forward. */
+  transforms: Transforms | null;
+  /** Each factor's beta over a moving window: how the sensitivity has changed. */
+  rolling: RollingBetas | null;
   /** Newey-West lags used for the standard errors (for the SAS script to match). */
   nwLags: number;
   /** The data the fit used, period by period (for the CSV download; not sent with the JSON). */
@@ -383,6 +387,9 @@ export function analyse(symbol: string, label: string, pair: Series, factorClose
     predictive,
     latest: { date: dates[last], actual: Y[last], fitted: fit.coef[0] + parts.reduce((s, p) => s + p.contribution, 0), parts },
     overfit: overfitChecks(X, Y, dates, usable.map((f) => f.key)),
+    transforms: transformChecks(X, Y, usable.map((f) => f.key)),
+    // About half a year of days (every 5th day), or a year of weeks.
+    rolling: freq === "weekly" ? rollingBetas(X, Y, dates, usable.map((f) => f.key), 52, 1) : rollingBetas(X, Y, dates, usable.map((f) => f.key), 120, 5),
     nwLags: Math.floor(4 * (Y.length / 100) ** (2 / 9)),
     rows: { dates, y: Y, x: Object.fromEntries(usable.map((f, j) => [f.key, X.map((r) => r[j])])) },
     asOf: now,
@@ -499,6 +506,172 @@ export function overfitChecks(X: number[][], Y: number[], dates: string[], keys:
     cv: { folds: foldRows, meanTest, sdTest: tests.length > 1 ? sd(tests) : 0, meanTestSimple: anySimple ? mean(simpleTests) : null },
     complexity: { full, simple, preferred },
   };
+}
+
+// ---------------------------------------------------------------- transformations and rolling betas
+
+export type TransformKey = "ols" | "winsor" | "huber" | "wls";
+
+export const TRANSFORMS: Array<{ key: TransformKey; label: string; note: string }> = [
+  { key: "ols", label: "OLS biasa", note: "Kuadrat terkecil apa adanya: yang dipakai tabel beta di atas." },
+  { key: "winsor", label: "Winsorize 1%/99%", note: "Return di luar persentil 1 dan 99 data latih dipotong ke batas itu, jadi hari ekstrem tidak menarik beta." },
+  { key: "huber", label: "Robust (Huber)", note: "Hari dengan sisa besar diberi bobot lebih kecil (IRLS, c = 1,345): tahan pencilan tanpa membuangnya." },
+  { key: "wls", label: "WLS bobot volatilitas", note: "Tiap periode diberi bobot 1/σ², σ = simpangan baku pair 20 periode sebelumnya, jadi masa bergejolak tidak mendominasi." },
+];
+
+export type TransformRow = { key: TransformKey; label: string; note: string; cvR2: number; wins: number; folds: number; betas: Record<string, number> };
+export type Transforms = {
+  rows: TransformRow[];
+  /** The best by walk-forward R², and whether it beat plain OLS consistently enough to prefer. */
+  best: TransformKey;
+  better: boolean;
+};
+
+export type RollingBetas = { window: number; step: number; dates: string[]; betas: Record<string, number[]>; r2: number[] };
+
+/** Weighted least squares coefficients (intercept first); null when singular. */
+export function wlsCoef(X: number[][], y: number[], w: number[]): number[] | null {
+  const k = (X[0]?.length ?? 0) + 1;
+  const Z = X.map((row) => [1, ...row]);
+  const a = Array.from({ length: k }, (_, i) => Array.from({ length: k }, (_, j) => Z.reduce((s, r, t) => s + w[t] * r[i] * r[j], 0)));
+  const inv = invert(a);
+  if (!inv) return null;
+  const b = Array.from({ length: k }, (_, i) => Z.reduce((s, r, t) => s + w[t] * r[i] * y[t], 0));
+  return inv.map((row) => row.reduce((s, v, j) => s + v * b[j], 0));
+}
+
+const quantile = (xs: number[], q: number) => {
+  const s = [...xs].sort((a, b) => a - b);
+  const i = (s.length - 1) * q;
+  const lo = Math.floor(i);
+  return s[lo] + (s[Math.min(s.length - 1, lo + 1)] - s[lo]) * (i - lo);
+};
+const clip = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+const median = (xs: number[]) => quantile(xs, 0.5);
+
+/** A fitted transformation: its coefficients, and how a row of factors is prepared before predicting with them. */
+type Fitted = { coef: number[]; prep: (row: number[]) => number[] };
+
+/** Fits y on X the given way (on training data only: the clips and weights come from it). */
+export function fitTransform(key: TransformKey, X: number[][], Y: number[]): Fitted | null {
+  const same = (row: number[]) => row;
+  if (key === "ols") {
+    const f = ols(X, Y, 0);
+    return f ? { coef: f.coef, prep: same } : null;
+  }
+  if (key === "winsor") {
+    const k = X[0]?.length ?? 0;
+    const lo = Array.from({ length: k }, (_, j) => quantile(X.map((r) => r[j]), 0.01));
+    const hi = Array.from({ length: k }, (_, j) => quantile(X.map((r) => r[j]), 0.99));
+    const prep = (row: number[]) => row.map((v, j) => clip(v, lo[j], hi[j]));
+    const yLo = quantile(Y, 0.01);
+    const yHi = quantile(Y, 0.99);
+    const f = ols(X.map(prep), Y.map((v) => clip(v, yLo, yHi)), 0);
+    return f ? { coef: f.coef, prep } : null;
+  }
+  if (key === "huber") {
+    // Iteratively reweighted least squares: residuals beyond c·σ (σ from their median absolute
+    // deviation) weigh c·σ/|e| of a normal one.
+    const start = ols(X, Y, 0);
+    if (!start) return null;
+    let coef = start.coef;
+    for (let it = 0; it < 50; it++) {
+      const r = Y.map((v, t) => v - predictRow(coef, X[t], X[0].map((_, j) => j)));
+      const m = median(r);
+      const s = median(r.map((e) => Math.abs(e - m))) * 1.4826 || 1;
+      const w = r.map((e) => Math.min(1, (1.345 * s) / Math.max(1e-12, Math.abs(e))));
+      const next = wlsCoef(X, Y, w);
+      if (!next) break;
+      const moved = Math.max(...next.map((c, i) => Math.abs(c - coef[i])));
+      coef = next;
+      if (moved < 1e-7) break;
+    }
+    return { coef, prep: same };
+  }
+  // WLS: each period weighed by 1/σ², σ the pair's volatility over the 20 periods before it.
+  const WIN = 20;
+  const first = sd(Y.slice(0, Math.min(WIN, Y.length))) || 1;
+  const w = Y.map((_, t) => {
+    const s = t >= WIN ? sd(Y.slice(t - WIN, t)) : first;
+    return 1 / Math.max(s * s, 1e-8);
+  });
+  const coef = wlsCoef(X, Y, w);
+  return coef ? { coef, prep: same } : null;
+}
+
+/**
+ * The transformations against plain OLS on the same walk-forward blocks as the overfitting check
+ * (each trained on everything before its block), each judged on the pair's raw returns there: a
+ * transformation that only flatters the fit doesn't win. "Better" needs a mean gain of at least
+ * 0.01 and a win in most blocks, so one lucky block doesn't decide it.
+ */
+export function transformChecks(X: number[][], Y: number[], keys: string[], folds = 5): Transforms | null {
+  const n = Y.length;
+  const size = Math.floor(n / (folds + 1));
+  const blocks: Array<[number, number]> = [];
+  for (let k = 1; k <= folds; k++) {
+    const a = k * size;
+    const b = k === folds ? n : (k + 1) * size;
+    if (b - a >= 10 && a >= keys.length + 20) blocks.push([a, b]);
+  }
+  if (blocks.length < 2) return null;
+  const scores = new Map<TransformKey, number[]>();
+  for (const t of TRANSFORMS) {
+    const s: number[] = [];
+    for (const [a, b] of blocks) {
+      const fit = fitTransform(t.key, X.slice(0, a), Y.slice(0, a));
+      if (!fit) {
+        s.push(NaN);
+        continue;
+      }
+      const ref = mean(Y.slice(0, a));
+      let sse = 0;
+      let sst = 0;
+      for (let i = a; i < b; i++) {
+        const row = fit.prep(X[i]);
+        sse += (Y[i] - predictRow(fit.coef, row, row.map((_, j) => j))) ** 2;
+        sst += (Y[i] - ref) ** 2;
+      }
+      s.push(sst > 0 ? 1 - sse / sst : 0);
+    }
+    scores.set(t.key, s);
+  }
+  const base = scores.get("ols")!;
+  const rows: TransformRow[] = TRANSFORMS.map((t) => {
+    const s = scores.get(t.key)!;
+    const ok = s.filter(Number.isFinite);
+    const full = fitTransform(t.key, X, Y);
+    return {
+      ...t,
+      cvR2: ok.length ? mean(ok) : NaN,
+      wins: t.key === "ols" ? 0 : s.filter((v, i) => Number.isFinite(v) && v > base[i] + 0.001).length,
+      folds: blocks.length,
+      betas: Object.fromEntries(keys.map((k, j) => [k, full ? full.coef[j + 1] : NaN])),
+    };
+  });
+  const ranked = rows.filter((r) => Number.isFinite(r.cvR2)).sort((a, b) => b.cvR2 - a.cvR2);
+  const top = ranked[0];
+  const plain = rows[0];
+  const better = top.key !== "ols" && top.cvR2 - plain.cvR2 >= 0.01 && top.wins > blocks.length / 2;
+  return { rows, best: better ? top.key : "ols", better };
+}
+
+/** Each factor's beta over a moving window (the multi-factor fit, every `step` periods): how the sensitivity has changed. */
+export function rollingBetas(X: number[][], Y: number[], dates: string[], keys: string[], window: number, step: number): RollingBetas | null {
+  const n = Y.length;
+  if (n < window + 20 || window <= keys.length + 10) return null;
+  const out: RollingBetas = { window, step, dates: [], betas: Object.fromEntries(keys.map((k) => [k, []])), r2: [] };
+  const ends: number[] = [];
+  for (let end = window; end <= n; end += step) ends.push(end);
+  if (ends[ends.length - 1] !== n) ends.push(n);
+  for (const end of ends) {
+    const fit = ols(X.slice(end - window, end), Y.slice(end - window, end), 0);
+    if (!fit) continue;
+    out.dates.push(dates[end - 1]);
+    keys.forEach((k, j) => out.betas[k].push(fit.coef[j + 1]));
+    out.r2.push(fit.r2);
+  }
+  return out.dates.length ? out : null;
 }
 
 // ---------------------------------------------------------------- export for SAS (and Excel, R, Python)

@@ -1,7 +1,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { apiGet } from "../../lib/api";
+import { fontPx } from "../../lib/font-scale";
 import { usePoll } from "../../lib/refresh";
 import { useChartSymbol } from "../../lib/pair";
 import { useWidgetSetting } from "../../store/terminal";
@@ -47,8 +50,18 @@ type Regression = {
   predictive: { oosR2: number; hit: number; baseHit: number; n: number } | null;
   latest: { date: string; actual: number; fitted: number; parts: Array<{ key: string; label: string; move: number; contribution: number }> } | null;
   overfit?: Overfit | null;
+  transforms?: Transforms | null;
+  rolling?: RollingBetas | null;
   asOf: number;
 };
+
+type TransformKey = "ols" | "winsor" | "huber" | "wls";
+type Transforms = {
+  rows: Array<{ key: TransformKey; label: string; note: string; cvR2: number; wins: number; folds: number; betas: Record<string, number> }>;
+  best: TransformKey;
+  better: boolean;
+};
+type RollingBetas = { window: number; step: number; dates: string[]; betas: Record<string, number[]>; r2: number[] };
 
 const stars = (p: number) => (p < 0.001 ? "***" : p < 0.01 ? "**" : p < 0.05 ? "*" : "");
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
@@ -197,6 +210,10 @@ export default function RegressionPanel() {
       </Section>
 
       {data.overfit && <OverfitSection o={data.overfit} period={period} labelOf={(k) => data.factors.find((f) => f.key === k)?.label ?? k} />}
+
+      {data.transforms && <TransformsSection t={data.transforms} factors={data.factors} />}
+
+      {data.rolling && <RollingSection r={data.rolling} factors={data.factors} period={period} />}
 
       <Section title="Artinya" className="xl:col-span-6">
         {sig.length ? (
@@ -377,6 +394,126 @@ function OverfitSection({ o, period, labelOf }: { o: Overfit; period: string; la
             Faktor model sederhana dipilih dari data latih saja, bukan seluruh data.
           </div>
         </div>
+      </div>
+    </Section>
+  );
+}
+
+/** Plain OLS against the transformations, on the same walk-forward blocks, judged on the raw returns. */
+function TransformsSection({ t, factors }: { t: Transforms; factors: FactorRow[] }) {
+  const plain = t.rows[0];
+  const best = t.rows.find((r) => r.key === t.best) ?? plain;
+  const top = t.rows.filter((r) => Number.isFinite(r.cvR2)).sort((a, b) => b.cvR2 - a.cvR2)[0];
+  return (
+    <Section title="Transformasi data" note="OLS vs winsorize, robust, WLS · uji walk-forward yang sama" className="xl:col-span-12">
+      <div className={`font-bold ${t.better ? "up" : "dim"}`}>
+        {t.better
+          ? `${best.label} lebih baik secara konsisten: R² luar sampel ${pct(best.cvR2)} vs ${pct(plain.cvR2)} OLS, menang di ${best.wins} dari ${best.folds} lipatan.`
+          : "Tidak ada transformasi yang nyata lebih baik dari OLS biasa untuk pair ini."}
+      </div>
+      <div className="text-fs-10 dim leading-relaxed mt-1">
+        {t.better
+          ? "Hari-hari ekstrem atau masa bergejolak menarik beta OLS menjauh; beta dari metode ini lebih mewakili hari biasa. Untuk risiko di hari ekstrem, beta OLS tetap relevan."
+          : top && top.key !== "ols"
+            ? `${top.label} paling tinggi (${pct(top.cvR2)} vs ${pct(plain.cvR2)}), tapi selisihnya di bawah 1 poin atau tidak menang di sebagian besar lipatan: bedanya bisa kebetulan. Beta OLS di atas sudah cukup.`
+            : "OLS biasa paling baik di data uji: transformasi tidak menambah apa-apa di sini. Beta di atas sudah cukup."}
+      </div>
+      <div className="overflow-x-auto mt-2">
+        <table className="data-table w-full text-fs-10">
+          <thead>
+            <tr>
+              <th>Metode</th>
+              <th title="Rata-rata R² di blok uji walk-forward, diukur pada return asli">R² luar sampel</th>
+              <th title="Berapa lipatan metode ini lebih baik dari OLS biasa">Menang vs OLS</th>
+              {factors.map((f) => (
+                <th key={f.key} title={`Beta ${f.label} (seluruh data)`}>
+                  β {f.label.replace(/\s*\(.*\)$/, "")}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {t.rows.map((r) => (
+              <tr key={r.key} className={r.key === t.best ? "bg-[#14301f]" : ""} title={r.note}>
+                <td className={`whitespace-nowrap ${r.key === t.best ? "up font-bold" : ""}`}>{r.label}</td>
+                <td className={`tabular-nums ${r.cvR2 < 0 ? "down" : ""}`}>{Number.isFinite(r.cvR2) ? pct(r.cvR2) : "—"}</td>
+                <td className="tabular-nums dim">{r.key === "ols" ? "—" : `${r.wins}/${r.folds}`}</td>
+                {factors.map((f) => (
+                  <td key={f.key} className="tabular-nums">
+                    {Number.isFinite(r.betas[f.key]) ? signed(r.betas[f.key], f.unit === "bp" ? 3 : 2, "") : "—"}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="text-fs-9 dim mt-1 leading-relaxed">
+        {t.rows.slice(1).map((r) => (
+          <div key={r.key}>
+            <b className="text-[var(--text)]">{r.label}</b>: {r.note}
+          </div>
+        ))}
+        <div className="mt-1">
+          Semua metode dilatih di data sebelum tiap blok dan dinilai pada return asli di blok itu, jadi transformasi yang hanya mempercantik angka di data latih tidak menang. Dinyatakan lebih baik hanya bila R² luar sampelnya ≥ 1 poin di atas OLS dan menang di sebagian besar lipatan.
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+const tick = { fill: "#808080", fontSize: fontPx(9) };
+const tip = { background: "#111", border: "1px solid #333", fontSize: fontPx(10) };
+
+/** Each factor's beta over a moving window, one factor at a time, with the window's R². */
+function RollingSection({ r, factors, period }: { r: RollingBetas; factors: FactorRow[]; period: string }) {
+  const strongest = [...factors].sort((a, b) => Math.abs(b.stdBeta) - Math.abs(a.stdBeta))[0]?.key ?? factors[0]?.key;
+  const [key, setKey] = useState<string>(strongest);
+  const f = factors.find((x) => x.key === key) ?? factors[0];
+  if (!f) return null;
+  const b = r.betas[f.key] ?? [];
+  const rows = r.dates.map((d, i) => ({ date: d, beta: b[i], r2: r.r2[i] * 100 }));
+  const first = b[0];
+  const last = b[b.length - 1];
+  const lo = Math.min(...b);
+  const hi = Math.max(...b);
+  const flips = b.some((v) => v > 0) && b.some((v) => v < 0);
+  const dp = f.unit === "bp" ? 3 : 2;
+  return (
+    <Section title="Beta bergulir" note={`jendela ${r.window} ${period}${r.step > 1 ? `, tiap ${r.step} ${period}` : ""}`} className="xl:col-span-12">
+      <div className="flex flex-wrap gap-1 mb-2">
+        {factors.map((x) => (
+          <button key={x.key} className={`term-btn ${x.key === f.key ? "active" : ""}`} onClick={() => setKey(x.key)}>
+            {x.label}
+          </button>
+        ))}
+      </div>
+      <div className="text-fs-10 leading-relaxed mb-1">
+        Beta {f.label}: {signed(first, dp, "")} di awal → {signed(last, dp, "")} sekarang (rentang {signed(lo, dp, "")} sampai {signed(hi, dp, "")})
+        {flips ? <span className="amber">, pernah berbalik tanda: hubungannya tidak tetap</span> : null}. Garis putus-putus: R² jendela itu (seberapa besar faktor-faktor menjelaskan gerak pair saat itu).
+      </div>
+      <div style={{ height: 220 }}>
+        <ResponsiveContainer>
+          <LineChart data={rows} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+            <CartesianGrid stroke="#1e1e1e" vertical={false} />
+            <XAxis dataKey="date" tick={tick} tickFormatter={(d: string) => d.slice(0, 7)} minTickGap={40} />
+            <YAxis yAxisId="b" tick={tick} width={48} tickFormatter={(v: number) => v.toFixed(dp)} />
+            <YAxis yAxisId="r" orientation="right" tick={tick} width={36} domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} />
+            <ReferenceLine yAxisId="b" y={0} stroke="#404040" />
+            <Tooltip
+              itemStyle={{ color: "#fff" }}
+              labelStyle={{ color: "#fff" }}
+              contentStyle={tip}
+              labelFormatter={(d: string) => day(d)}
+              formatter={(v: number, n: string) => (n === "beta" ? [signed(v, dp, ""), `beta ${f.label}`] : [`${v.toFixed(1)}%`, "R² jendela"])}
+            />
+            <Line yAxisId="b" type="monotone" dataKey="beta" stroke="#ff9900" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+            <Line yAxisId="r" type="monotone" dataKey="r2" stroke="#5aa9ff" strokeWidth={1} strokeDasharray="3 3" dot={false} isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="text-fs-9 dim mt-1 leading-relaxed">
+        Tiap titik adalah regresi multifaktor yang sama, hanya pada {r.window} {period} terakhir sampai tanggal itu. Beta yang naik-turun jauh atau R² yang jatuh berarti beta seluruh periode di tabel atas kurang mewakili keadaan sekarang; pakai nilai terbarunya.
       </div>
     </Section>
   );
