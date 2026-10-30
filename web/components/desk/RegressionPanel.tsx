@@ -507,7 +507,7 @@ function RollingSection({ r, factors, period }: { r: RollingBetas; factors: Fact
               labelFormatter={(d: string) => day(d)}
               formatter={(v: number, n: string) => (n === "beta" ? [signed(v, dp, ""), `beta ${f.label}`] : [`${v.toFixed(1)}%`, "R² jendela"])}
             />
-            <Line yAxisId="b" type="monotone" dataKey="beta" stroke="#ff9900" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+            <Line yAxisId="b" type="monotone" dataKey="beta" stroke="#38bdf8" strokeWidth={1.5} dot={false} isAnimationActive={false} />
             <Line yAxisId="r" type="monotone" dataKey="r2" stroke="#5aa9ff" strokeWidth={1} strokeDasharray="3 3" dot={false} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>

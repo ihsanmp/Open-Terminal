@@ -72,7 +72,7 @@ async function list(action: "txlist" | "tokentx", address: string, contract?: st
   if (hit && Date.now() - hit.at < 120_000) return hit.rows;
   const q = new URLSearchParams({ module: "account", action, address, sort: "desc", page: "1", offset: "100" });
   if (contract) q.set("contractaddress", contract);
-  const res = await fetch(`${API}?${q}`, { headers: { "User-Agent": "OpenTerminal" }, signal: AbortSignal.timeout(20_000) });
+  const res = await fetch(`${API}?${q}`, { headers: { "User-Agent": "Parallax" }, signal: AbortSignal.timeout(20_000) });
   if (!res.ok) throw new Error(`blockscout ${res.status}`);
   const body = (await res.json()) as { result?: unknown };
   const rows = Array.isArray(body.result) ? toTransfers(body.result as RawTx[]) : [];

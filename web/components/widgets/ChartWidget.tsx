@@ -786,8 +786,8 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     } else {
       main =
         chartType === "line"
-          ? chart.addSeries(LineSeries, { color: "#ff9900", lineWidth: 1, priceFormat: mainFormat, crosshairMarkerVisible: false, ...keepScale })
-          : chart.addSeries(AreaSeries, { lineColor: "#ff9900", topColor: "rgba(255,153,0,0.25)", bottomColor: "rgba(255,153,0,0)", priceFormat: mainFormat, crosshairMarkerVisible: false, ...keepScale });
+          ? chart.addSeries(LineSeries, { color: "#38bdf8", lineWidth: 1, priceFormat: mainFormat, crosshairMarkerVisible: false, ...keepScale })
+          : chart.addSeries(AreaSeries, { lineColor: "#38bdf8", topColor: "rgba(56,189,248,0.25)", bottomColor: "rgba(56,189,248,0)", priceFormat: mainFormat, crosshairMarkerVisible: false, ...keepScale });
       mainData = candles.map((c) => ({ time: c.time as UTCTimestamp, value: c.close }));
     }
     // The chart scrolls no further right than a screen past its last bar with a value, blank ones
@@ -935,7 +935,7 @@ export default function ChartWidget({ widget }: { widget: WidgetInstance }) {
     const last = candles[candles.length - 1];
     const lastColor =
       chartType === "line" || chartType === "area"
-        ? "#ff9900"
+        ? "#38bdf8"
         : barColors?.[candles.length - 1] ?? (risingBars(candles.slice(-2), chartStyle.colorByPrevClose).at(-1) ? chartStyle.body.up : chartStyle.body.down);
     const market: Market = { type: ctx.type, timezone: ctx.timezone };
     const countdown = new CountdownPrimitive(() => {

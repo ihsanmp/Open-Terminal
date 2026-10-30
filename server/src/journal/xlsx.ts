@@ -152,7 +152,7 @@ export function writeJournal(rows: JournalRow[], imageOf: (i: number) => Journal
   out.push(
     pageRow(3, 13.55, (c) =>
       c === FIRST_COL
-        ? cell(c, 3, S.subtitle, `Tulis REASON & EMOTION SEBELUM trade; EMOTION SESUDAH, GRADE dan LESSON SESUDAH trade. Diekspor dari OpenTerminal ${opts.exportedAt}.`)
+        ? cell(c, 3, S.subtitle, `Tulis REASON & EMOTION SEBELUM trade; EMOTION SESUDAH, GRADE dan LESSON SESUDAH trade. Diekspor dari Parallax ${opts.exportedAt}.`)
         : cell(c, 3, S.subtitle)
     )
   );

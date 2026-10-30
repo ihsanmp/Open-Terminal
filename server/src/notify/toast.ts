@@ -16,8 +16,9 @@ export const toastsSupported = () => process.platform === "win32";
 
 /** The id toasts go out under: the app's once the installer's Start Menu shortcut exists. */
 export function appId(): string {
-  const programs = process.env.APPDATA ? join(process.env.APPDATA, "Microsoft", "Windows", "Start Menu", "Programs", "OpenTerminal.lnk") : "";
-  return programs && existsSync(programs) ? APP_ID : POWERSHELL_ID;
+  // Parallax.lnk, or OpenTerminal.lnk from before the rename.
+  const programs = process.env.APPDATA ? join(process.env.APPDATA, "Microsoft", "Windows", "Start Menu", "Programs") : "";
+  return programs && ["Parallax.lnk", "OpenTerminal.lnk"].some((f) => existsSync(join(programs, f))) ? APP_ID : POWERSHELL_ID;
 }
 
 const xmlEscape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

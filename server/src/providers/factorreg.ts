@@ -697,7 +697,7 @@ export function sasProgram(r: Regression, csvName: string): string {
   const keys = r.factors.map((f) => f.key);
   const desc = r.factors.map((f) => `     ${f.key.padEnd(9)} ${f.label} (${f.unit === "bp" ? "perubahan, bp" : "return log, %"})`).join("\n");
   return [
-    `/* Regresi multifaktor ${r.symbol} (${r.label}) dari OpenTerminal`,
+    `/* Regresi multifaktor ${r.symbol} (${r.label}) dari Parallax`,
     `   ${r.freq === "daily" ? "Harian" : "Mingguan"}, ${r.n} periode, ${r.from} s.d. ${r.to}.`,
     `   pair      return log ${r.label}, %`,
     desc,

@@ -13,10 +13,12 @@ function New-IconBitmap {
   $g.SmoothingMode = 'AntiAlias'
   $g.Clear([System.Drawing.Color]::Transparent)
 
-  $amber = [System.Drawing.Color]::FromArgb(255, 255, 153, 0)
-  $green = [System.Drawing.Color]::FromArgb(255, 0, 200, 83)
+  # Parallax's "ridges": three ridge lines, the far ones fainter (the depth that parallax reads),
+  # the nearest in ice blue, on a near-black tile with a silver border.
+  $silver = [System.Drawing.Color]::FromArgb(255, 229, 231, 235)
+  $ice = [System.Drawing.Color]::FromArgb(255, 56, 189, 248)
 
-  # Rounded dark tile with an amber border.
+  # Rounded dark tile with a silver border.
   $x = F 10; $y = F 10; $w = F 236; $d = F 92
   $tile = New-Object System.Drawing.Drawing2D.GraphicsPath
   $tile.AddArc($x, $y, $d, $d, (F 180), (F 90))
@@ -24,26 +26,25 @@ function New-IconBitmap {
   $tile.AddArc((F ($x + $w - $d)), (F ($y + $w - $d)), $d, $d, (F 0), (F 90))
   $tile.AddArc($x, (F ($y + $w - $d)), $d, $d, (F 90), (F 90))
   $tile.CloseFigure()
-  $g.FillPath((New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 12, 12, 12))), $tile)
-  $g.DrawPath((New-Object System.Drawing.Pen $amber, (F 10)), $tile)
+  $g.FillPath((New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 10, 10, 10))), $tile)
+  $g.DrawPath((New-Object System.Drawing.Pen $silver, (F 10)), $tile)
 
-  # Terminal prompt ">_".
-  $prompt = New-Object System.Drawing.Pen $amber, (F 18)
-  $prompt.StartCap = 'Round'; $prompt.EndCap = 'Round'; $prompt.LineJoin = 'Round'
-  $g.DrawLines($prompt, [System.Drawing.PointF[]]@(
-    (New-Object System.Drawing.PointF 58, 58),
-    (New-Object System.Drawing.PointF 100, 94),
-    (New-Object System.Drawing.PointF 58, 130)))
-  $g.DrawLine($prompt, (F 116), (F 130), (F 166), (F 130))
-
-  # Rising price line.
-  $chart = New-Object System.Drawing.Pen $green, (F 16)
-  $chart.StartCap = 'Round'; $chart.EndCap = 'Round'; $chart.LineJoin = 'Round'
-  $g.DrawLines($chart, [System.Drawing.PointF[]]@(
-    (New-Object System.Drawing.PointF 58, 204),
-    (New-Object System.Drawing.PointF 102, 176),
-    (New-Object System.Drawing.PointF 138, 194),
-    (New-Object System.Drawing.PointF 198, 144)))
+  # The ridges, far to near (as web/components/Logo.tsx draws them).
+  $ridges = @(
+    @{ color = [System.Drawing.Color]::FromArgb(89, 229, 231, 235); width = 14; points = @(40, 166, 100, 96, 140, 136, 216, 60) },
+    @{ color = [System.Drawing.Color]::FromArgb(166, 229, 231, 235); width = 14; points = @(40, 184, 96, 128, 136, 162, 216, 86) },
+    @{ color = $ice; width = 16; points = @(40, 202, 92, 160, 132, 186, 216, 112) }
+  )
+  foreach ($r in $ridges) {
+    $pen = New-Object System.Drawing.Pen $r.color, (F $r.width)
+    $pen.StartCap = 'Round'; $pen.EndCap = 'Round'; $pen.LineJoin = 'Round'
+    $p = $r.points
+    $g.DrawLines($pen, [System.Drawing.PointF[]]@(
+      (New-Object System.Drawing.PointF $p[0], $p[1]),
+      (New-Object System.Drawing.PointF $p[2], $p[3]),
+      (New-Object System.Drawing.PointF $p[4], $p[5]),
+      (New-Object System.Drawing.PointF $p[6], $p[7])))
+  }
 
   $g.Dispose()
   return $bmp

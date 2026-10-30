@@ -38,7 +38,7 @@ type Tx = {
   vout: Array<{ scriptpubkey_address?: string; value: number }>;
 };
 
-const defaultFetch: Fetch = (url) => fetch(url, { signal: AbortSignal.timeout(60_000), headers: { "User-Agent": "OpenTerminal" } });
+const defaultFetch: Fetch = (url) => fetch(url, { signal: AbortSignal.timeout(60_000), headers: { "User-Agent": "Parallax" } });
 
 function readStore(): Store {
   try {

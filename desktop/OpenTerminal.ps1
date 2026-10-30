@@ -65,7 +65,7 @@ function Get-AppBrowserProcesses {
 
 function New-Splash {
   $form = New-Object System.Windows.Forms.Form
-  $form.Text = 'OpenTerminal'
+  $form.Text = 'Parallax'
   $form.FormBorderStyle = 'None'
   $form.StartPosition = 'CenterScreen'
   $form.Size = New-Object System.Drawing.Size 500, 140
@@ -74,9 +74,9 @@ function New-Splash {
   if (Test-Path $IconPath) { $form.Icon = New-Object System.Drawing.Icon $IconPath }
 
   $title = New-Object System.Windows.Forms.Label
-  $title.Text = 'OpenTerminal'
+  $title.Text = 'Parallax'
   $title.Font = New-Object System.Drawing.Font 'Consolas', 22.5, ([System.Drawing.FontStyle]::Bold)
-  $title.ForeColor = [System.Drawing.Color]::FromArgb(255, 153, 0)
+  $title.ForeColor = [System.Drawing.Color]::FromArgb(56, 189, 248)
   $title.AutoSize = $true
   $title.Location = New-Object System.Drawing.Point 24, 24
   $form.Controls.Add($title)
@@ -98,7 +98,7 @@ function Set-Status([string]$text) {
 
 function Stop-WithError([string]$message) {
   if ($Splash) { $Splash.Close() }
-  [System.Windows.Forms.MessageBox]::Show($message, 'OpenTerminal', 'OK', 'Error') | Out-Null
+  [System.Windows.Forms.MessageBox]::Show($message, 'Parallax', 'OK', 'Error') | Out-Null
   exit 1
 }
 
@@ -253,18 +253,39 @@ function Initialize-Taskbar {
   }
 }
 
+# The app was OpenTerminal before it was Parallax: the Desktop and Start Menu
+# shortcuts the installer made then are renamed (a pinned one is left as it is,
+# as renaming it would unpin it; it still opens the app).
+function Rename-OldShortcuts {
+  foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {
+    $old = Join-Path $folder 'OpenTerminal.lnk'
+    $new = Join-Path $folder 'Parallax.lnk'
+    if ((Test-Path $old) -and -not (Test-Path $new)) {
+      try {
+        Rename-Item $old 'Parallax.lnk'
+        $s = (New-Object -ComObject WScript.Shell).CreateShortcut($new)
+        $s.Description = 'Parallax market terminal'
+        $s.Save()
+      } catch { Write-Timing "shortcut not renamed: $($_.Exception.Message)" }
+    }
+  }
+}
+
 function Get-Shortcuts {
+  $pinned = Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'
   @(
-    (Join-Path ([Environment]::GetFolderPath('Desktop')) 'OpenTerminal.lnk'),
-    (Join-Path ([Environment]::GetFolderPath('Programs')) 'OpenTerminal.lnk'),
-    (Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\OpenTerminal.lnk')
+    (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Parallax.lnk'),
+    (Join-Path ([Environment]::GetFolderPath('Programs')) 'Parallax.lnk'),
+    (Join-Path $pinned 'Parallax.lnk'),
+    (Join-Path $pinned 'OpenTerminal.lnk')
   ) | Where-Object { Test-Path $_ }
 }
 
 # The shortcuts get the app's ID: the taskbar button then takes the name
-# "OpenTerminal" from them, and a pinned shortcut shares the windows' button.
+# "Parallax" from them, and a pinned shortcut shares the windows' button.
 # Done before the first window is tagged, as the taskbar names a button once.
 function Set-ShortcutIds {
+  Rename-OldShortcuts
   if (-not (Initialize-Taskbar)) { return }
   foreach ($lnk in Get-Shortcuts) {
     try { [void][OpenTerminal.Taskbar]::SetShortcutAppId($lnk, $AppId) } catch {}
@@ -394,7 +415,7 @@ try {
     while (-not ((Test-Port $ApiPort) -and (Test-Port $WebPort))) {
       [System.Windows.Forms.Application]::DoEvents()
       if (($started | Where-Object { $_.HasExited }) -or (Get-Date) -gt $deadline) {
-        Stop-WithError "OpenTerminal failed to start. See the logs in:`n$LogDir"
+        Stop-WithError "Parallax failed to start. See the logs in:`n$LogDir"
       }
       if (-not $browserIds -and (Get-Date) -ge $nextLookup) {
         $browserIds = @(Get-AppBrowserProcesses | ForEach-Object { [int]$_.ProcessId })

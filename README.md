@@ -1,6 +1,8 @@
 <div align="center">
 
-# OpenTerminal
+<img src="web/app/icon.png" alt="Parallax logo: three ridge lines, the nearest in ice blue" width="96" />
+
+# Parallax
 
 **A terminal‑style market workspace built entirely on free, public market data.**
 
@@ -13,19 +15,21 @@ Dark. Dense. Keyboard‑driven. Zero paid API keys, zero subscriptions.
 
 <br/>
 
-<img src="docs/screenshots/dashboard.png" alt="OpenTerminal workspace: chart, money flow, watchlist, news and Watcher Guru side by side" width="100%" />
+<img src="docs/screenshots/dashboard.png" alt="Parallax workspace: chart, money flow, watchlist, news and Watcher Guru side by side" width="100%" />
 
-<sub>A fork of <a href="https://github.com/ErTasselli/OpenTerminal">ErTasselli/OpenTerminal</a>, grown into a full terminal: live TV and a Fed watcher, a macro engine, quant forecasts, an insider feed, money flow and more. ⭐ Star it if it's useful to you.</sub>
+<sub>Built on <a href="https://github.com/ErTasselli/OpenTerminal">ErTasselli/OpenTerminal</a> (MIT), grown into a full terminal: live TV and a Fed watcher, a macro engine, quant forecasts, an insider feed, money flow and more. ⭐ Star it if it's useful to you.</sub>
 
 </div>
 
 <br/>
 
-## Why OpenTerminal?
+## Why Parallax?
 
 Real trading terminals cost **$2,000+ a month**. Most retail dashboards either lock the good stuff behind a paywall or run on a single flaky data source that breaks the moment you need it.
 
-OpenTerminal stitches together **free, public market‑data endpoints** (the same ones that power major finance sites' own front ends) into one fast, keyboard‑first workspace that runs entirely on your machine. Every endpoint has a fallback chain, so one provider's hiccup never takes the app down.
+Parallax stitches together **free, public market‑data endpoints** (the same ones that power major finance sites' own front ends) into one fast, keyboard‑first workspace that runs entirely on your machine. Every endpoint has a fallback chain, so one provider's hiccup never takes the app down.
+
+The name is the idea: *parallax* is how an object seems to shift when seen from another angle, and the app reads one market from many (the macro calendar and the Fed, positioning and money flow, on‑chain whales, the chart).
 
 No signup. No credit card. No rate‑limited demo tier. Clone it, `npm install`, and you have a live terminal in a minute.
 
@@ -215,8 +219,8 @@ No paid API and no keys. Every endpoint has a fallback chain, and results are ca
 ## 🚀 Quick start
 
 ```bash
-git clone https://github.com/ihsanmp/Open-Terminal.git
-cd Open-Terminal
+git clone https://github.com/ihsanmp/Parallax.git
+cd Parallax
 npm install
 npm run dev
 ```
@@ -232,7 +236,7 @@ No `.env` file is needed for a working terminal.
 desktop\install.cmd
 ```
 
-This builds the project and adds an **OpenTerminal** shortcut to your Desktop and Start Menu.
+This builds the project and adds a **Parallax** shortcut to your Desktop and Start Menu.
 
 - **Opening it** starts the API and web servers in the background and shows the terminal in its own window (Microsoft Edge or Chrome app mode). Closing that window stops the servers.
 - **On every launch** it checks GitHub. If `origin/main` has new commits, it fast‑forwards, reinstalls dependencies when `package.json` changed, and rebuilds whatever changed before starting. Without network access, or with local edits in the way, it simply opens the current version.
@@ -332,7 +336,7 @@ Have an idea? [Open an issue](../../issues).
 
 ## 🙏 Acknowledgements
 
-- **Original project.** OpenTerminal was started by [Andrea Tasselli](https://github.com/ErTasselli/OpenTerminal); this fork builds on that first version.
+- **Original project.** Parallax began as OpenTerminal, started by [Andrea Tasselli](https://github.com/ErTasselli/OpenTerminal) and released under the MIT license; it builds on that first version, and the original copyright notice is kept in [LICENSE](LICENSE).
 - **Inspiration.** The equity‑research, world‑indices and all‑crypto features were inspired by [FinceptTerminal](https://github.com/Fincept-Corporation/FinceptTerminal). No code was taken from it: it is AGPL‑3.0 and this project is MIT, so the features were reimplemented independently on free data.
 - **Indicators.** The indicators rebuilt from [LuxAlgo](https://www.luxalgo.com/)'s published scripts (in `web/lib/ta/indicators/luxalgo*.ts`) keep those scripts' license, CC BY‑NC‑SA 4.0: free to use and adapt, not for commercial use.
 

@@ -169,7 +169,7 @@ export default function TabBar() {
   // own <title> after hydrating, so it's put back whenever it changes.
   useEffect(() => {
     if (!active) return;
-    const want = `${tabLabel(active)} — OpenTerminal`;
+    const want = `${tabLabel(active)} — Parallax`;
     const apply = () => {
       if (document.title !== want) document.title = want;
     };

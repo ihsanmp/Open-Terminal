@@ -91,7 +91,7 @@ const PORT = Number(process.env.API_PORT ?? 4000);
 // API_KEY + WEB_ORIGIN) to intentionally expose it beyond this machine.
 const HOST = process.env.API_HOST ?? "127.0.0.1";
 const server = app.listen(PORT, HOST, () => {
-  console.log(`OpenTerminal API listening on http://${HOST}:${PORT}`);
+  console.log(`Parallax API listening on http://${HOST}:${PORT}`);
   // The first chart follows at once: TradingView's socket is opened now, not on its request.
   warmTradingView();
 });

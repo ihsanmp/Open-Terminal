@@ -240,7 +240,7 @@ export default function MoneyFlowWidget({ widget }: { widget: WidgetInstance }) 
                     <CartesianGrid stroke="#1c1c1c" vertical={false} />
                     <XAxis dataKey="t" stroke="#808080" fontSize={fontPx(9)} minTickGap={24} />
                     <YAxis yAxisId="flow" stroke="#808080" fontSize={fontPx(9)} tickFormatter={(v: number) => fmtBig(v)} width={52} />
-                    <YAxis yAxisId="net" orientation="right" stroke="#ff9900" fontSize={fontPx(9)} tickFormatter={(v: number) => fmtBig(v)} width={52} />
+                    <YAxis yAxisId="net" orientation="right" stroke="#38bdf8" fontSize={fontPx(9)} tickFormatter={(v: number) => fmtBig(v)} width={52} />
                     <Tooltip
                       contentStyle={{ background: "#111", border: "1px solid #262626", fontSize: fontPx(10) }}
                       labelStyle={{ color: "#808080" }}
@@ -249,7 +249,7 @@ export default function MoneyFlowWidget({ widget }: { widget: WidgetInstance }) 
                     <ReferenceLine yAxisId="flow" y={0} stroke="#404040" />
                     <Bar yAxisId="flow" dataKey="inflow" name="Inflow" fill={IN} stackId="f" isAnimationActive={false} />
                     <Bar yAxisId="flow" dataKey="outflow" name="Outflow" fill={OUT} stackId="f" isAnimationActive={false} />
-                    <Line yAxisId="net" dataKey="net" name="Net kumulatif" stroke="#ff9900" dot={false} strokeWidth={1.5} isAnimationActive={false} />
+                    <Line yAxisId="net" dataKey="net" name="Net kumulatif" stroke="#38bdf8" dot={false} strokeWidth={1.5} isAnimationActive={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>

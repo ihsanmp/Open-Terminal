@@ -213,7 +213,7 @@ async function listedTexts(now: number): Promise<Listed[]> {
   const items: Listed[] = [];
   for (const name of ["ne-speeches", "ne-testimony"]) {
     try {
-      const res = await fetch(`https://www.federalreserve.gov/json/${name}.json`, { headers: { "User-Agent": "Mozilla/5.0 (OpenTerminal)" }, signal: AbortSignal.timeout(30_000) });
+      const res = await fetch(`https://www.federalreserve.gov/json/${name}.json`, { headers: { "User-Agent": "Mozilla/5.0 (Parallax)" }, signal: AbortSignal.timeout(30_000) });
       if (res.ok) items.push(...(JSON.parse((await res.text()).replace(/^﻿/, "")) as Listed[]).filter((x) => x && x.d && x.s && x.l));
     } catch {
       /* the guesses below still try */
@@ -282,7 +282,7 @@ async function pdfText(bytes: ArrayBuffer): Promise<string | null> {
 async function fetchOfficial(urls: string[], kind: string): Promise<{ text: string; url: string } | null> {
   for (const url of urls) {
     try {
-      const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (OpenTerminal)" }, signal: AbortSignal.timeout(30_000) });
+      const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (Parallax)" }, signal: AbortSignal.timeout(30_000) });
       if (!res.ok) continue;
       const text = url.endsWith(".pdf") ? await pdfText(await res.arrayBuffer()) : kind === "statement" ? statementText(await res.text()) : articleText(await res.text());
       if (text) return { text, url };
@@ -600,7 +600,7 @@ export function gapsOf(now: number, fed: Row[], releases: Row[]): Row[] {
   return gaps;
 }
 
-export const README = `# Data berita OpenTerminal
+export const README = `# Data berita Parallax
 
 Folder ini diisi otomatis oleh aplikasi (server/src/newsdata/newsdata.ts) setiap 30 menit selama aplikasi
 berjalan, untuk semua rilis dan acara The Fed, ditonton atau tidak. Semua waktu dalam UTC, dengan kolom WIB.

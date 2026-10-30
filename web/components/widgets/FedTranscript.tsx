@@ -193,7 +193,7 @@ function UsageNote() {
   const { data } = useQuery({ queryKey: ["system-usage"], queryFn: () => apiGet<Usage>("/api/system/usage"), refetchInterval: 10_000 });
   if (!data) return null;
   return (
-    <span className="dim tabular-nums" title="Pemakaian proses server OpenTerminal (CPU dalam % satu core)">
+    <span className="dim tabular-nums" title="Pemakaian proses server Parallax (CPU dalam % satu core)">
       server RAM {data.rssMb} MB · CPU {fmt(data.cpuPct, 0)}%{data.faceWorker ? " · model wajah dimuat" : ""}
     </span>
   );

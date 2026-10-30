@@ -183,7 +183,7 @@ export default function BondsWidget() {
                   formatter={(v: number) => `${fmt(v, 3)}%`}
                 />
                 <Legend wrapperStyle={{ fontSize: fontPx(10) }} />
-                <Line name="Sekarang" type="monotone" dataKey="now" stroke="#ff9900" strokeWidth={1.8} dot={{ r: 2 }} isAnimationActive={false} />
+                <Line name="Sekarang" type="monotone" dataKey="now" stroke="#38bdf8" strokeWidth={1.8} dot={{ r: 2 }} isAnimationActive={false} />
                 <Line name={`Awal ${period}`} type="monotone" dataKey="then" stroke="#5b9cf6" strokeWidth={1.2} strokeDasharray="4 3" dot={{ r: 1.5 }} isAnimationActive={false} connectNulls />
               </LineChart>
             </ResponsiveContainer>

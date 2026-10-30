@@ -60,7 +60,7 @@ export default function NotifyPanel() {
         {test.error && <span className="down text-fs-10">{(test.error as Error).message}</span>}
       </div>
       <div className="dim text-fs-10">
-        Tidak muncul? Cek Settings Windows → System → Notifications: OpenTerminal (atau Windows PowerShell bila aplikasi dijalankan tanpa installer) harus On, dan
+        Tidak muncul? Cek Settings Windows → System → Notifications: Parallax (atau Windows PowerShell bila aplikasi dijalankan tanpa installer) harus On, dan
         Do not disturb mati.
       </div>
       <div>

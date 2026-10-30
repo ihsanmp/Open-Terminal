@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useStatus } from "../lib/status";
 import { useTerminal } from "../store/terminal";
 import TabBar, { openTabWindow } from "./TabBar";
+import { Logo } from "./Logo";
 
 const CLOCKS = [
   { tz: "America/New_York", label: "NY" },
@@ -53,7 +54,10 @@ export default function TopBar() {
 
   return (
     <header className="flex items-center gap-4 px-3 h-8 whitespace-nowrap bg-[var(--panel-2)] border-b border-[var(--border)] text-fs-11 shrink-0 portrait:flex-wrap portrait:h-auto portrait:min-h-8 portrait:py-1 portrait:gap-x-3 portrait:gap-y-1">
-      <span className="amber font-bold tracking-widest shrink-0">OPENTERMINAL</span>
+      <span className="amber font-bold tracking-widest shrink-0 flex items-center gap-1.5">
+        <Logo size={14} />
+        PARALLAX
+      </span>
       <span className={`shrink-0 ${market.open ? "up" : "down"}`}>● {market.label}</span>
       <Clocks />
       {/* The tabs, then "+" for another, left of "⧉ Window". A click on the tab in view changes its

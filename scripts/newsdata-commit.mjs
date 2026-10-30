@@ -14,7 +14,7 @@ const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
 const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 
 if (!existsSync(join(repo, "data", "newsdata", "releases.csv"))) {
-  console.log("lewati: data/newsdata belum ada (OpenTerminal belum pernah dibuka sejak fitur ini)");
+  console.log("lewati: data/newsdata belum ada (Parallax belum pernah dibuka sejak fitur ini)");
   process.exit(0);
 }
 const gitDir = git("rev-parse", "--git-dir");

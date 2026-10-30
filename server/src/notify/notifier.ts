@@ -240,7 +240,7 @@ async function send(kind: Kind | "test", key: string | null, title: string, line
   return entry;
 }
 
-export const sendTest = () => send("test", null, "Notifikasi OpenTerminal aktif", ["Siaran The Fed, pengingat rilis, H-30, hasil rilis dan reaksi 5 menit akan muncul seperti ini."]);
+export const sendTest = () => send("test", null, "Notifikasi Parallax aktif", ["Siaran The Fed, pengingat rilis, H-30, hasil rilis dan reaksi 5 menit akan muncul seperti ini."]);
 
 // ---------------------------------------------------------------- the watch
 

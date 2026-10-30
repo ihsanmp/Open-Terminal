@@ -4,8 +4,10 @@
 param([switch]$RemoveAppData)
 
 foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {
-  $lnk = Join-Path $folder 'OpenTerminal.lnk'
-  if (Test-Path $lnk) { Remove-Item $lnk; Write-Host "Removed $lnk" }
+  foreach ($name in @('Parallax.lnk', 'OpenTerminal.lnk')) {
+    $lnk = Join-Path $folder $name
+    if (Test-Path $lnk) { Remove-Item $lnk; Write-Host "Removed $lnk" }
+  }
 }
 
 try {

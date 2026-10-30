@@ -28,7 +28,7 @@ const REFRESH_MS = 12 * 3_600_000;
 const RETRY_MS = 3_600_000;
 const supplyFile = join(dataDir, "btc-supply-pl.json");
 
-const defaultFetch: Fetch = (url) => fetch(url, { signal: AbortSignal.timeout(60_000), headers: { "User-Agent": "OpenTerminal" } });
+const defaultFetch: Fetch = (url) => fetch(url, { signal: AbortSignal.timeout(60_000), headers: { "User-Agent": "Parallax" } });
 
 function readSupplyFile(): SupplyFile {
   try {

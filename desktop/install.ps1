@@ -34,12 +34,15 @@ $taskbar = $false
 try { Add-Type -TypeDefinition (Get-Content -Raw (Join-Path $PSScriptRoot 'Taskbar.cs')) -Language CSharp; $taskbar = $true } catch {}
 $shell = New-Object -ComObject WScript.Shell
 foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {
-  $shortcut = $shell.CreateShortcut((Join-Path $folder 'OpenTerminal.lnk'))
+  # Parallax was OpenTerminal: the old shortcut goes.
+  $old = Join-Path $folder 'OpenTerminal.lnk'
+  if (Test-Path $old) { Remove-Item $old }
+  $shortcut = $shell.CreateShortcut((Join-Path $folder 'Parallax.lnk'))
   $shortcut.TargetPath = Join-Path $env:WINDIR 'System32\wscript.exe'
   $shortcut.Arguments = "`"$(Join-Path $PSScriptRoot 'OpenTerminal.vbs')`""
   $shortcut.WorkingDirectory = $Root
   $shortcut.IconLocation = "$(Join-Path $PSScriptRoot 'icon.ico'),0"
-  $shortcut.Description = 'OpenTerminal market terminal'
+  $shortcut.Description = 'Parallax market terminal'
   $shortcut.Save()
   if ($taskbar) { [void][OpenTerminal.Taskbar]::SetShortcutAppId($shortcut.FullName, $AppId) }
   Write-Host "    $($shortcut.FullName)"
@@ -49,4 +52,4 @@ if ($taskbar) {
 }
 
 Write-Host ''
-Write-Host 'Done. Open "OpenTerminal" from your Desktop or Start Menu.'
+Write-Host 'Done. Open "Parallax" from your Desktop or Start Menu.'

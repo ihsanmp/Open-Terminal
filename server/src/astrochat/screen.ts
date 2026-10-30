@@ -1,5 +1,5 @@
 // What the app shows, for the Astro chat to look at when asked about the screen: a picture of the
-// app's own window (the browser window the launcher opens, titled "… — OpenTerminal"), never the
+// app's own window (the browser window the launcher opens, titled "… — Parallax"), never the
 // rest of the desktop. Taken on Windows with PrintWindow, which draws the window's content even
 // when another window covers it (not while it's minimized). Scaled to at most 1600 px wide, the
 // size Claude reads an image at, and kept only as the last few in data/astro-chat/screens.
@@ -16,7 +16,7 @@ const MAX_WIDTH = 1600;
 export const screenSupported = () => process.platform === "win32";
 
 /**
- * The PowerShell: the top-most visible window whose title ends with "OpenTerminal" (the one titled
+ * The PowerShell: the top-most visible window whose title ends with "Parallax" (or "OpenTerminal", its old name; the one titled
  * exactly as asked, when there is one), drawn into a PNG. Prints "width height" when done ("none",
  * "minimized" when there's no window to draw). With -Serve it stays on, ready: it prints "ready",
  * then takes one picture per line it reads (the title and the file, each base64 of UTF-8, a tab
@@ -47,7 +47,7 @@ public static class OtCapture {
       var sb = new StringBuilder(512);
       GetWindowText(h, sb, 512);
       var t = sb.ToString();
-      if (t.EndsWith("OpenTerminal")) found.Add(new KeyValuePair<IntPtr, string>(h, t));
+      if (t.EndsWith("Parallax") || t.EndsWith("OpenTerminal")) found.Add(new KeyValuePair<IntPtr, string>(h, t));
       return true;
     }, IntPtr.Zero);
     foreach (var w in found) if (title.Length > 0 && w.Value == title && !IsIconic(w.Key)) return w.Key;

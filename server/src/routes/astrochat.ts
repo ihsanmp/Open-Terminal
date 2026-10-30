@@ -82,7 +82,7 @@ const WHY_NO_PICTURE: Record<ScreenResult["reason"], string> = {
 function screenSection(screen: Record<string, unknown>, shot: ScreenResult | null): string {
   const pic = shot?.screen ? "terlampir" : `tidak ada (${WHY_NO_PICTURE[shot?.reason ?? "failed"] ?? "pengambilan gambar gagal"}); pakai teks di bawah`;
   return [
-    `Jendela: ${text(screen.title, 300) || "OpenTerminal"}`,
+    `Jendela: ${text(screen.title, 300) || "Parallax"}`,
     `Gambar: ${pic}`,
     screen.chart ? `KEADAAN CHART (persis dari aplikasi):\n${text(screen.chart, 4000)}` : "",
     screen.text ? `TEKS YANG TAMPIL (dibaca dari halaman):\n${text(screen.text, 12_000)}` : "",
