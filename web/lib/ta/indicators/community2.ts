@@ -10,6 +10,7 @@
 // - Bollinger Bands Percentile + Stdev Channels (BBPct) (© Algoalpha X © Sushiboi77, MPL-2.0, Pine v5)
 // - Caspers Mastermind Supertrend v2           (© Caspers_Mastermind, MPL-2.0, Pine v6)
 // - Cosine-Weighted MA ATR                     (© InvestorUnknown, MPL-2.0, Pine v6)
+// - DEMA Flow [Alpha Extract]                  (© AlphaExtract, MPL-2.0, Pine v6)
 
 import * as ta from "../core";
 import { type Bars, type Series } from "../core";
@@ -821,3 +822,81 @@ community2.push({
   plots: [{ key: "dbhf", title: "DBHF", color: "#33ff00", width: 4 }],
   compute: (bars, p) => deadbandHysteresis(bars, p),
 });
+
+// DEMA Flow [Alpha Extract] — © AlphaExtract, MPL-2.0, Pine v6
+// (tradingview.com/script/En4W9675-DEMA-Flow-Alpha-Extract). The DEMA of the close (2·EMA −
+// EMA of the EMA), smoothed by the median of its last few values; ATR bands around it, wider above
+// (2.1 ATR) than below (1.5). A close above the upper band turns the flow bullish, one below the
+// lower band bearish, and it stays so until the other band is crossed; the line and the candles take
+// its color (gray before the first break). The script's "Show ATR Bands" and "Show Trend Labels"
+// inputs draw nothing there; here they draw the bands and the turns, off by default so the chart
+// looks as it does on TradingView.
+const DF_BULL = "#00ff88";
+const DF_BEAR = "#ff0066";
+const DF_NEUTRAL = colorNew("#888888", 50);
+
+community2.push({
+  id: "dema-flow-alpha-extract",
+  name: "DEMA Flow [Alpha Extract]",
+  short: "DEMA Flow",
+  category: "Community",
+  overlay: true,
+  description: "Alpha Extract: DEMA yang dihaluskan median, dengan pita ATR asimetris (2,1 di atas, 1,5 di bawah). Close menembus pita atas = flow bullish, menembus pita bawah = bearish, bertahan sampai pita seberang ditembus; garis dan candle ikut berwarna.",
+  aliases: ["DEMA Flow", "Alpha Extract", "AlphaExtract", "DEMA Trend"],
+  legendInputs: ["demaLength", "hlFilterLength"],
+  inputs: [
+    int("demaLength", "DEMA Length", 23, 5, 100),
+    int("hlFilterLength", "HL Median Filter Length", 4, 3, 15),
+    int("atrLength", "ATR Length", 14, 5, 50),
+    float("upperAtrMult", "Upper ATR Multiplier", 2.1, 0.1, 0.5, 5),
+    float("lowerAtrMult", "Lower ATR Multiplier", 1.5, 0.1, 0.5, 5),
+    bool("showBands", "Show ATR Bands", false),
+    bool("showLabels", "Show Trend Labels", false),
+    bool("colorCandles", "Color candles by trend", true),
+  ],
+  plots: [
+    { key: "trend", title: "Smooth DEMA Trend", color: DF_BULL, width: 2 },
+    { key: "upper", title: "Upper ATR Band", color: colorNew(DF_BEAR, 60), width: 1 },
+    { key: "lower", title: "Lower ATR Band", color: colorNew(DF_BULL, 60), width: 1 },
+  ],
+  compute: (bars, p) => demaFlow(bars, p),
+});
+
+/** hlMedian(): the median of the last `len` values, from the bar it has them all (na before, or with an na among them). */
+export function rollingMedian(x: Series, len: number): Series {
+  return x.map((_, i) => {
+    if (i < len - 1) return NaN;
+    const w = x.slice(i - len + 1, i + 1);
+    if (w.some((v) => !Number.isFinite(v))) return NaN;
+    w.sort((a, b) => a - b);
+    return len % 2 === 1 ? w[(len - 1) / 2] : (w[len / 2 - 1] + w[len / 2]) / 2;
+  });
+}
+
+export function demaFlow(bars: Bars, p: Params): IndicatorResult {
+  const smooth = rollingMedian(ta.dema(bars.close, n(p, "demaLength")), n(p, "hlFilterLength"));
+  const atr = ta.atr(bars, n(p, "atrLength"));
+  const upper = smooth.map((m, i) => m + n(p, "upperAtrMult") * atr[i]);
+  const lower = smooth.map((m, i) => m - n(p, "lowerAtrMult") * atr[i]);
+  // `var trendSignal`: 1 after a close above the upper band, -1 after one below the lower band.
+  const trend = new Array<number>(bars.close.length).fill(0);
+  const markers: Marker[] = [];
+  for (let i = 0; i < bars.close.length; i++) {
+    let t = i > 0 ? trend[i - 1] : 0;
+    if (bars.close[i] > upper[i]) t = 1;
+    if (bars.close[i] < lower[i]) t = -1;
+    trend[i] = t;
+    // The script's alerts (ta.crossover / crossunder of the state through 0), as markers.
+    if (b(p, "showLabels") && i > 0 && t !== trend[i - 1]) {
+      if (t === 1) markers.push({ index: i, position: "belowBar", shape: "arrowUp", color: DF_BULL, text: "Bullish" });
+      else if (t === -1) markers.push({ index: i, position: "aboveBar", shape: "arrowDown", color: DF_BEAR, text: "Bearish" });
+    }
+  }
+  const color = trend.map((t) => (t === 1 ? DF_BULL : t === -1 ? DF_BEAR : DF_NEUTRAL));
+  return {
+    plots: { trend: smooth, ...(b(p, "showBands") ? { upper, lower } : {}) },
+    colors: { trend: color },
+    barColors: b(p, "colorCandles") ? color : undefined,
+    markers,
+  };
+}
