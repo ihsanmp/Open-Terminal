@@ -76,7 +76,7 @@ export default function Sidebar() {
               onClick={() => toggle(g.id)}
               title={g.tagline || undefined}
               aria-expanded={open}
-              className={`w-full flex items-start gap-1 text-left px-2 pt-2 pb-1 text-fs-9 font-bold tracking-wide uppercase leading-tight portrait:hidden ${holdsCurrent ? "text-[#f0c040]" : "text-[#7f93b8] hover:text-[#a9b8d6]"}`}
+              className={`w-full flex items-start gap-1 text-left px-2 pt-2 pb-1 text-fs-9 font-bold tracking-wide uppercase leading-tight portrait:hidden ${holdsCurrent ? "text-[var(--amber)]" : "text-[#7f93b8] hover:text-[#a9b8d6]"}`}
             >
               <span className="w-2.5 shrink-0 dim">{open ? "▾" : "▸"}</span>
               <span>{g.label}</span>
