@@ -42,6 +42,7 @@ import * as macroengine from "../providers/macroengine.js";
 import * as reactions from "../providers/reactions.js";
 import * as newsimpact from "../providers/newsimpact.js";
 import * as fomcscenarios from "../providers/fomcscenarios.js";
+import { newsDataStatus, runNewsData } from "../newsdata/newsdata.js";
 import * as nowcast from "../providers/nowcast.js";
 import * as fundingrates from "../providers/fundingrates.js";
 import { asPairBars, asPairTrade, fxFutureOf } from "../providers/fxfutures.js";
@@ -733,6 +734,19 @@ marketRouter.get("/macro/impact", async (req, res) => {
 
 // The Fed's decision as scenarios: past meetings sorted by how the market read them (the 2-year
 // yield after the statement), and what the other markets did then (providers/fomcscenarios.ts).
+// The news data kept as CSV (newsdata/newsdata.ts): what's there, what's missing; and a pass now.
+marketRouter.get("/newsdata", (_req, res) => {
+  res.json(newsDataStatus());
+});
+marketRouter.post("/newsdata/run", async (req, res) => {
+  try {
+    await runNewsData();
+    res.json(newsDataStatus());
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
 marketRouter.get("/macro/fomc-scenarios", async (req, res) => {
   try {
     res.json(await cached("macro:fomc-scenarios", 30 * 60_000, () => fomcscenarios.fomcScenarios()));

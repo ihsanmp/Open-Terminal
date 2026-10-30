@@ -10,6 +10,7 @@ import EnginePanel from "./EnginePanel";
 import ReactionsPanel from "./ReactionsPanel";
 import ImpactPanel from "./ImpactPanel";
 import NotifyPanel from "./NotifyPanel";
+import NewsDataPanel from "./NewsDataPanel";
 import QuantPanel from "./QuantPanel";
 import { SentimentBar, TranscriptPanel, useFedTranscript } from "./FedTranscript";
 import { FedWatchCard, FedWatchStrip } from "./FedWatchCard";
@@ -206,7 +207,7 @@ function FedPanel() {
   const now = useNow();
   const [picked, setPicked] = useState<string | null>(null);
   const [showStats, setShowStats] = useWidgetSetting("fedShowStats", false);
-  const [side, setSide] = useWidgetSetting<"schedule" | "nowcast" | "transcript" | "fedwatch" | "reactions" | "impact" | "quant" | "notify">("fedSide", "schedule");
+  const [side, setSide] = useWidgetSetting<"schedule" | "nowcast" | "transcript" | "fedwatch" | "reactions" | "impact" | "quant" | "notify" | "data">("fedSide", "schedule");
   const live = data?.live ?? [];
   // A pasted link plays instead of the Fed until cleared.
   const [custom, setCustom] = useWidgetSetting<string | null>("fedCustomVideo", null);
@@ -363,6 +364,9 @@ function FedPanel() {
           <button className={side === "notify" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("notify")} title="Notifikasi Windows: siaran The Fed live, H-30, hasil rilis, reaksi 5 menit" aria-label="Notifikasi">
             <Icon name="bell" />
           </button>
+          <button className={side === "data" ? "font-bold text-[#ef5350]" : "dim hover:text-[var(--text)]"} onClick={() => setSide("data")} title="Data berita yang disimpan sebagai CSV: semua rilis dan acara The Fed, ditonton atau tidak, dan yang masih kurang">
+            Data
+          </button>
           {side === "schedule" && (
             <label className="ml-auto flex items-center gap-1 dim cursor-pointer">
               <input type="checkbox" checked={showStats} onChange={(e) => setShowStats(e.target.checked)} /> rilis data
@@ -376,6 +380,10 @@ function FedPanel() {
         ) : side === "notify" ? (
           <div className="overflow-auto flex-1 min-h-0">
             <NotifyPanel />
+          </div>
+        ) : side === "data" ? (
+          <div className="overflow-auto flex-1 min-h-0">
+            <NewsDataPanel />
           </div>
         ) : side === "impact" ? (
           <div className="overflow-auto flex-1 min-h-0">

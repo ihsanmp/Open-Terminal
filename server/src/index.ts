@@ -18,6 +18,7 @@ import { startQuantForecasts } from "./quant/service.js";
 import { socialRouter } from "./routes/social.js";
 import { startEngineWatch } from "./providers/macroengine.js";
 import { startNotifier } from "./notify/notifier.js";
+import { startNewsData } from "./newsdata/newsdata.js";
 import { warm as warmTradingView } from "./providers/tvchart.js";
 import { notifyRouter } from "./routes/notify.js";
 import { latestFedSentiment } from "./providers/fedtranscript.js";
@@ -100,6 +101,7 @@ startSocialCollector();
 startQuantForecasts();
 // Windows notifications: a Fed broadcast going live, H-30, a release's result and its first five minutes.
 startNotifier();
+startNewsData();
 // The macro engine keeps its band from 30 minutes before each release, and the news-impact read
 // its H-30 conclusion, without anyone looking; both are scored after the release.
 startEngineWatch(latestFedSentiment, (engine, inputs) => impact(inputs, engine));
