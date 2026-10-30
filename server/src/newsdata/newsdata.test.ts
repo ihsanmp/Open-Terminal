@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mergeRows, parseCsv, toCsv } from "./csv.js";
-import { finishFed, gapsOf, heardOf, kindOf, readText, rejectReason, sameEvent, statementText } from "./newsdata.js";
+import { articleText, finishFed, gapsOf, heardOf, kindOf, officialUrls, readText, rejectReason, sameEvent, statementText, surnameOf } from "./newsdata.js";
 
 describe("the CSV", () => {
   it("reads back what it writes, commas, quotes and line breaks included", () => {
@@ -83,5 +83,40 @@ describe("the inbox", () => {
     expect(sameEvent("FOMC Press Conference", "Transcript of Chair's FOMC Press Conference")).toBe(true);
     expect(sameEvent("Speech - Governor Waller on the Economic Outlook", "Waller, Economic Outlook")).toBe(true);
     expect(sameEvent("FOMC Press Conference", "Speech - Governor Waller")).toBe(false);
+  });
+});
+
+describe("the app's own search for official texts", () => {
+  it("knows where the Board puts each text, by the US Eastern date", () => {
+    const at = (iso: string) => iso;
+    expect(officialUrls({ kind: "press_conference", title: "FOMC Press Conference", date_utc: at("2026-10-28T18:30:00Z") }, [])).toEqual([
+      "https://www.federalreserve.gov/mediacenter/files/FOMCpresconf20261028.pdf",
+    ]);
+    // 00:25 WIB on 29 Sep is the 28th in Washington.
+    expect(officialUrls({ kind: "speech", title: "Speech - Governor Lisa D. Cook", date_utc: at("2026-09-28T17:25:00Z") }, [])[0]).toBe("https://www.federalreserve.gov/newsevents/speech/cook20260928a.htm");
+    expect(officialUrls({ kind: "minutes", title: "FOMC Minutes", date_utc: at("2026-10-07T18:00:00Z") }, ["2026-09-16T18:00:00.000Z", "2026-07-29T18:00:00.000Z"])).toEqual([
+      "https://www.federalreserve.gov/monetarypolicy/fomcminutes20260916.htm",
+    ]);
+    expect(surnameOf("Speech - Vice Chair for Supervision Michelle W. Bowman")).toBe("bowman");
+  });
+
+  it("takes a speech's text from its page, without the heading", () => {
+    const body = "Thank you for having me. ".repeat(30);
+    const text = articleText(`<div id="article"><p>October 01, 2026</p><h3>Title</h3><p>Governor X</p><p>Share</p><p>Watch Live</p><p>${body}</p><p>Last Update: October 1</p></div>`)!;
+    expect(text.startsWith("Thank you")).toBe(true);
+    expect(text).not.toMatch(/Last Update|Watch Live/);
+  });
+
+  it("leaves to the search only what the app looked for twice and didn't find, and never a Discussion", () => {
+    const T = Date.UTC(2026, 9, 1, 14);
+    const row = (title: string, tries: string) => ({ key: title, kind: "speech", date_utc: new Date(T).toISOString(), date_wib: "", title, coverage: "none", app_tries: tries, expected_minutes: "45", live_minutes: "" });
+    const gaps = gapsOf(T + 86_400_000, [row("Speech - Governor A B", "1"), row("Speech - Governor C D", "2"), row("Discussion - Governor E F", "3")], []);
+    expect(gaps.map((g) => g.claude_ready)).toEqual(["no", "yes", "no"]);
+  });
+
+  it("keeps a row's time when nothing in it changed (the files are committed daily)", () => {
+    const old = [{ key: "a", v: "1", updated_at: "then" }];
+    expect(mergeRows(old, [{ key: "a", v: "1", updated_at: "now" }], "key")[0].updated_at).toBe("then");
+    expect(mergeRows(old, [{ key: "a", v: "2", updated_at: "now" }], "key")[0].updated_at).toBe("now");
   });
 });

@@ -37,9 +37,9 @@ export const COLUMNS = {
     "key", "date_utc", "date_wib", "type", "kind", "title", "location",
     "live_from_utc", "live_to_utc", "live_minutes", "expected_minutes", "coverage", "live_lines", "live_hawkish", "live_dovish", "live_index", "live_file",
     "official_kind", "official_source", "official_url", "official_words", "official_hawkish", "official_dovish", "official_index", "official_file",
-    "index", "stance", "index_from", "updated_at",
+    "index", "stance", "index_from", "app_tries", "updated_at",
   ],
-  gaps: ["key", "kind", "date_utc", "date_wib", "title", "type", "missing", "hint", "since"],
+  gaps: ["key", "kind", "date_utc", "date_wib", "title", "type", "missing", "hint", "app_tries", "claude_ready", "since"],
 } as const;
 
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -157,17 +157,117 @@ export function statementText(html: string): string | null {
   return text.length > 200 ? text : null;
 }
 
-async function fetchStatement(dayIso: string): Promise<{ text: string; url: string } | null> {
-  const url = `https://www.federalreserve.gov/newsevents/pressreleases/monetary${dayIso.replace(/-/g, "")}a.htm`;
-  try {
-    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (OpenTerminal)" }, signal: AbortSignal.timeout(20_000) });
-    if (!res.ok) return null;
-    const text = statementText(await res.text());
-    return text ? { text, url } : null;
-  } catch {
-    return null;
+/**
+ * A speech's, testimony's or minutes' text on federalreserve.gov: the article after its heading
+ * (title, speaker, venue, "Share") to the end of the page's text.
+ */
+export function articleText(html: string): string | null {
+  const i = html.indexOf('id="article"');
+  if (i < 0) return null;
+  const lines = html
+    .slice(i)
+    .replace(/<script[\s\S]*?<\/script>/g, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<\/(p|div|h\d|li|tr)>/g, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;|&#160;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&#39;|&rsquo;|&lsquo;/g, "'")
+    .replace(/&ldquo;|&rdquo;|&quot;/g, '"')
+    .replace(/&mdash;/g, "—")
+    .replace(/[ \t]+/g, " ")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const share = lines.findIndex((l) => l === "Share");
+  let from = share >= 0 ? share + 1 : 1;
+  while (from < lines.length && /^Watch (Live|Video)$|^Accessible Version|^PDF$/i.test(lines[from])) from++;
+  const to = lines.findIndex((l, k) => k > from && /^(Last Update|Back to Top)/.test(l));
+  const text = lines.slice(from, to > from ? to : undefined).join("\n\n");
+  return text.split(/\s+/).length >= 80 ? text : null;
+}
+
+/** The US Eastern date of a moment, as the Board names its pages (yyyymmdd). */
+export function easternDay(ms: number): string {
+  const p = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
+  return p.replace(/-/g, "");
+}
+
+/** The speaker's surname in a calendar title ("Speech - Vice Chair for Supervision Michelle W. Bowman" → "bowman"). */
+export const surnameOf = (title: string) => (title.split(/[,(]/)[0].trim().split(/\s+/).at(-1) ?? "").toLowerCase().replace(/[^a-z]/g, "");
+
+/**
+ * Where the Board puts an event's official text, best guess first: the statement's press release,
+ * the press conference's PDF transcript, the minutes (of the meeting two to four weeks before), a
+ * speech's or a testimony's page (surname and Eastern date, "a" then "b" for a second one that day).
+ */
+export function officialUrls(r: Row, statements: string[]): string[] {
+  const base = "https://www.federalreserve.gov";
+  const at = Date.parse(r.date_utc);
+  const day = easternDay(at);
+  switch (r.kind) {
+    case "statement":
+      return [`${base}/newsevents/pressreleases/monetary${day}a.htm`];
+    case "press_conference":
+      return [`${base}/mediacenter/files/FOMCpresconf${day}.pdf`];
+    case "minutes": {
+      const meeting = statements.map((d) => Date.parse(d)).filter((m) => at - m > 13 * 86_400_000 && at - m < 30 * 86_400_000).sort((a, b) => b - a)[0];
+      return meeting ? [`${base}/monetarypolicy/fomcminutes${easternDay(meeting)}.htm`] : [];
+    }
+    case "testimony":
+    case "speech": {
+      const who = surnameOf(r.title);
+      if (!who) return [];
+      const kind = r.kind === "testimony" ? "testimony" : "speech";
+      return [`${base}/newsevents/${kind}/${who}${day}a.htm`, `${base}/newsevents/${kind}/${who}${day}b.htm`];
+    }
+    default:
+      return [];
   }
 }
+
+/** The pdftotext that ships with Git for Windows, or one on the PATH. */
+function pdftotext(): string {
+  const git = "C:\\Program Files\\Git\\mingw64\\bin\\pdftotext.exe";
+  return existsSync(git) ? git : "pdftotext";
+}
+
+async function pdfText(bytes: ArrayBuffer): Promise<string | null> {
+  const { execFile } = await import("node:child_process");
+  const { tmpdir } = await import("node:os");
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const dir = mkdtempSync(join(tmpdir(), "ot-pdf-"));
+  try {
+    writeFileSync(join(dir, "in.pdf"), Buffer.from(bytes));
+    await new Promise<void>((ok, fail) => execFile(pdftotext(), ["-layout", join(dir, "in.pdf"), join(dir, "out.txt")], { timeout: 60_000 }, (err) => (err ? fail(err) : ok())));
+    const text = readFileSync(join(dir, "out.txt"), "utf8").replace(/\f/g, "\n");
+    return text.split(/\s+/).length >= 80 ? text : null;
+  } catch {
+    return null;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** The first of the official URLs that answers with a text. */
+async function fetchOfficial(urls: string[], kind: string): Promise<{ text: string; url: string } | null> {
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (OpenTerminal)" }, signal: AbortSignal.timeout(30_000) });
+      if (!res.ok) continue;
+      const text = url.endsWith(".pdf") ? await pdfText(await res.arrayBuffer()) : kind === "statement" ? statementText(await res.text()) : articleText(await res.text());
+      if (text) return { text, url };
+    } catch {
+      /* the next guess */
+    }
+  }
+  return null;
+}
+
+/** How long after an event its text is usually up, and how often to look again until it is. */
+const TEXT_AFTER: Record<string, number> = { statement: 10 * 60_000, minutes: 10 * 60_000, speech: 30 * 60_000, testimony: 60 * 60_000, press_conference: 3 * 3_600_000 };
+const RETRY_MS = 6 * 3_600_000;
+const tried = new Map<string, number>();
 
 function saveText(name: string, text: string): string {
   mkdirSync(TEXTS, { recursive: true });
@@ -179,6 +279,7 @@ function saveText(name: string, text: string): string {
 async function collectFed(now: number, calendar: FedEvent[]): Promise<Row[]> {
   const old = new Map(readRows("fed").map((r) => [r.key, r]));
   const transcripts = savedTranscripts();
+  const statements = calendar.filter((e) => /^FOMC Meeting/i.test(e.title) && !e.allDay).map((e) => e.start);
   const rows: Row[] = [];
   for (const e of calendar) {
     const at = Date.parse(e.start);
@@ -205,13 +306,17 @@ async function collectFed(now: number, calendar: FedEvent[]): Promise<Row[]> {
         });
       }
     }
-    // The FOMC statement, from the Board's own page.
-    if (kind === "statement" && !was?.official_file && now - at > 10 * 60_000) {
-      const s = await fetchStatement(e.start.slice(0, 10));
+    // The official text, from the Board's own pages: the app looks itself, every six hours until
+    // it's there, and the search is left only what it can't find.
+    const due = TEXT_AFTER[kind];
+    if (due !== undefined && !was?.official_file && now - at > due && now - (tried.get(key) ?? 0) > RETRY_MS) {
+      tried.set(key, now);
+      row.app_tries = String(Number(was?.app_tries || 0) + 1);
+      const s = await fetchOfficial(officialUrls(row, statements), kind);
       if (s) {
         const r = readText(s.text);
         Object.assign(row, {
-          official_kind: "statement",
+          official_kind: kind,
           official_source: "federalreserve.gov (app)",
           official_url: s.url,
           official_words: String(r.words),
@@ -441,11 +546,27 @@ export function gapsOf(now: number, fed: Row[], releases: Row[]): Row[] {
         : r.kind === "statement"
           ? `https://www.federalreserve.gov/newsevents/pressreleases/monetary${r.date_utc.slice(0, 10).replace(/-/g, "")}a.htm`
           : "https://www.federalreserve.gov/newsevents/speeches.htm";
-    gaps.push({ key: r.key, kind: "fed_text", date_utc: r.date_utc, date_wib: r.date_wib, title: r.title, type: r.kind, missing: r.coverage === "partial" ? `${missing}; siaran hanya terdengar ${r.live_minutes} dari ±${r.expected_minutes} menit` : missing, hint, since: iso(now) });
+    // The search only gets what the app has looked for twice (six hours apart) and not found; a
+    // "Discussion" (a moderated conversation) seldom has a text, so it isn't searched for.
+    const tries = Number(r.app_tries || 0);
+    const ready = /^Discussion/i.test(r.title) ? "no" : tries >= 2 || officialUrls(r, []).length === 0 ? "yes" : "no";
+    gaps.push({
+      key: r.key,
+      kind: "fed_text",
+      date_utc: r.date_utc,
+      date_wib: r.date_wib,
+      title: r.title,
+      type: r.kind,
+      missing: `${/^Discussion/i.test(r.title) ? "teks (acara diskusi biasanya tanpa teks)" : missing}${r.coverage === "partial" ? `; siaran hanya terdengar ${r.live_minutes} dari ±${r.expected_minutes} menit` : ""}`,
+      hint,
+      app_tries: String(tries),
+      claude_ready: ready,
+      since: iso(now),
+    });
   }
   for (const r of releases) {
     if (r.actual || now - Date.parse(r.date_utc) < 3 * 3_600_000 || now - Date.parse(r.date_utc) > 60 * 86_400_000) continue;
-    gaps.push({ key: r.key, kind: "release", date_utc: r.date_utc, date_wib: r.date_wib, title: r.title, type: r.target, missing: "angka aktual rilis", hint: "situs resmi penerbit data (BLS, BEA, ISM, Departemen Tenaga Kerja)", since: iso(now) });
+    gaps.push({ key: r.key, kind: "release", date_utc: r.date_utc, date_wib: r.date_wib, title: r.title, type: r.target, missing: "angka aktual rilis", hint: "situs resmi penerbit data (BLS, BEA, ISM, Departemen Tenaga Kerja)", app_tries: "", claude_ready: "yes", since: iso(now) });
   }
   return gaps;
 }
@@ -463,6 +584,12 @@ berjalan, untuk semua rilis dan acara The Fed, ditonton atau tidak. Semua waktu 
 | gaps.csv | Yang masih kurang: dicari oleh tugas terjadwal Claude |
 | texts/ | Transkrip live dan teks resmi |
 | inbox/ | Hasil pencarian Claude, dibaca aplikasi lalu dipindah ke inbox/done/ atau inbox/rejected/ |
+
+Folder ini ikut di-commit ke GitHub sekali sehari (kecuali inbox/) oleh tugas terjadwal Claude.
+
+Teks resmi The Fed (pernyataan FOMC, transkrip konferensi pers, pidato, kesaksian, risalah) dicari aplikasi
+sendiri di federalreserve.gov tiap 6 jam sampai ketemu (kolom app_tries). Yang tetap tidak ketemu setelah dua
+kali dicoba ditandai claude_ready=yes di gaps.csv: hanya itu yang dicari Claude.
 
 Kolom \`source\` / \`official_source\` selalu menyebut asal datanya: "(app)" diambil aplikasi sendiri, "(web)"
 dicari Claude di internet. Data dari internet tidak pernah menimpa data aplikasi.
@@ -527,7 +654,9 @@ export async function runNewsData(now = Date.now()): Promise<void> {
       writeRows("fed", fedRows);
       writeRows("releases", [...releases.values()]);
       writeRows("reactions", mergeRows(readRows("reactions"), [...moves, ...fedMoves], "key"));
-      writeRows("gaps", gapsOf(now, fedRows, [...releases.values()]));
+      // A gap keeps the moment it was first seen.
+      const seen = new Map(readRows("gaps").map((g) => [g.key, g.since]));
+      writeRows("gaps", gapsOf(now, fedRows, [...releases.values()]).map((g) => ({ ...g, since: seen.get(g.key) || g.since })));
       last = { at: now, error: null, ...inbox };
     } catch (err) {
       last = { at: now, error: err instanceof Error ? err.message : String(err), taken: 0, rejected: 0 };

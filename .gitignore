@@ -20,7 +20,7 @@ data/.build-*
 data/.installed-lock
 data/workspace*.json
 data/cache/
-data/newsdata/
+data/newsdata/inbox/
 data/btc-heights.json
 data/btc-supply-pl.json
 data/btc-whales.json

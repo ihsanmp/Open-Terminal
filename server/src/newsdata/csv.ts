@@ -45,13 +45,20 @@ export function parseCsv(text: string): Row[] {
 /**
  * The rows by key, the new over the old field by field: a field the new row leaves empty keeps
  * what was there (a broadcast's live transcript may be gone by the time its official text comes).
+ * A row nothing changed in keeps its old `updated_at`, so the files only change where the data
+ * does (they're committed to git every day).
  */
 export function mergeRows(old: Row[], fresh: Row[], key: string): Row[] {
   const byKey = new Map(old.map((r) => [r[key], r]));
   for (const r of fresh) {
     const was = byKey.get(r[key]);
-    if (!was) byKey.set(r[key], r);
-    else byKey.set(r[key], { ...was, ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== "")) });
+    if (!was) {
+      byKey.set(r[key], r);
+      continue;
+    }
+    const merged = { ...was, ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== "")) };
+    const changed = Object.keys(merged).some((k) => k !== "updated_at" && merged[k] !== was[k]);
+    byKey.set(r[key], changed ? merged : was);
   }
   return [...byKey.values()];
 }
