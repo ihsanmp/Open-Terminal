@@ -61,6 +61,13 @@ describe("a Fed event", () => {
   });
 });
 
+describe("an official transcript", () => {
+  it("is read on the chair's words, not the reporters' questions", () => {
+    const text = "Transcript\n\n  CHAIRMAN WARSH. Inflation remains elevated.\n  NICK TIMIRAOS. Why not cut rates today?\n  CHAIRMAN WARSH. We removed a dose of accommodation.\n";
+    expect(readText(text)).toMatchObject({ hawkish: 2, dovish: 0 });
+  });
+});
+
 describe("the inbox", () => {
   const words = "word ".repeat(90);
 

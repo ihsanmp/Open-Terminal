@@ -62,9 +62,22 @@ function writeRows(name: keyof typeof COLUMNS, rows: Row[], sortBy = "date_utc")
   writeFileSync(join(DIR, `${name === "fed" ? "fed_events" : name}.csv`), toCsv([...COLUMNS[name]], sorted));
 }
 
+/**
+ * The chair's words in a press conference transcript ("CHAIRMAN WARSH. Good day." … "NICK
+ * TIMIRAOS. Thank you …"): the reporters' questions read nothing about the Fed. A text without
+ * such names, or without a chair among them, is read whole.
+ */
+export function chairsWords(text: string): string {
+  const parts = text.split(/(?:^|\n)\s*([A-Z][A-Z.'\- ]{2,40}[A-Z])\.\s/);
+  if (parts.length < 3) return text;
+  const kept: string[] = [];
+  for (let i = 1; i < parts.length; i += 2) if (/\bCHAIR/.test(parts[i])) kept.push(parts[i + 1] ?? "");
+  return kept.length ? kept.join("\n") : text;
+}
+
 /** A text's hawkish and dovish phrases by the Fed lexicon, and its index. */
 export function readText(text: string): { hawkish: number; dovish: number; index: number; words: number } {
-  const hits = findHits(normalize(text));
+  const hits = findHits(normalize(chairsWords(text).replace(/\s+/g, " ")));
   const hawkish = hits.filter((h) => h.side === 1).length;
   const dovish = hits.length - hawkish;
   return { hawkish, dovish, index: indexOf(hawkish, dovish), words: text.split(/\s+/).filter(Boolean).length };
