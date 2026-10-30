@@ -8,10 +8,10 @@
 
 Free, public data only. No API keys, no subscriptions. Runs on your machine.
 
-[![Stack](https://img.shields.io/badge/stack-Next.js%20%2B%20Express%20%2B%20TypeScript-38bdf8)](#-tech-stack)
+[![Stack](https://img.shields.io/badge/stack-Next.js%20%2B%20Express%20%2B%20TypeScript-38bdf8)](#tech-stack)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
-[![No API Key Required](https://img.shields.io/badge/data-no%20API%20key%20required-brightgreen)](#%EF%B8%8F-data-sources)
-[![Tests](https://img.shields.io/badge/tests-1%2C300%2B-informational)](#-project-structure)
+[![No API Key Required](https://img.shields.io/badge/data-no%20API%20key%20required-brightgreen)](#data-sources)
+[![Tests](https://img.shields.io/badge/tests-1%2C300%2B-informational)](#project-structure)
 
 <br/>
 
@@ -27,25 +27,25 @@ Free, public data only. No API keys, no subscriptions. Runs on your machine.
 
 It stitches together free, public market‑data endpoints into a fast terminal that runs entirely on your machine. Every endpoint has a fallback chain, so one provider's hiccup never blanks the app. Clone it, `npm install`, and you have a live terminal in a minute.
 
-The models are honest. Wherever a forecast has no tested edge, the app says so instead of painting Bullish/Bearish. See [what the models are worth](#-what-the-models-are-worth).
+The models are honest. Wherever a forecast has no tested edge, the app says so instead of painting Bullish/Bearish. See [what the models are worth](#what-the-models-are-worth).
 
 <br/>
 
-## ✨ Highlights
+## Highlights
 
-- **🏛️ The Fed, live.** Fed broadcasts play the moment they go live, with a running transcript, a hawkish/dovish **Fed Sentiment Index** read from the words, the voice and the face, and numbers fact‑checked as they're spoken.
-- **📊 Release scenarios.** For each big US release of the coming week (CPI, PCE, NFP, ISM, GDP…), the app shows what gold, bitcoin, the S&P, the dollar and yields did after past prints that were hot, cold or in line, over the first 30 minutes and over the day.
-- **🏦 FOMC scenarios.** The rate decision itself is almost always as expected, so past meetings are sorted by how the market read them, through the 2‑year yield (dovish to hawkish). Shown with FedWatch odds for the next meeting.
-- **🔔 Windows notifications.** A reminder about three hours before a big release, with its scenarios. Then H‑30, the print against the consensus, and the first five minutes of the market's reaction. Raised by the server even with the window closed.
-- **🗃️ A dataset that keeps itself.** Every release and Fed event is saved as CSV, watched or not: actuals, surprises, market reactions, live transcripts and official texts. Anything the app missed is filled from official sources by a scheduled Claude search.
-- **🧭 Macro desk.** Growth × inflation regime with measured asset biases since 2002, a regime shortlist, fiscal stress, forward curves, COT positioning, ETF rotation and geopolitics.
-- **📈 Charting.** TradingView depth of history, **167 indicators** (TradingView built‑ins ported from Pine's `ta.*` semantics plus 40+ community scripts) and 78 drawing tools.
-- **🔭 Astro Calendar and assistant.** Sky events with the quant forecast over each span. A floating assistant answers from the app's own data, offline or through your Claude account, and can talk in conversation mode.
-- **🎓 Academy.** Short lessons for every part of the menu, each ending with a place to practise and a quiz.
+- **The Fed, live.** Fed broadcasts play the moment they go live, with a running transcript, a hawkish/dovish **Fed Sentiment Index** read from the words, the voice and the face, and numbers fact‑checked as they're spoken.
+- **Release scenarios.** For each big US release of the coming week (CPI, PCE, NFP, ISM, GDP…), the app shows what gold, bitcoin, the S&P, the dollar and yields did after past prints that were hot, cold or in line, over the first 30 minutes and over the day.
+- **FOMC scenarios.** The rate decision itself is almost always as expected, so past meetings are sorted by how the market read them, through the 2‑year yield (dovish to hawkish). Shown with FedWatch odds for the next meeting.
+- **Windows notifications.** A reminder about three hours before a big release, with its scenarios. Then H‑30, the print against the consensus, and the first five minutes of the market's reaction. Raised by the server even with the window closed.
+- **A dataset that keeps itself.** Every release and Fed event is saved as CSV, watched or not: actuals, surprises, market reactions, live transcripts and official texts. Anything the app missed is filled from official sources by a scheduled Claude search.
+- **Macro desk.** Growth × inflation regime with measured asset biases since 2002, a regime shortlist, fiscal stress, forward curves, COT positioning, ETF rotation and geopolitics.
+- **Charting.** TradingView depth of history, **167 indicators** (TradingView built‑ins ported from Pine's `ta.*` semantics plus 40+ community scripts) and 78 drawing tools.
+- **Astro Calendar and assistant.** Sky events with the quant forecast over each span. A floating assistant answers from the app's own data, offline or through your Claude account, and can talk in conversation mode.
+- **Academy.** Short lessons for every part of the menu, each ending with a place to practise and a quiz.
 
 <br/>
 
-## 📸 Tour
+## Tour
 
 <table>
   <tr>
@@ -80,7 +80,7 @@ The models are honest. Wherever a forecast has no tested edge, the app says so i
 
 <br/>
 
-## 🧩 Features
+## Features
 
 Pages sit in the sidebar by group. Any page can also be opened as a widget, dragged, resized and stacked in a saved workspace, or opened in its own window.
 
@@ -190,7 +190,7 @@ Pages sit in the sidebar by group. Any page can also be opened as a widget, drag
 
 <br/>
 
-## 📏 What the models are worth
+## What the models are worth
 
 - **Direction.** A gradient‑boosted forecaster (depth 3, walk‑forward from 2016) gives each market's chance of a rise over 5, 10 and 20 days. No market or horizon beats the plain bet on its usual side, so no Bullish/Bearish is shown. A side would be called only when the record beats that bet (z ≥ 1.64 and Brier skill > 0).
 - **Ranges.** Calendar‑aware P10–P90 ranges are better calibrated than plain ones in 27 of 30 market‑horizons.
@@ -202,7 +202,7 @@ Read them as context, not as trading signals.
 
 <br/>
 
-## 🚀 Quick start
+## Quick start
 
 ```bash
 git clone https://github.com/ihsanmp/Parallax.git
@@ -257,7 +257,7 @@ Build first (`npm run build`).
 - **Shared secret.** Portfolio, workspace, insider and AI endpoints require one. Without `API_KEY`, one is generated on first run in `data/.api-key` and read by the bundled web app.
 - **Exposing it.** Set `API_HOST=0.0.0.0`, a strong `API_KEY` on both processes and `WEB_ORIGIN`, terminate TLS in front, and keep dependencies patched. Set `TRUST_PROXY=1` only behind your own proxy that sets `X-Forwarded-For`.
 
-### 🐳 Docker
+### Docker
 
 ```bash
 docker compose up --build
@@ -267,7 +267,7 @@ Data persists in the `terminal-data` volume. Ports are published on `127.0.0.1` 
 
 <br/>
 
-## 🗂️ Data sources
+## Data sources
 
 No paid API and no keys. Every endpoint has a fallback chain, and results are cached with stale‑while‑revalidate (most also on disk), so an outage never blanks the UI.
 
@@ -288,11 +288,11 @@ No paid API and no keys. Every endpoint has a fallback chain, and results are ca
 | Live TV | Broadcasters' HLS streams · YouTube live captions | — |
 | Sky positions | [`astronomy-engine`](https://github.com/cosinekitty/astronomy) (local) | — |
 
-> ⚠️ Public endpoints, not licensed feeds: treat prices as delayed or indicative. Each provider is a small module in [`server/src/providers/`](server/src/providers).
+> Public endpoints, not licensed feeds: treat prices as delayed or indicative. Each provider is a small module in [`server/src/providers/`](server/src/providers).
 
 <br/>
 
-## 🧱 Tech stack
+## Tech stack
 
 | Layer | Stack |
 |---|---|
@@ -303,7 +303,7 @@ No paid API and no keys. Every endpoint has a fallback chain, and results are ca
 | Storage | SQLite (`better-sqlite3`, WAL) · JSON and CSV on disk |
 | AI | Claude, through Claude Code or the API (optional) |
 
-## 📁 Project structure
+## Project structure
 
 ```
 ├── server/src/
@@ -326,13 +326,13 @@ No paid API and no keys. Every endpoint has a fallback chain, and results are ca
 
 <br/>
 
-## 🙏 Acknowledgements
+## Acknowledgements
 
 - **Where it began.** Parallax grew out of [OpenTerminal](https://github.com/ErTasselli/OpenTerminal) by Andrea Tasselli, released under the MIT license. The original copyright notice is kept in [LICENSE](LICENSE).
 - **Inspiration.** The equity‑research, world‑indices and all‑crypto features were inspired by [FinceptTerminal](https://github.com/Fincept-Corporation/FinceptTerminal). No code was taken from it (it's AGPL‑3.0); the features were reimplemented independently.
 - **Indicators.** Community scripts are ported under their own licenses: the MPL‑2.0 ones in `web/lib/ta/indicators/community2.ts`, and the [LuxAlgo](https://www.luxalgo.com/) ones in `luxalgo*.ts` under CC BY‑NC‑SA 4.0 (not for commercial use).
 
-## ⚖️ Disclaimer
+## Disclaimer
 
 For personal and educational use only. Data comes from public endpoints and may be delayed, incomplete or wrong, and the forecasts have no tested edge. **Do not use this for real investment decisions.** This project isn't affiliated with any data provider and doesn't host or redistribute data: it's code you run yourself, fetching from each provider directly. Respect their terms of service.
 
