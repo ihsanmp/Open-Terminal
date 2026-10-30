@@ -4,20 +4,18 @@
 
 # Parallax
 
-**A terminal‑style market workspace built entirely on free, public market data.**
+**One market, many angles.** A terminal for reading markets the way they move: the macro calendar and the Fed, money flow and positioning, on‑chain whales and the chart, side by side.
 
-Dark. Dense. Keyboard‑driven. Zero paid API keys, zero subscriptions.
+Free, public data only. No API keys, no subscriptions. Runs on your machine.
 
-[![Stack](https://img.shields.io/badge/stack-Next.js%20%2B%20Express%20%2B%20TypeScript-orange)](#-tech-stack)
+[![Stack](https://img.shields.io/badge/stack-Next.js%20%2B%20Express%20%2B%20TypeScript-38bdf8)](#-tech-stack)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
 [![No API Key Required](https://img.shields.io/badge/data-no%20API%20key%20required-brightgreen)](#%EF%B8%8F-data-sources)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg)](#-contributing)
+[![Tests](https://img.shields.io/badge/tests-1%2C300%2B-informational)](#-project-structure)
 
 <br/>
 
-<img src="docs/screenshots/dashboard.png" alt="Parallax workspace: chart, money flow, watchlist, news and Watcher Guru side by side" width="100%" />
-
-<sub>Built on <a href="https://github.com/ErTasselli/OpenTerminal">ErTasselli/OpenTerminal</a> (MIT), grown into a full terminal: live TV and a Fed watcher, a macro engine, quant forecasts, an insider feed, money flow and more. ⭐ Star it if it's useful to you.</sub>
+<img src="docs/screenshots/dashboard.png" alt="Parallax dashboard: macro regime, main markets, the regime shortlist, the high-impact calendar and S&P 500 breadth" width="100%" />
 
 </div>
 
@@ -25,194 +23,182 @@ Dark. Dense. Keyboard‑driven. Zero paid API keys, zero subscriptions.
 
 ## Why Parallax?
 
-Real trading terminals cost **$2,000+ a month**. Most retail dashboards either lock the good stuff behind a paywall or run on a single flaky data source that breaks the moment you need it.
+*Parallax* is how an object seems to shift when you look at it from another angle. Markets are like that: the same move reads differently through the macro calendar, the Fed's words, who is positioned where, and the chart. Parallax puts those angles in one keyboard‑first workspace.
 
-Parallax stitches together **free, public market‑data endpoints** (the same ones that power major finance sites' own front ends) into one fast, keyboard‑first workspace that runs entirely on your machine. Every endpoint has a fallback chain, so one provider's hiccup never takes the app down.
+It stitches together free, public market‑data endpoints into a fast terminal that runs entirely on your machine. Every endpoint has a fallback chain, so one provider's hiccup never blanks the app. Clone it, `npm install`, and you have a live terminal in a minute.
 
-The name is the idea: *parallax* is how an object seems to shift when seen from another angle, and the app reads one market from many (the macro calendar and the Fed, positioning and money flow, on‑chain whales, the chart).
-
-No signup. No credit card. No rate‑limited demo tier. Clone it, `npm install`, and you have a live terminal in a minute.
+The models are honest. Wherever a forecast has no tested edge, the app says so instead of painting Bullish/Bearish. See [what the models are worth](#-what-the-models-are-worth).
 
 <br/>
 
-## ✨ Features
+## ✨ Highlights
 
-Every page sits in the sidebar; any of them can also be opened as a widget, dragged, resized and stacked in a saved workspace.
+- **🏛️ The Fed, live.** Fed broadcasts play the moment they go live, with a running transcript, a hawkish/dovish **Fed Sentiment Index** read from the words, the voice and the face, and numbers fact‑checked as they're spoken.
+- **📊 Release scenarios.** For each big US release of the coming week (CPI, PCE, NFP, ISM, GDP…), the app shows what gold, bitcoin, the S&P, the dollar and yields did after past prints that were hot, cold or in line, over the first 30 minutes and over the day.
+- **🏦 FOMC scenarios.** The rate decision itself is almost always as expected, so past meetings are sorted by how the market read them, through the 2‑year yield (dovish to hawkish). Shown with FedWatch odds for the next meeting.
+- **🔔 Windows notifications.** A reminder about three hours before a big release, with its scenarios. Then H‑30, the print against the consensus, and the first five minutes of the market's reaction. Raised by the server even with the window closed.
+- **🗃️ A dataset that keeps itself.** Every release and Fed event is saved as CSV, watched or not: actuals, surprises, market reactions, live transcripts and official texts. Anything the app missed is filled from official sources by a scheduled Claude search.
+- **🧭 Macro desk.** Growth × inflation regime with measured asset biases since 2002, a regime shortlist, fiscal stress, forward curves, COT positioning, ETF rotation and geopolitics.
+- **📈 Charting.** TradingView depth of history, **167 indicators** (TradingView built‑ins ported from Pine's `ta.*` semantics plus 40+ community scripts) and 78 drawing tools.
+- **🔭 Astro Calendar and assistant.** Sky events with the quant forecast over each span. A floating assistant answers from the app's own data, offline or through your Claude account, and can talk in conversation mode.
+- **🎓 Academy.** Short lessons for every part of the menu, each ending with a place to practise and a quiz.
 
-### Markets
+<br/>
 
-- 📈 **Chart** ([`lightweight-charts`](https://github.com/tradingview/lightweight-charts)): candles, bars, line and area at any interval, with as much history as TradingView holds.
-  - **163 indicators.** 125 are TradingView built‑ins ported from Pine Script's `ta.*` semantics, with the core ones checked value for value against TradingView's own numbers in the test suite. The other 38 are rebuilt community scripts. Every indicator has its own settings, panes, cloud fills, signals and a TradingView‑style legend.
-  - **78 drawing tools:** trend lines, channels, pitchforks, the Fib and Gann families, harmonic and Elliott patterns, long/short positions, anchored VWAP, fixed‑range volume profile, and more.
-- ⭐ **Watchlist:** your own list, plus one dropdown for browsing whole markets:
-  - every stock in 16 markets (the US, Indonesia, Japan, China, Hong Kong, Korea, Taiwan, India, the UK, Germany, Brazil…);
-  - US and Indonesian ETFs by asset class;
-  - the world's indices by region;
-  - futures and commodities by group;
-  - every ranked coin and token;
-  - 170+ forex pairs (major, minor, exotic) and the metals.
-  - Every list shows the change over the day, the last week and the last month side by side.
-- 💸 **Money Flow:** what went into and out of an asset over a day, week, month, quarter and year.
-  - Coins on Binance use their real buy and sell trades, streamed live.
-  - Everything else is estimated from its bars.
-  - The *Transfers* tab lists who moved what: named Bitcoin wallets, big exchange trades, US insiders, ETF flows, and treasury companies' 8‑K filings.
-- 🔎 **Screener** and 🗺️ **Heatmap:** the whole US market live, filterable and sortable, and as a treemap sized by market cap.
-- 🏦 **US Bonds:** the Treasury curve by tenor, each with its benchmark security's coupon, maturity and next auction (TreasuryDirect), the curve against where it stood, and the spreads.
-- 🔬 **Equity Research:**
-  - multi‑year statements (global coverage) and yearly ratios with a DuPont breakdown;
-  - Piotroski F, Altman Z and Beneish M scores, and the Graham number;
-  - an interactive DCF with CAPM defaults;
-  - analyst consensus and targets, and industry peers.
-- 💼 **Portfolio:** log trades in a journal, track average cost and realized/unrealized P&L (SQLite), and export to Excel.
+## 📸 Tour
 
-### News and people
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/chart.png" alt="Chart: AAPL weekly with SMA 20 and DEMA Flow, the watchlist beside it" /><br/><b>Charting</b>: any interval, 167 indicators, 78 drawing tools.</td>
+    <td width="50%"><img src="docs/screenshots/livetv.png" alt="Live TV and the Fed: the next Fed broadcast, high-impact releases and quant forecasts" /><br/><b>Live TV and the Fed</b>: broadcasts, transcript, sentiment, forecasts.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/scenarios.png" alt="Release scenarios: FOMC meetings sorted from dovish to hawkish and each asset's move" /><br/><b>Release and FOMC scenarios</b>: what markets did after each kind of surprise.</td>
+    <td><img src="docs/screenshots/regime.png" alt="Macro regime: reflation, the quadrant map, 36-month history and the shortlist" /><br/><b>Macro regime</b>: the quadrant, its history and the shortlist.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/quant.png" alt="Quantitative: multifactor regression with overfitting checks and walk-forward validation" /><br/><b>Quantitative</b>: factor regression, forecasts, release engine, news impact.</td>
+    <td><img src="docs/screenshots/macro.png" alt="Monetary policy: economic calendar with history, flash headlines and FedWatch" /><br/><b>Monetary policy</b>: calendar with history, flash wire, FedWatch.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/moneyflow.png" alt="Money flow: inflow, outflow, net flow and buy share by period" /><br/><b>Money flow</b>: what went in and out, from a day to a year.</td>
+    <td><img src="docs/screenshots/heatmap.png" alt="Heatmap: the US market as a treemap sized by market cap" /><br/><b>Heatmap</b>: the whole US market, sized by market cap.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/news.png" alt="News: the live wire with impact tags, categories and regions" /><br/><b>News</b>: 60+ sources de‑duplicated, with market‑moving headlines flagged.</td>
+    <td><img src="docs/screenshots/research.png" alt="Equity research: income statement by fiscal year" /><br/><b>Equity research</b>: statements, ratios, DCF, analysts, peers.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/watchlist.png" alt="Watchlist: stocks, coins, indices, futures and FX with day, week and month change" /><br/><b>Watchlist</b>: day, week and month change side by side.</td>
+    <td><img src="docs/screenshots/astro.png" alt="Astro calendar: the month's sky events and what's coming" /><br/><b>Astro Calendar</b>: retrogrades, eclipses, phases, ingresses.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/academy.png" alt="Academy: the lesson on hot and cold release surprises" /><br/><b>Academy</b>: lessons and quizzes, from regimes to release surprises.</td>
+    <td></td>
+  </tr>
+</table>
 
-- 📰 **News:** headlines aggregated and de‑duplicated across many sources, by category and per symbol, with a market recap and a daily or weekly recap of the news.
-- 📣 **Insider:** what the accounts that move markets post first, from Bluesky, Telegram and Truth Social (X posts by pasting their link):
-  - Trump, the Fed, Nick Timiraos (WSJ), Watcher Guru, Whale Alert, and a curated list of KOLs.
-  - Only trusted sources are kept: the source's identity has to be confirmed, and unverified accounts are rejected.
-  - Each post shows whether a news outlet has reported the same thing since, so a rumour reads as one.
-  - A second tab lists company insiders' trades from their SEC Form 4 filings.
-- 🐕 **Watcher Guru:** the site's latest articles by section, readable in place.
+<br/>
 
-### Macro and the Fed
+## 🧩 Features
 
-- 📅 **Macro:**
-  - the economic calendar by day, each release with two years of its actuals against forecasts;
-  - flash headlines;
-  - FedWatch odds from fed funds futures, and the overnight funding rates (SOFR, TGCR, BGCR, ON RRP).
-- 📺 **Live TV:** ten business channels (Bloomberg US/Europe/Asia, Schwab Network, CNBC‑TV18, NDTV Profit, ausbiz, CNA, Euronews, CGTN) as HLS straight from each broadcaster's CDN. You can also paste any YouTube live link. Beside the player, **THE FED** has these panels:
-  - **Jadwal:** the Fed's broadcasts (the Board and the regional banks) as they go live.
-  - **Transkrip:** a live transcript from YouTube's captions and a **Fed Sentiment Index** in three layers: hawkish/dovish phrases, the main speaker's voice (pitch, pauses, fillers; voices told apart) and their face (expressions, locked by lip sync). Numbers said about the US economy (inflation by measure, unemployment, payrolls, GDP, the funds rate) are fact-checked as they're said (provisionally until the sentence ends) against the releases as first published, FRED, the market prices of that minute and an offline record of every FOMC decision since 1982 ("this is our third cut", "unchanged since December"), each with the series and period it was checked against. Events said ("Netflix announced it will lay off…", not views, plans or questions) are looked up in the app's own news archive of the last seven days, and the outlets that reported them are shown beside the line; one not found is "not found in the archive", never "false" (on a blind test of 16 statements: 8 of 10 stories found, none of 6 look-alikes matched).
-  - **Nowcast:** the Cleveland Fed's inflation nowcast and GDPNow against the consensus. It also shows our own P10/P50/P90 for the next CPI, PPI, payrolls, PCE, retail sales, GDP, claims and ISM (quantile gradient boosting on point‑in‑time data, with its walk‑forward record).
-  - **Reaksi and Dampak:** how gold, bitcoin, S&P futures, the dollar and the 2‑year yield moved on each release and Fed broadcast, and what a hot or cool print has done to each asset before.
-  - **Prakiraan:** the quant forecasts (below).
-  - **🔔 Notifications:** native Windows toasts, raised by the server even with the tab closed, each kind switchable:
-    - a Fed broadcast going live;
-    - H‑30 before a big US release, with its consensus, the engine's band and the H‑30 bias;
-    - the print against the consensus (hawkish or dovish);
-    - the first five minutes of gold, bitcoin, S&P futures, the dollar and the 2‑year yield.
-- 🔭 **Astro Calendar:** the month's sky events (retrogrades, eclipses, moon phases, ingresses and aspects) with the quant forecast for gold, bitcoin and the dollar over each event's span, and how it turned out. The astrology's own event study is kept beside it, labelled for what it is.
-  - Each planet's retrograde periods of the year, to the minute, with their degrees, shadows and whether each is over, running or ahead; and the dates the Sun enters each sign, the equinoxes and solstices marked. Computed from the planets' precise positions, and checked against the published 2026 tables.
-  - A chat in a small floating bubble over every page that can be dragged anywhere and opens into a compact portrait panel beside it, that answers from the app's own data: when the next retrograde, eclipse or full moon is, where a planet stands, how gold, bitcoin and the dollar index moved during or after such events against ordinary days, a date's close, a span's performance, drawdowns, streaks, seasonality, correlations, the quant forecast, and ~30 topics of price action, financial astrology and macro. A view stated ("Mercury retrograde sinks gold") is tested against the data and answered with a question back; replying to one of its messages carries on that thread, a message sent without replying starts a new one.
-    - **✦ Claude mode** (the default when Claude Code is installed): the way [ihsanmp/Crypto-Analis](https://github.com/ihsanmp/Crypto-Analis) works — the app's code gathers the data (markets now, the quant forecasts, the news it kept, its own offline answer), then Claude interprets it with no tools, through the Claude Code CLI signed in with your own Claude account (no API key). The knowledge it reads is Crypto-Analis' tested research (astro-trading, the moon and BTC, gold and oil drivers, liquidity hours, BTC patterns, Astronacci's minor swing, narratives) and its analyst rules, copied into `server/knowledge/`, picked per question. Haiku for a greeting, Sonnet by default, Opus when asked to go deep. When Claude can't answer, the offline answer is shown.
-    - **Offline mode**: the app's own calculations, no internet.
-- 🤖 **AI Assist** (optional): ask Claude about the symbol you're looking at, with the terminal's data as context.
+Pages sit in the sidebar by group. Any page can also be opened as a widget, dragged, resized and stacked in a saved workspace, or opened in its own window.
 
-### Quant forecasts, and what they're worth
+<details open>
+<summary><b>Macro command center</b></summary>
 
-A forecaster on the server gives each market's chance of a rise over 5, 10 and 20 trading days.
+- **Dashboard:** the big picture before a trade idea: regime and risk overlay, main markets over a day, week and month, the regime shortlist, three days of high‑impact releases, S&P 500 breadth, crowded COT positions and the hottest geopolitical theme.
+- **Macro regime:** growth × inflation now, its 36‑month history, and each asset's average next‑month return per regime since 2002, called a bias only when it's statistically real.
+- **Market:** watchlist (every stock in 16 markets, ETFs, world indices, futures, all ranked coins, 170+ FX pairs), screener and heatmap.
 
-- **Markets:** gold, WTI, bitcoin, ether, the S&P 500, the Nasdaq 100, DXY, EUR/USD, USD/JPY and the 10‑year yield.
-- **Inputs:**
-  - each market's own momentum, trend, volatility and range;
-  - the other markets, the VIX and the yield curve;
-  - US data surprises by release type (inflation read apart from 2021 on, jobs, ISM);
-  - the season.
-- **Model:** gradient-boosted trees (XGBoost-style, depth 3) per market and horizon, tested walk‑forward a year at a time from 2016. Against the earlier L2 logistic regression: mean Brier skill −0.54% vs −1.64%, better in 21 of 30; neither beats the plain bet on a market's usual side anywhere, so no direction is called.
-- **Ranges:** each market's P10–P90 range is widened when the span holds more CPI, NFP, ISM or FOMC days than usual.
+</details>
 
-Honest results, shown in the app as well:
+<details>
+<summary><b>Policy and expectations</b></summary>
 
-- **Direction:** no market or horizon beats the plain bet on its usual side, so no Bullish/Bearish is shown. A side is called only when the walk‑forward record beats that bet (z ≥ 1.64 and Brier skill > 0).
-- **Ranges:** the calendar‑aware ranges are better calibrated than plain ones in 27 of 30 market‑horizons (moves inside P10–P90 closer to 80% in both busy and quiet spans).
-- **Fed Sentiment Index:** calibrated on the FOMC's 71 press conferences of 2016–2026. Its reading runs with the rate decision (r 0.52) and the 2‑year yield's next three months (r 0.38). It does not foretell the day's move: the decision is already priced.
-- **Macro engine:** roughly matches the consensus for most releases. Only GDPNow clearly beats the consensus on GDP.
-- **Astrology:** the astro event study is right about as often as a coin. The moon, eclipses and retrogrades were dropped from the model; only the season is kept, and it adds nothing reliable yet.
+- **Monetary policy:** the economic calendar by day with two years of each release's actuals against forecasts, a flash headline wire, FedWatch odds from fed funds futures, overnight funding rates (SOFR, TGCR, BGCR, ON RRP), and the US Treasury curve with each benchmark's coupon, maturity and next auction.
+- **Fiscal policy:** debt, monthly deficits, interest burden and the Treasury General Account.
+- **Futures:** forward curves, implied carry and the rate path priced by SOFR and fed funds futures.
+
+</details>
+
+<details>
+<summary><b>Flow and participants</b></summary>
+
+- **ETF:** themes, relative performance against SPY, sector rotation, breadth, and US spot crypto ETF flows.
+- **Positioning (COT):** speculators, large holders and hedgers in 25 futures markets, with a 3‑year COT index.
+- **Money flow:** inflow and outflow over a day to a year. Coins on Binance use real trades; everything else is estimated from bars. The transfers tab shows who moved what: named Bitcoin wallets, big exchange trades, watched Ethereum wallets, ETF flows, treasury companies' filings and US insiders.
+- **Insider:** what market‑moving accounts post first (Bluesky, Telegram, Truth Social, X by link), each with how its identity was verified and whether news outlets have reported it since; plus SEC Form 4 insider trades. Whale and institution pop‑ups follow the pair on screen.
+
+</details>
+
+<details>
+<summary><b>Intelligence and risk</b></summary>
+
+- **News:** a live wire de‑duplicated across 60+ sources, by category, region and symbol, with a daily or weekly recap. Headlines likely to move markets are tagged with the markets they hit.
+- **Live TV and the Fed:** ten business channels as HLS, any YouTube live link, and **THE FED**:
+  - **Broadcasts** as they go live, counted down from the Board's own calendar.
+  - **Transcript** from live captions and the **Fed Sentiment Index** in three layers: the words, the main speaker's voice (pitch, pauses, fillers; voices told apart) and their face (locked by lip sync). Figures said about the economy are fact‑checked against first‑published releases, FRED and an offline record of every FOMC decision since 1982. Events said are looked up in the app's own news archive.
+  - **Nowcast** (Cleveland Fed inflation, GDPNow) beside the app's own P10/P50/P90 for the next CPI, PPI, payrolls, PCE, retail sales, GDP, claims and ISM.
+  - **Reactions and impact:** how markets moved on each release and broadcast.
+  - **Notifications** and **Data** (below).
+- **Geopolitics:** themes heating up against their usual week, escalation versus easing, safe‑haven gauges and a 7‑day risk calendar.
+
+</details>
+
+<details>
+<summary><b>Analysis and execution</b></summary>
+
+- **Quantitative:**
+  - **Multifactor regression** of the pair on screen against the S&P 500, the dollar, yields, VIX, gold, oil and bitcoin. Newey‑West errors, walk‑forward validation, robust transformations (winsorised, Huber, WLS) and rolling betas, with exports to CSV and SAS.
+  - **Asset forecasts.**
+  - **The release engine and nowcasts.**
+  - **News impact.**
+  - **Fed‑broadcast reactions.**
+- **Charting:** candles, bars, line and area at any interval, with as much history as TradingView holds. 167 indicators with their own settings, panes, fills and a TradingView‑style legend. The core built‑ins are checked value for value against TradingView's own numbers in the test suite. 78 drawing tools (channels, pitchforks, Fib and Gann, harmonics, Elliott, positions, anchored VWAP, fixed‑range volume profile…). Cross pairs such as SOL‑BTC, and currency conversion.
+- **Nodes plan:** a thesis turned into six nodes (thesis, context and catalysts, trigger, execution with R:R, risk and position size, review), compared live with the price.
+
+</details>
+
+<details>
+<summary><b>Research and learning</b></summary>
+
+- **Financials:** multi‑year statements, ratios with DuPont, Piotroski F, Altman Z, Beneish M, the Graham number, an interactive DCF, analyst consensus and peers.
+- **Notepad:** a research journal with symbols, tags, templates and links to trade plans.
+- **Academy:** lessons following the menu, each with a place to practise and a quiz.
+- **Portfolio:** a trading journal with notes and emotions before and after, chart images, average cost, realised and unrealised P&L, and Excel import and export.
+
+</details>
+
+<details>
+<summary><b>Astro Calendar and the assistant</b></summary>
+
+- **Astro Calendar:**
+  - The month's sky events (retrogrades, eclipses, phases, ingresses, aspects), each with the quant forecast for gold, bitcoin and the dollar over its span and how it turned out.
+  - Each planet's retrograde periods to the minute, and the Sun's ingresses.
+  - **Release scenarios** and **FOMC scenarios** (above).
+- **Assistant:** a floating bubble on every page that answers from the app's own data: the next retrograde or eclipse, a date's close, a span's performance, drawdowns, seasonality, correlations, the forecasts, how to read any page, and ~30 topics of price action, macro and financial astrology.
+  - **Claude mode** reads the data the app gathered (markets, forecasts, news) through the Claude Code CLI signed in with your own Claude account. It can see the app's window when asked and answer by voice.
+  - **Conversation mode** listens and replies hands‑free in English or Indonesian. Optionally it uses ElevenLabs for speech and transcription.
+  - **Offline mode** answers with the app's own calculations.
+- **AI Assist** (optional): ask Claude about the symbol on screen, with the terminal's data as context.
+
+</details>
+
+<details>
+<summary><b>Notifications and the news dataset</b></summary>
+
+- **Notifications** (native Windows toasts, each kind switchable):
+  - a Fed broadcast going live;
+  - about three hours before a big release: its consensus and the scenarios, or for the Fed's decision, the dovish and hawkish cases;
+  - H‑30 with the engine's band and the bias;
+  - the print against the consensus;
+  - the first five minutes of gold, bitcoin, the S&P, the dollar and the 2‑year yield.
+- **News dataset** in `data/newsdata/`, refreshed every 30 minutes while the app runs and committed to this repository daily:
+
+  | File | What's in it |
+  |---|---|
+  | `releases.csv` | Every big US release since 2016: actual, consensus, previous, surprise, its side, the engine's call |
+  | `reactions.csv` | Each market's first 30 minutes and day after each release and Fed event |
+  | `fed_events.csv` | Each Fed event of the last 45 days: minutes heard live, the official text, both read hawkish/dovish |
+  | `gaps.csv` | What's still missing |
+  | `texts/` | Live transcripts and official texts (statements, press‑conference transcripts, speeches, minutes) |
+
+  The app fetches official Fed texts itself. A scheduled Claude task fills only what it couldn't find, from official sources and with the source recorded. Its data never overwrites the app's own.
+
+</details>
+
+<br/>
+
+## 📏 What the models are worth
+
+- **Direction.** A gradient‑boosted forecaster (depth 3, walk‑forward from 2016) gives each market's chance of a rise over 5, 10 and 20 days. No market or horizon beats the plain bet on its usual side, so no Bullish/Bearish is shown. A side would be called only when the record beats that bet (z ≥ 1.64 and Brier skill > 0).
+- **Ranges.** Calendar‑aware P10–P90 ranges are better calibrated than plain ones in 27 of 30 market‑horizons.
+- **Releases.** The engine roughly matches the consensus for most releases; only GDPNow clearly beats it on GDP. Surprises do move markets on the day, but even the strongest link goes the expected way only about 2 times in 3.
+- **Fed Sentiment Index.** Calibrated on 71 FOMC press conferences (2016–2026). It runs with the rate decision (r 0.52) and the 2‑year yield's next three months (r 0.38). It doesn't foretell the day's move, which is already priced.
+- **Astrology.** The astro event study is right about as often as a coin. Only the season is kept, and it adds nothing reliable yet.
 
 Read them as context, not as trading signals.
-
-<br/>
-
-## 📸 A closer look
-
-### Chart
-
-Any interval with TradingView's depth of history, 163 indicators and 78 drawing tools. Here: AAPL weekly with a 20-week SMA and a volume profile, the watchlist and the quote beside it.
-
-<img src="docs/screenshots/chart.png" alt="Chart" width="100%" />
-
-### Watchlist: every market in one dropdown
-
-Every ranked coin with market cap, 24h volume and BTC/ETH dominance. The same dropdown lists stocks in 16 markets, ETFs, indices, futures and commodities.
-
-<img src="docs/screenshots/watchlist.png" alt="Watchlist: every market in one dropdown" width="100%" />
-
-### Forex
-
-172 pairs (major, minor, exotic) and the metals, live from TradingView's FX feed.
-
-<img src="docs/screenshots/forex.png" alt="Forex" width="100%" />
-
-### Money Flow
-
-What went into and out of an asset over a day, a week, a month, three months and a year, with every period's net and buy share.
-
-<img src="docs/screenshots/moneyflow.png" alt="Money Flow" width="100%" />
-
-### Live sector heatmap
-
-The whole US market as a treemap, sized by market cap and colored by the period's change.
-
-<img src="docs/screenshots/heatmap.png" alt="Live sector heatmap" width="100%" />
-
-### Equity Research
-
-Valuation, profitability and growth, Piotroski, Altman, Beneish and Graham, with statements, ratios, a DCF, analysts and peers on the other tabs.
-
-<img src="docs/screenshots/research.png" alt="Equity Research" width="100%" />
-
-### News: the market recap
-
-The day's recap beside the live wire: indexes, sector performance and the biggest movers, in English and Indonesian.
-
-<img src="docs/screenshots/news.png" alt="News: the market recap" width="100%" />
-
-### Macro
-
-The economic calendar by day with each release's history, flash headlines, FedWatch and the overnight funding rates.
-
-<img src="docs/screenshots/macro.png" alt="Macro" width="100%" />
-
-### Live TV and THE FED
-
-Fed broadcasts play here as they go live (none at this moment), with the next high-impact US releases. On the right: the quant forecasts, each market's chance of a rise and its calendar-aware range, with no Bullish/Bearish where the record shows no edge.
-
-<img src="docs/screenshots/livetv.png" alt="Live TV and THE FED" width="100%" />
-
-### Astro Calendar
-
-The month's sky events, each with the quant forecast over its span and how it turned out.
-
-<img src="docs/screenshots/astro.png" alt="Astro Calendar" width="100%" />
-
-<br/>
-
-## 🗂️ Data sources
-
-No paid API and no keys. Every endpoint has a fallback chain, and results are cached with stale‑while‑revalidate (most also on disk), so an outage never blanks the UI.
-
-| Data | Primary source | Fallback |
-|---|---|---|
-| Chart history (stocks, indices, FX, futures, coins) | TradingView chart feed (websocket) | Nasdaq → Yahoo Finance → Stooq; Binance → CoinGecko for coins |
-| Quotes (US stocks/ETFs) | Nasdaq public quote API | Yahoo Finance → Stooq |
-| Quotes (indices, non‑US stocks, FX, futures, metals) | TradingView scanner (one batched request) | Yahoo Finance |
-| Market boards (stocks by market, ETFs, futures, forex), screener, heatmap | TradingView scanner | — |
-| Fundamentals, profile, analysts, peers | TradingView scanner | — |
-| Financial statements | Yahoo Finance fundamentals | SEC EDGAR XBRL company facts |
-| Crypto board and candles | TradingView coin scanner · Binance market‑data mirror (`data-api.binance.vision`) | CoinGecko → Yahoo Finance |
-| Live trades | Binance, Bybit, Bitget, Gate, HTX, BingX and Hyperliquid streams · TradingView quote stream for stocks | Bars |
-| News | Many RSS feeds (Yahoo Finance, Google News, outlets' own) | — |
-| Insider posts | Bluesky, Telegram public channels, Truth Social, X posts by link · SEC Form 4 | — |
-| Treasury curve, auctions | FRED · TreasuryDirect | — |
-| Economic calendar (actual, forecast, previous) | TradingView economic calendar | Forex Factory · FRED |
-| FedWatch | Fed funds futures (CBOT ZQ) via TradingView | — |
-| Nowcasts | Cleveland Fed inflation nowcast · Atlanta Fed GDPNow | — |
-| Funding rates | New York Fed (SOFR, TGCR, BGCR, ON RRP) | — |
-| Live TV | Broadcasters' own HLS streams · YouTube live captions | — |
-| Sky positions | [`astronomy-engine`](https://github.com/cosinekitty/astronomy) (computed locally) | — |
-
-> ⚠️ These are public endpoints, not licensed data feeds. Treat prices as delayed or indicative, not execution‑grade. Each provider is a small module in [`server/src/providers/`](server/src/providers), so swapping or adding one is quick.
 
 <br/>
 
@@ -238,47 +224,71 @@ desktop\install.cmd
 
 This builds the project and adds a **Parallax** shortcut to your Desktop and Start Menu.
 
-- **Opening it** starts the API and web servers in the background and shows the terminal in its own window (Microsoft Edge or Chrome app mode). Closing that window stops the servers.
-- **On every launch** it checks GitHub. If `origin/main` has new commits, it fast‑forwards, reinstalls dependencies when `package.json` changed, and rebuilds whatever changed before starting. Without network access, or with local edits in the way, it simply opens the current version.
+- **Opening it** starts the servers in the background and shows the terminal in its own window (Edge or Chrome app mode). Closing the window stops them.
+- **On every launch** it checks GitHub, fast‑forwards to new commits, reinstalls dependencies when needed and rebuilds what changed. Offline, it simply opens the current version.
 - **Logs** go to `data/logs/`. `desktop\uninstall.ps1` removes the shortcuts.
+
+### Optional extras
+
+| Feature | Needs |
+|---|---|
+| Claude mode of the assistant | [Claude Code](https://claude.com/claude-code) signed in with your Claude account (no API key) |
+| AI Assist widget | `ANTHROPIC_API_KEY` |
+| Fed watcher's voice and face layers | `ffmpeg` on the PATH (or `FFMPEG_PATH`) |
+| Natural voice and transcription | An ElevenLabs key in `data/.elevenlabs-key` |
+| Official Fed press‑conference transcripts | `pdftotext` (ships with Git for Windows) |
+
+Without them, everything else works.
 
 ### Macro engine from the terminal
 
 ```bash
 npm run engine -- --mode backtest                  # walk-forward record of every target
 npm run engine -- --mode live --target ppi_mom --consensus 0.5 --fed_sentiment 0.8
-npm run engine -- --mode live --set gas=7.3        # override an input
-npm run engine -- --mode train                     # fit and save the models (data/macro-engine/models.json)
+npm run engine -- --mode train                     # fit and save the models
 npm run engine -- --mode reactions                 # how markets moved on the surprises
 ```
 
-Build first (`npm run build`). The Fed watcher's voice and face layers need `ffmpeg` on the PATH (or `FFMPEG_PATH`). The panel's *Reguler* mode turns them off.
-
-### Optional: AI assistant
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-npm run dev
-```
-
-Without a key, everything else still works. The AI widget just says it's unavailable.
+Build first (`npm run build`).
 
 ### Security defaults
 
-- **Local only by default.** The API binds to `127.0.0.1` and only accepts browser requests from `http://localhost:3000`.
-- **Shared secret.** The portfolio, workspace, insider and AI endpoints require one. If you don't set `API_KEY`, the API generates a key on first run and saves it to `data/.api-key`. The bundled web app reads that file, so local dev stays zero‑config.
-- **Exposing it beyond your machine.** Set `API_HOST=0.0.0.0`, `API_KEY=<a-strong-secret>` (on both the api and web processes) and `WEB_ORIGIN=<your origin>`, and keep dependencies patched.
-- **AI rate limit.** `/api/ai` allows 10 requests per minute, keyed on `req.ip`. Behind the bundled web proxy, every caller shares one bucket. Set `TRUST_PROXY=1` **only if** your own reverse proxy in front sets `X-Forwarded-For` from the real client and doesn't let visitors set it themselves.
+- **Local only.** The API binds to `127.0.0.1` and only accepts the web app's origin.
+- **Shared secret.** Portfolio, workspace, insider and AI endpoints require one. Without `API_KEY`, one is generated on first run in `data/.api-key` and read by the bundled web app.
+- **Exposing it.** Set `API_HOST=0.0.0.0`, a strong `API_KEY` on both processes and `WEB_ORIGIN`, terminate TLS in front, and keep dependencies patched. Set `TRUST_PROXY=1` only behind your own proxy that sets `X-Forwarded-For`.
 
-<br/>
-
-## 🐳 Docker
+### 🐳 Docker
 
 ```bash
 docker compose up --build
 ```
 
-Data persists in the `terminal-data` volume (SQLite, WAL mode). Ports are published on `127.0.0.1` only. See [Security defaults](#security-defaults) to expose them deliberately.
+Data persists in the `terminal-data` volume. Ports are published on `127.0.0.1` only.
+
+<br/>
+
+## 🗂️ Data sources
+
+No paid API and no keys. Every endpoint has a fallback chain, and results are cached with stale‑while‑revalidate (most also on disk), so an outage never blanks the UI.
+
+| Data | Primary source | Fallback |
+|---|---|---|
+| Chart history | TradingView chart feed | Nasdaq → Yahoo Finance → Stooq; Binance → CoinGecko |
+| Quotes | Nasdaq · TradingView scanner | Yahoo Finance → Stooq |
+| Boards, screener, heatmap, fundamentals | TradingView scanner | — |
+| Financial statements | Yahoo Finance | SEC EDGAR XBRL |
+| Crypto and live trades | TradingView coin scanner · Binance, Bybit, Bitget, Gate, HTX, BingX, Hyperliquid | CoinGecko → Yahoo Finance |
+| On‑chain | Public Bitcoin and Ethereum explorers · address labels | — |
+| News | RSS from 60+ outlets | — |
+| Insider posts and trades | Bluesky, Telegram, Truth Social, X by link · SEC Form 4 | — |
+| Economic calendar | TradingView economic calendar | Forex Factory · FRED |
+| Fed texts and schedule | federalreserve.gov (calendar, statements, transcripts, speeches, minutes) | — |
+| FedWatch · nowcasts · funding | Fed funds futures · Cleveland Fed, GDPNow · New York Fed | — |
+| Treasuries · fiscal · COT | FRED, TreasuryDirect · Fiscal Data API · CFTC | — |
+| Live TV | Broadcasters' HLS streams · YouTube live captions | — |
+| Sky positions | [`astronomy-engine`](https://github.com/cosinekitty/astronomy) (local) | — |
+
+> ⚠️ Public endpoints, not licensed feeds: treat prices as delayed or indicative. Each provider is a small module in [`server/src/providers/`](server/src/providers).
 
 <br/>
 
@@ -287,85 +297,45 @@ Data persists in the `terminal-data` volume (SQLite, WAL mode). Ports are publis
 | Layer | Stack |
 |---|---|
 | Frontend | Next.js 15 · React 19 · TypeScript · Tailwind CSS 4 · Zustand · TanStack Query |
-| Charts | `lightweight-charts` · D3 (heatmap) · Recharts |
-| Video | `hls.js` (live TV) · `@vladmandic/face-api` (Fed watcher's face layer) |
+| Charts | `lightweight-charts` · D3 · Recharts |
+| Video and voice | `hls.js` · `@vladmandic/face-api` · Web Speech · ElevenLabs (optional) |
 | Backend | Node.js · Express · TypeScript · Zod |
-| Database | SQLite (`better-sqlite3`, WAL mode) plus JSON stores on disk |
-| Sky | `astronomy-engine` |
-| AI | Anthropic Claude (optional) |
-
-<br/>
+| Storage | SQLite (`better-sqlite3`, WAL) · JSON and CSV on disk |
+| AI | Claude, through Claude Code or the API (optional) |
 
 ## 📁 Project structure
 
 ```
 ├── server/src/
-│   ├── providers/      # one module per data source: tradingview, tvchart, nasdaq, yahoo, fred, binance,
-│   │                   # socialfeed, moneyflow, transfers, macroengine, nowcast, fedwatch, fedtranscript…
-│   ├── quant/          # the quant forecaster: data, features (market, macro, season), model, bands
-│   ├── astro/          # the sky's events (kept identical to the web's by a test)
-│   ├── news/           # news ingestion and the recap
-│   ├── routes/         # market, research, portfolio, workspace, social, ai
-│   ├── cli/            # the macro engine's command line
-│   ├── cache.ts        # TTL cache with stale-while-revalidate and a disk fallback
-│   └── db.ts           # SQLite (better-sqlite3, WAL)
+│   ├── providers/   # one module per data source and engine (tvchart, macroengine, fedtranscript, newsimpact…)
+│   ├── quant/       # the quant forecaster
+│   ├── newsdata/    # the CSV news dataset and its inbox
+│   ├── notify/      # Windows notifications
+│   ├── astrochat/   # the assistant (Claude mode, voice)
+│   └── routes/      # the HTTP API
 ├── web/
-│   ├── components/widgets/  # every page: Chart, Watchlist, Money Flow, News, Insider, Macro, Live TV…
-│   ├── components/chart/    # chart toolbars, drawing tools, indicator dialogs
-│   ├── lib/ta/              # indicator engine: Pine-style ta.* core and the catalog
-│   ├── lib/drawings/        # drawing tools
-│   └── store/               # Zustand store (workspace, persisted with migrations)
-└── desktop/            # Windows launcher, installer and auto-update
+│   ├── components/  # pages, widgets, chart toolbars
+│   ├── lib/ta/      # indicator engine: Pine-style ta.* core and the catalog
+│   └── store/       # workspace state
+├── scripts/         # build, and the news dataset's helpers
+├── data/newsdata/   # the news dataset (committed)
+└── desktop/         # Windows launcher, installer, icon
 ```
 
-Run the tests with `npm test` (Vitest, no network calls, 1,000+ tests). The indicator suite compares values against a fixture captured from TradingView on the same candles, so a formula that drifts fails CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
-
-<br/>
-
-## 🗺️ Roadmap
-
-- [x] Chart drawing tools
-- [x] Windows notifications: a Fed broadcast going live, the half hour before a release, a release's result and its first five minutes
-- [ ] Release and Fed‑broadcast markers on the price chart
-- [ ] Speech‑to‑text fallback for streams without captions
-- [ ] PostgreSQL as an alternative to SQLite
-
-Have an idea? [Open an issue](../../issues).
+`npm test` runs 1,300+ tests (Vitest, no network). The indicator suite compares values against a fixture captured from TradingView on the same candles.
 
 <br/>
 
 ## 🙏 Acknowledgements
 
-- **Original project.** Parallax began as OpenTerminal, started by [Andrea Tasselli](https://github.com/ErTasselli/OpenTerminal) and released under the MIT license; it builds on that first version, and the original copyright notice is kept in [LICENSE](LICENSE).
-- **Inspiration.** The equity‑research, world‑indices and all‑crypto features were inspired by [FinceptTerminal](https://github.com/Fincept-Corporation/FinceptTerminal). No code was taken from it: it is AGPL‑3.0 and this project is MIT, so the features were reimplemented independently on free data.
-- **Indicators.** The indicators rebuilt from [LuxAlgo](https://www.luxalgo.com/)'s published scripts (in `web/lib/ta/indicators/luxalgo*.ts`) keep those scripts' license, CC BY‑NC‑SA 4.0: free to use and adapt, not for commercial use.
-
-## 🤝 Contributing
-
-Pull requests are welcome, especially:
-
-- new or more resilient data providers (`server/src/providers/`);
-- new widgets (`web/components/widgets/`);
-- bug fixes and UI polish.
-
-Please open an issue first for anything non‑trivial.
-
-<br/>
-
-## Known limitations
-
-- **`npm audit` advisories.** Two remain, both inside Next.js and resolved only by the Next 16 major upgrade: `postcss` (high) and Next's own cache poisoning of SSG/ISR pages (moderate), which this app, rendered on demand on your machine, doesn't use.
-- **Reverse proxies.** Behind a reverse proxy or load balancer, set `API_HOST`/`WEB_ORIGIN` to match and terminate TLS in front: the project doesn't handle HTTPS itself.
-- **Blocked providers.** Some providers are blocked by some ISPs (Binance's main API, for one). The fallbacks cover them, sometimes with less detail.
-
-<br/>
+- **Where it began.** Parallax grew out of [OpenTerminal](https://github.com/ErTasselli/OpenTerminal) by Andrea Tasselli, released under the MIT license. The original copyright notice is kept in [LICENSE](LICENSE).
+- **Inspiration.** The equity‑research, world‑indices and all‑crypto features were inspired by [FinceptTerminal](https://github.com/Fincept-Corporation/FinceptTerminal). No code was taken from it (it's AGPL‑3.0); the features were reimplemented independently.
+- **Indicators.** Community scripts are ported under their own licenses: the MPL‑2.0 ones in `web/lib/ta/indicators/community2.ts`, and the [LuxAlgo](https://www.luxalgo.com/) ones in `luxalgo*.ts` under CC BY‑NC‑SA 4.0 (not for commercial use).
 
 ## ⚖️ Disclaimer
 
-For personal and educational use only. Market data comes from public endpoints and may be delayed, incomplete or wrong, and the forecasts above have no tested edge. **Do not use this for real investment decisions.**
-
-This project is not affiliated with, endorsed by or sponsored by any of the data providers it connects to. It doesn't host or redistribute data: it's source code you run yourself, fetching data directly from each provider. Respect their terms of service; most free sources are licensed for personal or research use only.
+For personal and educational use only. Data comes from public endpoints and may be delayed, incomplete or wrong, and the forecasts have no tested edge. **Do not use this for real investment decisions.** This project isn't affiliated with any data provider and doesn't host or redistribute data: it's code you run yourself, fetching from each provider directly. Respect their terms of service.
 
 ## License
 
-[MIT](LICENSE), except the LuxAlgo‑derived indicators noted above (CC BY‑NC‑SA 4.0).
+[MIT](LICENSE), except the indicators ported under their own licenses (above).
