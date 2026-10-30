@@ -196,12 +196,40 @@ export function easternDay(ms: number): string {
 /** The speaker's surname in a calendar title ("Speech - Vice Chair for Supervision Michelle W. Bowman" → "bowman"). */
 export const surnameOf = (title: string) => (title.split(/[,(]/)[0].trim().split(/\s+/).at(-1) ?? "").toLowerCase().replace(/[^a-z]/g, "");
 
+/** A speech or testimony as the Board's own feeds list it (json/ne-speeches.json, ne-testimony.json): when (Eastern), who, its page. */
+export type Listed = { d: string; s: string; l: string };
+
+/** "9/29/2026 3:00:00 PM" (Eastern) as yyyymmdd. */
+const listedDay = (d: string) => {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(d);
+  return m ? `${m[3]}${m[1].padStart(2, "0")}${m[2].padStart(2, "0")}` : "";
+};
+
+let feeds: { at: number; items: Listed[] } | null = null;
+
+/** The Board's speeches and testimony, read every six hours (the page's own address isn't always the day's: a speech on the 29th at waller20260928a.htm). */
+async function listedTexts(now: number): Promise<Listed[]> {
+  if (feeds && now - feeds.at < RETRY_MS) return feeds.items;
+  const items: Listed[] = [];
+  for (const name of ["ne-speeches", "ne-testimony"]) {
+    try {
+      const res = await fetch(`https://www.federalreserve.gov/json/${name}.json`, { headers: { "User-Agent": "Mozilla/5.0 (OpenTerminal)" }, signal: AbortSignal.timeout(30_000) });
+      if (res.ok) items.push(...(JSON.parse((await res.text()).replace(/^﻿/, "")) as Listed[]).filter((x) => x && x.d && x.s && x.l));
+    } catch {
+      /* the guesses below still try */
+    }
+  }
+  feeds = { at: now, items };
+  return items;
+}
+
 /**
  * Where the Board puts an event's official text, best guess first: the statement's press release,
  * the press conference's PDF transcript, the minutes (of the meeting two to four weeks before), a
- * speech's or a testimony's page (surname and Eastern date, "a" then "b" for a second one that day).
+ * speech's or a testimony's page (the Board's feed first, by surname and Eastern date; then its
+ * usual address, "a" then "b" for a second one that day).
  */
-export function officialUrls(r: Row, statements: string[]): string[] {
+export function officialUrls(r: Row, statements: string[], listed: Listed[] = []): string[] {
   const base = "https://www.federalreserve.gov";
   const at = Date.parse(r.date_utc);
   const day = easternDay(at);
@@ -219,7 +247,8 @@ export function officialUrls(r: Row, statements: string[]): string[] {
       const who = surnameOf(r.title);
       if (!who) return [];
       const kind = r.kind === "testimony" ? "testimony" : "speech";
-      return [`${base}/newsevents/${kind}/${who}${day}a.htm`, `${base}/newsevents/${kind}/${who}${day}b.htm`];
+      const fromFeed = listed.filter((x) => listedDay(x.d) === day && surnameOf(x.s) === who).map((x) => (x.l.startsWith("http") ? x.l : `${base}${x.l}`));
+      return [...new Set([...fromFeed, `${base}/newsevents/${kind}/${who}${day}a.htm`, `${base}/newsevents/${kind}/${who}${day}b.htm`])];
     }
     default:
       return [];
@@ -312,7 +341,7 @@ async function collectFed(now: number, calendar: FedEvent[]): Promise<Row[]> {
     if (due !== undefined && !was?.official_file && now - at > due && now - (tried.get(key) ?? 0) > RETRY_MS) {
       tried.set(key, now);
       row.app_tries = String(Number(was?.app_tries || 0) + 1);
-      const s = await fetchOfficial(officialUrls(row, statements), kind);
+      const s = await fetchOfficial(officialUrls(row, statements, kind === "speech" || kind === "testimony" ? await listedTexts(now) : []), kind);
       if (s) {
         const r = readText(s.text);
         Object.assign(row, {
@@ -641,8 +670,10 @@ export async function runNewsData(now = Date.now()): Promise<void> {
       mkdirSync(INBOX, { recursive: true });
       writeFileSync(join(DIR, "README.md"), README);
       const calendar = await fedCalendar().catch(() => [] as FedEvent[]);
-      const fedNew = (await collectFed(now, calendar)).map(finishFed);
-      const fed = new Map(mergeRows(readRows("fed"), fedNew, "key").map((r) => [r.key, finishFed(r)]));
+      // Coverage and the reading kept are worked out once merged: a fresh row has only what this pass
+      // found (the live words), and read alone it would look changed every pass.
+      const fedNew = await collectFed(now, calendar);
+      const fed = new Map(mergeRows(readRows("fed").map(finishFed), fedNew, "key").map((r) => [r.key, finishFed(r)]));
       const { releases: relNew, reactions: moves } = await collectReleases(now).catch((err) => {
         console.warn("newsdata releases:", err instanceof Error ? err.message : err);
         return { releases: [] as Row[], reactions: [] as Row[] };

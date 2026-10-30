@@ -98,6 +98,9 @@ describe("the app's own search for official texts", () => {
       "https://www.federalreserve.gov/monetarypolicy/fomcminutes20260916.htm",
     ]);
     expect(surnameOf("Speech - Vice Chair for Supervision Michelle W. Bowman")).toBe("bowman");
+    // The Board's feed knows a page whose address isn't the day's.
+    const listed = [{ d: "9/29/2026 3:00:00 PM", s: "Governor Christopher J. Waller", l: "/newsevents/speech/waller20260928a.htm" }];
+    expect(officialUrls({ kind: "speech", title: "Speech - Governor Christopher J. Waller", date_utc: "2026-09-29T19:00:00.000Z" }, [], listed)[0]).toBe("https://www.federalreserve.gov/newsevents/speech/waller20260928a.htm");
   });
 
   it("takes a speech's text from its page, without the heading", () => {
